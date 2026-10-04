@@ -11,6 +11,7 @@ import {
   storeKey,
   touchSessions,
 } from '../src/snapshot'
+import { countsOf, isSettled, retargetShown, shownAt, snapShown } from '../src/tween'
 import { addUsage } from '../src/usage'
 import { endTurn, startTurn } from '../src/work'
 import type { Meter } from '../types'
@@ -21,6 +22,10 @@ type Ttl = '5m' | '1h'
 const initialMeter: Meter = { ...emptySnapshot(), sessionId: null, active: 0, busySince: null }
 const meter = atom({ plugin: 'token-meter', key: 'meter' } as const, initialMeter)
 const nowAtom = atom({ plugin: 'token-meter', key: 'now' } as const, 0)
+const shown = atom(
+  { plugin: 'token-meter', key: 'shown' } as const,
+  snapShown(null, countsOf(emptySnapshot())),
+)
 
 // The engine only follows `$` into functions declared at the top of this file, so
 // the helpers live here and take what they need as arguments.
@@ -39,6 +44,8 @@ async function ensureLoaded($: Api): Promise<string> {
     active: c.active,
     busySince: c.busySince,
   }))
+  // A loaded session shows its counts at once: no count-up from zero.
+  await update($, shown, () => snapShown(id, countsOf(snap)))
   return id
 }
 
@@ -83,6 +90,30 @@ function startTimer($: Api, ttl: Ttl): void {
   })
 }
 
+// Changed counts run to their new values. A short frame tick redraws the band (through
+// `now`) and stops itself when every count has arrived.
+const FRAME_MS = 60
+let frames: { cancel: () => void } | null = null
+async function animate($: Api, id: string, s: Snapshot): Promise<void> {
+  const at = await $.clock.now()
+  await update($, shown, (c) => retargetShown(c, id, countsOf(s), at))
+  if (frames !== null) return
+  frames = $.clock.every(FRAME_MS, async () => {
+    const now = await stamp($)
+    // Events can finish out of order: take the targets from the meter as it is now.
+    const m = await read($, meter)
+    const cur = await update($, shown, (c) =>
+      m.sessionId !== null && c.sessionId === m.sessionId
+        ? retargetShown(c, m.sessionId, countsOf(m), now)
+        : c,
+    )
+    if (isSettled(cur, now)) {
+      frames?.cancel()
+      frames = null
+    }
+  })
+}
+
 // The meter for the current session as the band should draw it: the live atom, or the
 // stored copy when the atom still holds another session (nothing has loaded this one yet).
 async function currentMeter($: Api): Promise<Meter> {
@@ -120,6 +151,7 @@ export const register: Register = (on, options) => {
       totals: addUsage(c.totals, res.usage),
       lastStepAt: isMain && res.usage !== null ? sentAt : c.lastStepAt,
     }))
+    await animate($, id, nextMeter)
     await save($, id, nextMeter)
     startTimer($, ttl)
     return res
@@ -139,6 +171,7 @@ export const register: Register = (on, options) => {
       added: c.added + diff.added,
       removed: c.removed + diff.removed,
     }))
+    await animate($, id, nextMeter)
     await save($, id, nextMeter)
     return res
   })
@@ -150,6 +183,7 @@ export const register: Register = (on, options) => {
     if (usd === undefined) return next(e)
     const id = await ensureLoaded($)
     const nextMeter = await update($, meter, (c) => ({ ...c, costUsd: usd }))
+    await animate($, id, nextMeter)
     await save($, id, nextMeter)
     return next(e)
   })
@@ -177,10 +211,12 @@ export const register: Register = (on, options) => {
     if (e.props.hasSurvey) return next(e)
     const snap = await currentMeter($)
     const now = (await read($, nowAtom)) || (await $.clock.now())
+    const tweens = await read($, shown)
     return (
       <Band
         ui={$.ui.resolve(e)}
         snap={snap}
+        shown={tweens.sessionId === snap.sessionId ? shownAt(tweens, now) : undefined}
         busySince={snap.busySince}
         now={now}
         ttl={ttl}

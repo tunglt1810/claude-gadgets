@@ -48,6 +48,17 @@ const bandText = async ($: Engine, surface: 'terminal' | 'desktop' = 'terminal')
   return root?.text ?? ''
 }
 
+// A changed count runs to its new value over a short time: let it arrive, then read.
+const SETTLE_MS = 500
+const settled = async (
+  $: Engine,
+  clock: ReturnType<typeof mock.clock>,
+  surface: 'terminal' | 'desktop' = 'terminal',
+) => {
+  await clock.advance(SETTLE_MS)
+  return bandText($, surface)
+}
+
 // Answers for the events beneath the plugin, so each test only states what differs.
 const engine = (
   on: Parameters<typeof mock.store>[0],
@@ -71,7 +82,7 @@ const measure = ($: Engine, usd?: number) =>
   } as never)
 
 test('turn.step accumulates usage and shows cache hit', async ($, on) => {
-  mock.clock(on, { now: 1000 })
+  const clock = mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
   on('turn.step', stepHook(USAGE))
@@ -79,7 +90,7 @@ test('turn.step accumulates usage and shows cache hit', async ($, on) => {
   await runStep($, STEP)
   await runStep($, { ...STEP, index: 1 })
 
-  const text = await bandText($)
+  const text = await settled($, clock)
   expect(text).toContain('↑ in 200')
   expect(text).toContain('↓ out 10')
   expect(text).toContain('◈ hit 80%')
@@ -96,37 +107,37 @@ test('a subagent step adds tokens but does not extend the countdown', async ($, 
   await clock.advance(10_000)
   await runStep($, { ...STEP, agentId: 'sub1' })
 
-  const text = await bandText($)
+  const text = await settled($, clock)
   expect(text).toContain('↑ in 200')
   expect(text).toContain('◔ cache 4:50')
 })
 
 test('a step without usage changes nothing and never produces NaN', async ($, on) => {
-  mock.clock(on, { now: 1000 })
+  const clock = mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
   on('turn.step', stepHook(null))
 
   await runStep($, STEP)
 
-  const text = await bandText($)
+  const text = await settled($, clock)
   expect(text).toContain('↑ in 0')
   expect(text).toContain('◔ cache --')
   expect(text).not.toContain('NaN')
 })
 
 test('tool calls are counted', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   engine(on)
 
   for (let i = 0; i < 3; i++) await $.tool.call({ tool: 'Bash', command: 'true' })
 
-  expect(await bandText($)).toContain('⌘ calls 3')
+  expect(await settled($, clock)).toContain('⌘ calls 3')
 })
 
 test('data is stored per session id and reloaded when the id comes back', async ($, on) => {
-  mock.clock(on, { now: 1000 })
+  const clock = mock.clock(on, { now: 1000 })
   mock.store(on, {})
   let id = 'S1'
   engine(on, () => id)
@@ -135,19 +146,19 @@ test('data is stored per session id and reloaded when the id comes back', async 
   await runStep($, STEP)
   id = 'S2'
   await $.tool.call({ tool: 'Bash', command: 'true' })
-  const other = await bandText($)
+  const other = await settled($, clock)
   expect(other).toContain('↑ in 0')
   expect(other).toContain('⌘ calls 1')
 
   id = 'S1'
   await $.tool.call({ tool: 'Bash', command: 'true' })
-  const back = await bandText($)
+  const back = await settled($, clock)
   expect(back).toContain('↑ in 100')
   expect(back).toContain('⌘ calls 1')
 })
 
 test('resume: a stored session is loaded on its first event', async ($, on) => {
-  mock.clock(on, { now: 5000 })
+  const clock = mock.clock(on, { now: 5000 })
   mock.store(on, {
     'session:S1': {
       totals: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
@@ -160,7 +171,7 @@ test('resume: a stored session is loaded on its first event', async ($, on) => {
 
   await $.tool.call({ tool: 'Bash', command: 'true' })
 
-  const text = await bandText($)
+  const text = await settled($, clock)
   expect(text).toContain('⌘ calls 8')
   expect(text).toContain('◷ work 0:09')
 })
@@ -175,7 +186,7 @@ test('working time covers turn.start -> turn.complete', async ($, on) => {
   await $.turn.complete({ ...DONE, turnId: 't1' })
   await clock.advance(60_000)
 
-  expect(await bandText($)).toContain('◷ work 0:05')
+  expect(await settled($, clock)).toContain('◷ work 0:05')
 })
 
 test('overlapping turns count the outer interval once', async ($, on) => {
@@ -191,7 +202,7 @@ test('overlapping turns count the outer interval once', async ($, on) => {
   await clock.advance(1000)
   await $.turn.complete({ ...DONE, turnId: 't1' })
 
-  expect(await bandText($)).toContain('◷ work 0:03')
+  expect(await settled($, clock)).toContain('◷ work 0:03')
 })
 
 test('an aborted turn still closes its interval', async ($, on) => {
@@ -203,7 +214,7 @@ test('an aborted turn still closes its interval', async ($, on) => {
   await clock.advance(2000)
   await $.turn.complete({ ...DONE, turnId: 't1', isAborted: true, reason: 'aborted' })
 
-  expect(await bandText($)).toContain('◷ work 0:02')
+  expect(await settled($, clock)).toContain('◷ work 0:02')
 })
 
 test('the work clock runs live while a turn is open', async ($, on) => {
@@ -214,7 +225,7 @@ test('the work clock runs live while a turn is open', async ($, on) => {
   await $.turn.start({ text: 'a', turnId: 't1' })
   await clock.advance(3000)
 
-  expect(await bandText($)).toContain('◷ work 0:03')
+  expect(await settled($, clock)).toContain('◷ work 0:03')
 })
 
 test('the countdown changes tone and expires', async ($, on) => {
@@ -225,29 +236,29 @@ test('the countdown changes tone and expires', async ($, on) => {
 
   await runStep($, STEP)
   await clock.advance(250_000)
-  expect(await bandText($)).toContain('◔ cache 0:50')
+  expect(await settled($, clock)).toContain('◔ cache 0:50')
   await clock.advance(310_000)
-  expect(await bandText($)).toContain('◔ cache expired')
+  expect(await settled($, clock)).toContain('◔ cache expired')
 })
 
 test('the band draws on the desktop surface too', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   engine(on)
   await $.tool.call({ tool: 'Bash', command: 'true' })
 
-  expect(await bandText($, 'desktop')).toContain('⌘ calls 1')
+  expect(await settled($, clock, 'desktop')).toContain('⌘ calls 1')
 })
 
 test('a cache lifetime of 1h is honoured', { options: { cacheTtl: '1h' } }, async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   engine(on)
   on('turn.step', stepHook(USAGE))
 
   await runStep($, STEP)
 
-  expect(await bandText($)).toContain('◔ cache 60:00')
+  expect(await settled($, clock)).toContain('◔ cache 60:00')
 })
 
 test('a subagent turn.complete does not close the main ◷ interval', async ($, on) => {
@@ -261,21 +272,21 @@ test('a subagent turn.complete does not close the main ◷ interval', async ($, 
   await clock.advance(3000)
   await $.turn.complete({ ...DONE, turnId: 't1' })
 
-  expect(await bandText($)).toContain('◷ work 0:05')
+  expect(await settled($, clock)).toContain('◷ work 0:05')
 })
 
 test('parallel tool calls are all counted', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   engine(on)
 
   await Promise.all([1, 2, 3, 4, 5].map(() => $.tool.call({ tool: 'Bash', command: 'true' })))
 
-  expect(await bandText($)).toContain('⌘ calls 5')
+  expect(await settled($, clock)).toContain('⌘ calls 5')
 })
 
 test('the band shows the stored session before any event happens', async ($, on) => {
-  mock.clock(on, { now: 5000 })
+  const clock = mock.clock(on, { now: 5000 })
   mock.store(on, {
     'session:S1': {
       totals: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
@@ -286,7 +297,7 @@ test('the band shows the stored session before any event happens', async ($, on)
   })
   engine(on)
 
-  const text = await bandText($)
+  const text = await settled($, clock)
   expect(text).toContain('⌘ calls 7')
   expect(text).toContain('◷ work 0:09')
   expect(text).toContain('◔ cache 4:56')
@@ -304,11 +315,11 @@ test('the countdown starts when the request was sent, not when the response ende
 
   await runStep($, STEP)
 
-  expect(await bandText($)).toContain('◔ cache 3:20')
+  expect(await settled($, clock)).toContain('◔ cache 3:20')
 })
 
 test('a denied tool call is not counted', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   let isDenied = true
   engine(
@@ -318,15 +329,15 @@ test('a denied tool call is not counted', async ($, on) => {
   )
 
   await $.tool.call({ tool: 'Bash', command: 'true' })
-  expect(await bandText($)).toContain('⌘ calls 0')
+  expect(await settled($, clock)).toContain('⌘ calls 0')
 
   isDenied = false
   await $.tool.call({ tool: 'Bash', command: 'true' })
-  expect(await bandText($)).toContain('⌘ calls 1')
+  expect(await settled($, clock)).toContain('⌘ calls 1')
 })
 
 test('parallel events leave the stored copy as the latest state', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   let id = 'S1'
   engine(on, () => id)
@@ -337,11 +348,11 @@ test('parallel events leave the stored copy as the latest state', async ($, on) 
   id = 'S1'
   await $.tool.call({ tool: 'Bash', command: 'true' })
 
-  expect(await bandText($)).toContain('⌘ calls 6')
+  expect(await settled($, clock)).toContain('⌘ calls 6')
 })
 
 test('only the 50 most recent sessions are kept in the store', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   const old = Array.from({ length: 50 }, (_, i) => `o${i}`)
   const entries: Record<string, unknown> = { sessions: old }
   for (const id of old) {
@@ -359,11 +370,11 @@ test('only the 50 most recent sessions are kept in the store', async ($, on) => 
   await $.tool.call({ tool: 'Bash', command: 'true' })
   id = 'o49'
   await $.tool.call({ tool: 'Bash', command: 'true' })
-  expect(await bandText($)).toContain('⌘ calls 1 ')
+  expect(await settled($, clock)).toContain('⌘ calls 1 ')
 
   id = 'o0'
   await $.tool.call({ tool: 'Bash', command: 'true' })
-  expect(await bandText($)).toContain('⌘ calls 10 ')
+  expect(await settled($, clock)).toContain('⌘ calls 10 ')
 })
 
 test('a turn that is open when the session id changes keeps its time', async ($, on) => {
@@ -378,7 +389,7 @@ test('a turn that is open when the session id changes keeps its time', async ($,
   await clock.advance(3000)
   await $.turn.complete({ ...DONE, turnId: 't1' })
 
-  expect(await bandText($)).toContain('◷ work 0:04')
+  expect(await settled($, clock)).toContain('◷ work 0:04')
 })
 
 test('session.start starts the tick for a session with a live cache', async ($, on) => {
@@ -396,7 +407,7 @@ test('session.start starts the tick for a session with a live cache', async ($, 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   await clock.advance(10_000)
 
-  expect(await bandText($)).toContain('◔ cache 4:50')
+  expect(await settled($, clock)).toContain('◔ cache 4:50')
 })
 
 test('the band is one Text row, not a Box, so the engine adds no extra row', async ($, on) => {
@@ -417,21 +428,21 @@ test('the band is one Text row, not a Box, so the engine adds no extra row', asy
 })
 
 test('cost follows the session ledger: the latest figure, not a sum', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   engine(on)
 
   await measure($, 0.1)
   await measure($, 0.416)
-  expect(await bandText($)).toContain('$ cost 0.42')
+  expect(await settled($, clock)).toContain('$ cost 0.42')
 
   // A measurement without a ledger keeps the last figure.
   await measure($)
-  expect(await bandText($)).toContain('$ cost 0.42')
+  expect(await settled($, clock)).toContain('$ cost 0.42')
 })
 
 test('edits add their changed lines to the diff; failed and denied calls do not', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   const patch = { structuredPatch: [{ lines: [' a', '-b', '+c', '+d'] }] }
   let answer: object = { result: patch, text: 'ok' }
@@ -449,11 +460,11 @@ test('edits add their changed lines to the diff; failed and denied calls do not'
   answer = { deny: 'no' }
   await $.tool.call({ tool: 'Edit', file_path: 'a', old_string: 'b', new_string: 'c' })
 
-  expect(await bandText($)).toContain('± diff +4 -1 ')
+  expect(await settled($, clock)).toContain('± diff +4 -1 ')
 })
 
 test('cost and diff survive a session id round trip', async ($, on) => {
-  mock.clock(on, { now: 0 })
+  const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   let id = 'S1'
   engine(
@@ -465,12 +476,69 @@ test('cost and diff survive a session id round trip', async ($, on) => {
   await measure($, 2.5)
   await $.tool.call({ tool: 'Edit', file_path: 'a', old_string: 'b', new_string: 'c' })
   id = 'S2'
-  const other = await bandText($)
+  const other = await settled($, clock)
   expect(other).toContain('$ cost 0.00')
   expect(other).toContain('± diff +0 -0 ')
 
   id = 'S1'
-  const back = await bandText($)
+  const back = await settled($, clock)
   expect(back).toContain('$ cost 2.50')
   expect(back).toContain('± diff +1 -2 ')
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`a changed count runs from the old value to the new one (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    mock.store(on, {})
+    engine(on)
+    on('turn.step', stepHook(USAGE))
+
+    await runStep($, STEP)
+    expect(await settled($, clock, surface)).toContain('↑ in 100 ')
+
+    await runStep($, { ...STEP, index: 1 })
+    expect(await bandText($, surface)).toContain('↑ in 100 ')
+
+    await clock.advance(120)
+    const mid = Number(/↑ in (\d+) /.exec(await bandText($, surface))?.[1])
+    expect(mid).toBeGreaterThan(100)
+    expect(mid).toBeLessThan(200)
+
+    expect(await settled($, clock, surface)).toContain('↑ in 200 ')
+  })
+}
+
+test('a loaded session shows its stored counts first, then runs to the new value', async ($, on) => {
+  const clock = mock.clock(on, { now: 5000 })
+  mock.store(on, {
+    'session:S1': {
+      totals: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+      tools: 7,
+      lastStepAt: 1000,
+      workMs: 9000,
+    },
+  })
+  engine(on)
+
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+
+  expect(await bandText($)).toContain('⌘ calls 7 ')
+  expect(await settled($, clock)).toContain('⌘ calls 8 ')
+})
+
+test('a change during a tween continues from the displayed value', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+
+  await runStep($, STEP)
+  await clock.advance(120)
+  const before = Number(/↑ in (\d+) /.exec(await bandText($))?.[1])
+  await runStep($, { ...STEP, index: 1 })
+  const after = Number(/↑ in (\d+) /.exec(await bandText($))?.[1])
+
+  expect(before).toBeGreaterThan(0)
+  expect(after).toBe(before)
+  expect(await settled($, clock)).toContain('↑ in 200 ')
 })

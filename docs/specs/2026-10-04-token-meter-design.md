@@ -78,6 +78,32 @@ Dev loop: `claude --plugin-dir mods/<name>` (hot reload; a symlink is watched at
 
 - Cost and diff (the status line's figures, in a third group): `… │ ⌘ calls 14  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30 │ ◔ cache 3:42 ━━━━━━━━━━`. Cost is `session.measure`'s `cost.usd` (the engine's session total: stored as the latest figure, never summed). The plugin API does not expose the status line's `total_lines_added`/`total_lines_removed`, so the mod counts them itself from `tool.call` results, following the engine's rule as read from 2.1.289 (parity is not proven for an edit whose patch is empty): the `+` and `-` lines of `structuredPatch`, or every line of `content` when the patch is empty (a created file); failed and denied calls count nothing. This is not `git diff`: repeated edits add up, manual edits are not counted, a commit does not reset it. Drop order is now bar, diff, hit, calls, work, cost, out, in.
 
+## Count animation (added 2026-10-05)
+When a count changes, the band shows the number as it runs from the old value to the new value.
+
+**Scope**
+- The animated counts are `in`, `out`, `calls`, `cost` and the two `diff` numbers.
+- `work`, `cache` and `hit` are not animated. `work` and `cache` already change each second.
+
+**Rules**
+- One run has a duration of 400 ms and uses a cubic ease-out curve.
+- If a count changes during a run, the new run starts from the value on the screen.
+- When the mod loads a session, the band shows the stored counts immediately. It does not count up from zero.
+- The band never shows the values of a different session.
+- Token, call and line counts are integers in each frame. Cost keeps its decimal part, and the band rounds it to the cent.
+- The band uses the target values to select the parts that it drops. As a result, a part does not come into view and go out of view during a run.
+
+**Structure**
+- `src/tween.ts` contains the shared logic. It does not use the engine. All animated counts go through it.
+- The `shown` atom holds one tween (`from`, `to`, `startedAt`) for each count, and the session id.
+- An event that changes a count sets a new target in `shown`. The updater calculates the new tween.
+- A frame tick of 60 ms writes `now`, and that write redraws the band. Each tick also sets the targets again from the current meter. The tick stops when all counts are at their targets.
+- `ui.render` only reads `shown` and `now`. It calculates the displayed value from them.
+- The one-second tick does not change.
+
+**Alternative that was not used**
+- A `Client` element for each number can hold local state and a frame clock. But a `Client` is a region, and you cannot put it in a `Text` element. With a `Client`, the band is a `Box` row. Then the width calculation in `bandSegments` is not correct.
+
 ## Tests (`claude plugin test`)
 - Usage accumulation across steps; `null` usage and missing fields.
 - Token and duration formatting; cache-hit %.
@@ -85,6 +111,7 @@ Dev loop: `claude --plugin-dir mods/<name>` (hot reload; a symlink is watched at
 - Work time: single turn, overlapping turns, aborted turn.
 - Reload after resume (same id and changed id).
 - Band renders on `terminal` and `desktop`.
+- Count animation: start, middle and end of a run; a change during a run; a loaded session; a different session; the parts that the band drops.
 
 ## Risks
 - The plugin API is EARLY ACCESS and may change between releases.

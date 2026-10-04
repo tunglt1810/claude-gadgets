@@ -2,6 +2,7 @@ import { cacheHitTone, countdownTone, remainingMs, ttlMs } from './countdown'
 import { formatCountdown, formatDuration, formatTokens, formatUsd } from './format'
 import { PALETTE } from './palette'
 import type { Snapshot } from './snapshot'
+import { type Counts, countsOf } from './tween'
 import { cacheHitPct } from './usage'
 import { workElapsed } from './work'
 
@@ -19,6 +20,8 @@ type Input = {
   now: number
   ttl: '5m' | '1h'
   columns: number
+  // The counts as they are drawn during a tween; the snapshot's own counts when absent.
+  shown?: Counts
 }
 
 const TONE = { ok: PALETTE.green, warn: PALETTE.yellow, danger: PALETTE.red } as const
@@ -55,7 +58,8 @@ const width = (segs: Segment[]): number => segs.reduce((n, s) => n + s.text.leng
 
 // The band as styled segments. Plain single-width characters only: emoji are double width
 // and misalign the row. Parts are dropped, least important first, until it fits `columns`.
-export const bandSegments = ({ snap, busySince, now, ttl, columns }: Input): Segment[] => {
+// The fit uses the target counts, so a part does not come and go while a count animates.
+export const bandSegments = ({ snap, busySince, now, ttl, columns, shown }: Input): Segment[] => {
   const total = ttlMs(ttl)
   const rem = remainingMs(snap.lastStepAt, now, total)
   const tone = countdownTone(rem)
@@ -66,18 +70,13 @@ export const bandSegments = ({ snap, busySince, now, ttl, columns }: Input): Seg
   const pulse = tone === 'danger' && Math.floor(now / 1000) % 2 === 0
   const cacheColor = expired ? PALETTE.dim : TONE[tone]
 
-  const parts: Record<Part, Segment[]> = {
+  const partsFor = (c: Counts): Record<Part, Segment[]> => ({
     // Every prompt token, cached ones included: `input_tokens` alone is only the uncached
     // remainder, which is near zero once the prompt cache is warm.
-    in: [
-      {
-        text: `${LABEL.in} ${formatTokens(snap.totals.input + snap.totals.cacheRead + snap.totals.cacheWrite)}`,
-        color: PALETTE.cyan,
-      },
-    ],
-    out: [{ text: `${LABEL.out} ${formatTokens(snap.totals.output)}`, color: PALETTE.purple }],
+    in: [{ text: `${LABEL.in} ${formatTokens(c.in)}`, color: PALETTE.cyan }],
+    out: [{ text: `${LABEL.out} ${formatTokens(c.out)}`, color: PALETTE.purple }],
     hit: [{ text: `${LABEL.hit} ${pct}%`, color: TONE[cacheHitTone(pct)] }],
-    tools: [{ text: `${LABEL.tools} ${snap.tools}`, color: PALETTE.orange }],
+    tools: [{ text: `${LABEL.tools} ${c.tools}`, color: PALETTE.orange }],
     work: [
       {
         text: `${LABEL.work} ${formatDuration(workElapsed({ workMs: snap.workMs, active: 0, busySince }, now))}`,
@@ -85,10 +84,10 @@ export const bandSegments = ({ snap, busySince, now, ttl, columns }: Input): Seg
         bold: busySince !== null,
       },
     ],
-    cost: [{ text: `${LABEL.cost} ${formatUsd(snap.costUsd)}`, color: PALETTE.yellow }],
+    cost: [{ text: `${LABEL.cost} ${formatUsd(c.cost)}`, color: PALETTE.yellow }],
     diff: [
-      { text: `${LABEL.diff} +${snap.added}`, color: PALETTE.green },
-      { text: ` -${snap.removed}`, color: PALETTE.red },
+      { text: `${LABEL.diff} +${c.added}`, color: PALETTE.green },
+      { text: ` -${c.removed}`, color: PALETTE.red },
     ],
     cache: [
       {
@@ -104,9 +103,9 @@ export const bandSegments = ({ snap, busySince, now, ttl, columns }: Input): Seg
       { text: '━'.repeat(filled), color: cacheColor },
       { text: '━'.repeat(BAR_CELLS - filled), color: PALETTE.track },
     ],
-  }
+  })
 
-  const build = (dropped: ReadonlySet<string>): Segment[] => {
+  const build = (parts: Record<Part, Segment[]>, dropped: ReadonlySet<string>): Segment[] => {
     const segs: Segment[] = []
     for (const group of GROUPS) {
       const present = group.filter((part) => !dropped.has(part))
@@ -122,11 +121,12 @@ export const bandSegments = ({ snap, busySince, now, ttl, columns }: Input): Seg
   }
 
   const dropped = new Set<string>()
-  let segs = build(dropped)
+  const target = partsFor(countsOf(snap))
+  let segs = build(target, dropped)
   for (const next of DROP_ORDER) {
     if (width(segs) <= columns) break
     dropped.add(next)
-    segs = build(dropped)
+    segs = build(target, dropped)
   }
-  return segs
+  return shown === undefined ? segs : build(partsFor(shown), dropped)
 }

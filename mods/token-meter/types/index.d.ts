@@ -21,11 +21,28 @@ export type Meter = Snapshot & {
   busySince: number | null
 }
 
+// One animated number: it moves from `from` to `to`, starting at `startedAt`.
+export type Tween = { from: number; to: number; startedAt: number }
+
+// The numbers the band animates when they change.
+export type Counts = {
+  in: number
+  out: number
+  tools: number
+  cost: number
+  added: number
+  removed: number
+}
+
+// The tweens of one session; another session's values are never drawn.
+export type Shown = { sessionId: string | null; tweens: Record<keyof Counts, Tween> }
+
 declare module 'claude-code' {
   interface PluginState {
     'token-meter': {
       meter: Meter
       now: number
+      shown: Shown
     }
   }
 }

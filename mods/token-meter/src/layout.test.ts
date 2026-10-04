@@ -107,3 +107,29 @@ test('the countdown color follows the remaining time', () => {
   expect(cache(400_000)?.color).toBe(PALETTE.dim)
   expect(cache(400_000)?.strike).toBe(true)
 })
+
+const target = { in: 12490, out: 3100, tools: 14, cost: 0.416, added: 120, removed: 30 }
+
+test('animated counts replace the numbers that are drawn', () => {
+  const shown = { in: 999, out: 2000, tools: 13, cost: 0.2, added: 100, removed: 20 }
+  const t = bandSegments({ ...base, columns: 120, shown })
+    .map((s) => s.text)
+    .join('')
+  expect(t).toContain('↑ in 999')
+  expect(t).toContain('↓ out 2.0k')
+  expect(t).toContain('⌘ calls 13')
+  expect(t).toContain('$ cost 0.20')
+  expect(t).toContain('± diff +100 -20')
+  expect(t).toContain('◈ hit 1%')
+})
+
+test('parts are dropped by the target values, so a part does not come and go during a tween', () => {
+  const columns = text(200).length - 1
+  expect(text(columns)).not.toContain('━')
+  // `999` is narrower than `12.5k`: with the bar it would fit, but the target does not.
+  const t = bandSegments({ ...base, columns, shown: { ...target, in: 999 } })
+    .map((s) => s.text)
+    .join('')
+  expect(t).toContain('↑ in 999')
+  expect(t).not.toContain('━')
+})
