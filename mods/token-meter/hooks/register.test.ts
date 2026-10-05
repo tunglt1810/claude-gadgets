@@ -36,12 +36,16 @@ const runStep = async ($: Engine, input: typeof STEP & { agentId?: string }) => 
 }
 
 // State is observed only through what the band draws, on the given surface.
-const bandText = async ($: Engine, surface: 'terminal' | 'desktop' = 'terminal') => {
+const bandText = async (
+  $: Engine,
+  surface: 'terminal' | 'desktop' = 'terminal',
+  agentId?: string,
+) => {
   const ui = await $.ui.mount({
     plugin: 'token-meter',
     surface,
     component: 'AbovePrompt',
-    props: { hasSurvey: false } as never,
+    props: { hasSurvey: false, bodyColumns: 200, view: { agentId } } as never,
   })
   const root = await ui.find({ type: 'Text' })
   await ui.unmount()
@@ -64,6 +68,7 @@ const engine = (
   on: Parameters<typeof mock.store>[0],
   id: () => string = () => 'S1',
   toolResult: () => object = () => ({ result: {} as never, text: 'ok' }),
+  isSpawnRefused: () => boolean = () => false,
 ) => {
   on('session.id', () => ({ value: id() }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -71,7 +76,15 @@ const engine = (
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', () => toolResult() as never)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
+  let spawned = 0
+  on('agent.spawn', () =>
+    isSpawnRefused() ? { deny: 'no' } : { model: 'm', agentId: `a${++spawned}` },
+  )
 }
+
+// The test `$` takes the whole spawn input; only the parent loop is under test.
+const spawn = ($: Engine, parentAgentId?: string) =>
+  $.agent.spawn({ prompt: 'p', parentAgentId } as never)
 
 const measure = ($: Engine, usd?: number) =>
   $.session.measure({
@@ -419,7 +432,7 @@ test('the band is one Text row, not a Box, so the engine adds no extra row', asy
     plugin: 'token-meter',
     surface: 'desktop',
     component: 'AbovePrompt',
-    props: { hasSurvey: false } as never,
+    props: { hasSurvey: false, view: {} } as never,
   })
   const root = await ui.drawn()
   await ui.unmount()
@@ -541,4 +554,134 @@ test('a change during a tween continues from the displayed value', async ($, on)
   expect(before).toBeGreaterThan(0)
   expect(after).toBe(before)
   expect(await settled($, clock)).toContain('↑ in 200 ')
+})
+
+test('started subagents are counted; a refused spawn is not', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  let isRefused = false
+  engine(on, undefined, undefined, () => isRefused)
+
+  await spawn($)
+  await spawn($)
+  isRefused = true
+  await spawn($)
+
+  expect(await settled($, clock)).toContain('◆ agents 2 ')
+})
+
+test('background tasks are counted: a tool call sent to the background, not an Agent call', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  let answer: object = { result: {} as never, text: 'ok' }
+  engine(
+    on,
+    () => 'S1',
+    () => answer,
+  )
+
+  await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  await $.tool.call({ tool: 'Agent', prompt: 'p', description: 'd', run_in_background: true })
+  answer = { result: {} as never, text: 'failed', isError: true }
+  await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true })
+
+  expect(await settled($, clock)).toContain('◇ bg 1 ')
+
+  // A monitor is a background task by nature: it has no flag.
+  answer = { result: {} as never, text: 'ok' }
+  await $.tool.call({ tool: 'Monitor', command: 'tail -f x' } as never)
+  expect(await settled($, clock)).toContain('◇ bg 2 ')
+})
+
+test('the session totals include a subagent and the agents it spawned', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+
+  await runStep($, STEP)
+  await runStep($, { ...STEP, agentId: 'a1' })
+  await runStep($, { ...STEP, agentId: 'a2' })
+  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a2' } as never)
+
+  const text = await settled($, clock)
+  expect(text).toContain('↑ in 300 ')
+  expect(text).toContain('↓ out 15 ')
+  expect(text).toContain('⌘ calls 1 ')
+})
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  test(`an agent's transcript shows that agent and the agents below it (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    mock.store(on, {})
+    engine(
+      on,
+      () => 'S1',
+      () => ({ result: { structuredPatch: [{ lines: ['+a', '-b'] }] }, text: 'ok' }),
+    )
+    on('turn.step', stepHook(USAGE))
+
+    await runStep($, STEP)
+    await spawn($)
+    await spawn($, 'a1')
+    await spawn($)
+    await clock.advance(10_000)
+    await runStep($, { ...STEP, agentId: 'a1' })
+    await runStep($, { ...STEP, agentId: 'a2' })
+    await runStep($, { ...STEP, agentId: 'a3' })
+    await $.tool.call({ tool: 'Edit', file_path: 'a', agentId: 'a2' } as never)
+    await clock.advance(SETTLE_MS)
+
+    const sub = await bandText($, surface, 'a1')
+    expect(sub).toContain('◆ agent │ ↑ in 200 ')
+    expect(sub).toContain('↓ out 10 ')
+    expect(sub).toContain('⌘ calls 1 ')
+    expect(sub).toContain('± diff +1 -1 ')
+    // The agent's own cache: its step was sent 10s after the main one.
+    expect(sub).toContain('◔ cache 5:00')
+    expect(sub).not.toContain('$ cost')
+
+    const main = await bandText($, surface)
+    expect(main).toContain('↑ in 400 ')
+    expect(main).toContain('◆ agents 3 ')
+    expect(main).toContain('◔ cache 4:50')
+  })
+}
+
+test('spawn counts and per-agent data survive a session id round trip', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  let id = 'S1'
+  engine(on, () => id)
+  on('turn.step', stepHook(USAGE))
+
+  await spawn($)
+  await runStep($, { ...STEP, agentId: 'a1' })
+  await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true })
+  id = 'S2'
+  expect(await settled($, clock)).toContain('◆ agents 0 ')
+
+  id = 'S1'
+  const back = await settled($, clock)
+  expect(back).toContain('◆ agents 1 ')
+  expect(back).toContain('◇ bg 1 ')
+  expect(await bandText($, 'terminal', 'a1')).toContain('◆ agent │ ↑ in 100 ')
+})
+
+test("the tick keeps running while a subagent's cache is live, after the main one lapsed", async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+
+  await runStep($, STEP)
+  await clock.advance(200_000)
+  await runStep($, { ...STEP, agentId: 'a1' })
+  // The main cache lapses here; the subagent's has 200s more.
+  await clock.advance(110_000)
+  expect(await bandText($, 'terminal', 'a1')).toContain('◔ cache 3:10')
+
+  await clock.advance(60_000)
+  expect(await bandText($, 'terminal', 'a1')).toContain('◔ cache 2:10')
 })

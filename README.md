@@ -6,7 +6,7 @@ Mods (hot-reloadable plugins) for Claude Code. Each mod is a self-contained plug
 
 | Mod | What it does |
 | --- | --- |
-| `token-meter` | Band above the prompt: input/output/cache-hit tokens, tool calls, model working time and a styled prompt-cache countdown. Data survives resume. |
+| `token-meter` | Band above the prompt: input/output/cache-hit tokens, tool calls, started subagents and background tasks, model working time, session cost, lines changed by file tools and a styled prompt-cache countdown. The totals include each subagent. When the transcript of a subagent is on the screen, the band shows the numbers of that subagent and of the agents below it. Data survives resume. |
 
 ## Toolchain
 
@@ -42,7 +42,11 @@ docs/plans/   implementation plans
 
 ### Claude Code CLI
 
+- Main view
 ![Claude Code CLI token meter preview](previews/preview-cli.png)
+
+- Session view
+![Agent view](previews/preview-cli-agent-view.png)
 
 ### Claude Desktop
 

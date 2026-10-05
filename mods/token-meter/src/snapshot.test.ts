@@ -30,6 +30,9 @@ test('parseSnapshot keeps valid data', () => {
     costUsd: 1.25,
     added: 8,
     removed: 9,
+    agents: 0,
+    bg: 0,
+    byAgent: {},
   }
   expect(parseSnapshot(JSON.parse(JSON.stringify(s)))).toEqual(s)
 })
@@ -51,4 +54,36 @@ test('touchSessions puts the id first, de-duplicates and drops the overflow', ()
 test('parseSnapshot: a snapshot stored before cost and diff existed reads them as zero', () => {
   const old = { totals: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 }, tools: 5 }
   expect(parseSnapshot(old)).toMatchObject({ tools: 5, costUsd: 0, added: 0, removed: 0 })
+})
+
+test('parseSnapshot keeps spawn counts and per-agent data, and drops garbage agents', () => {
+  const agent = {
+    totals: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+    tools: 5,
+    added: 6,
+    removed: 7,
+    lastStepAt: 800,
+    parentId: 'p',
+  }
+  const s = { ...emptySnapshot(), agents: 2, bg: 3, byAgent: { a: agent } }
+  expect(parseSnapshot(JSON.parse(JSON.stringify(s)))).toEqual(s)
+  expect(parseSnapshot({ agents: 'x', bg: null, byAgent: { a: 1, b: { tools: 2 } } })).toEqual({
+    ...emptySnapshot(),
+    byAgent: {
+      b: {
+        totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        tools: 2,
+        added: 0,
+        removed: 0,
+        lastStepAt: null,
+      },
+    },
+  })
+})
+
+test('isComplete: state written before spawn counts and per-agent data existed is not complete', () => {
+  const { byAgent: _byAgent, ...noAgents } = emptySnapshot()
+  expect(isComplete(noAgents)).toBe(false)
+  const { bg: _bg, ...noBg } = emptySnapshot()
+  expect(isComplete(noBg)).toBe(false)
 })

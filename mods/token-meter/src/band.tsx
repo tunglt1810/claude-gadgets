@@ -11,13 +11,14 @@ type Props = {
   now: number
   ttl: '5m' | '1h'
   columns: number
+  isAgentView?: boolean
 }
 
 // One Text with nested Texts: a single inline row, no flex container that could grow an
 // extra row. `bandSegments` already fits the text to `columns`.
-export const Band = ({ ui, snap, shown, busySince, now, ttl, columns }: Props) => {
+export const Band = ({ ui, snap, shown, busySince, now, ttl, columns, isAgentView }: Props) => {
   const { Text } = ui
-  const segments = bandSegments({ snap, shown, busySince, now, ttl, columns })
+  const segments = bandSegments({ snap, shown, busySince, now, ttl, columns, isAgentView })
   return (
     <Text wrap="truncate">
       {segments.map((s, i) => (

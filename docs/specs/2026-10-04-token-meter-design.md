@@ -117,3 +117,37 @@ When a count changes, the band shows the number as it runs from the old value to
 - The plugin API is EARLY ACCESS and may change between releases.
 - Claude Desktop may not draw `AbovePrompt` the same way as the terminal; check with a `surface: 'desktop'` test, then run it for real.
 - TypeScript 7 is the native compiler; the engine-generated `tsconfig.json` and types must work with it. Verify in Task 0 and fall back to the engine's documented `tsc` setup if not.
+
+## Subagents and background tasks (added 2026-10-05)
+The band counts the subagents and the background tasks that the session starts. It also shows the numbers of one subagent when the transcript of that subagent is on the screen.
+
+**Spawn counts**
+- `◆ agents` increases by one when `agent.spawn` returns an `agentId`. A refused spawn is not counted.
+- `◇ bg` increases by one when a tool call with `run_in_background: true` is successful. It also increases by one when a `Monitor` call is successful. An `Agent` call is not counted here, because `agent.spawn` counts it.
+- The two counts are in the activity group: `⌘ calls 14  ◆ agents 2  ◇ bg 1  ◷ work 12:05`. They are not animated.
+- Drop order is now bar, bg, agents, diff, hit, calls, work, cost, out, in. The full band is wider than 120 columns.
+
+**Session totals**
+- The session totals include each loop: the main loop, each subagent and each agent that a subagent starts.
+- This behavior did not change. Tests now make sure that it stays correct.
+
+**Data for each agent**
+- The snapshot has a `byAgent` table. The key is the agent id.
+- Each entry contains the tokens, the tool calls and the changed lines of that agent.
+- Each entry also contains the time of the last step of that agent and the id of its parent agent.
+- `turn.step` and `tool.call` write the entry of the agent that raised the event. `agent.spawn` writes the parent id.
+- A step of an agent can occur before `agent.spawn` returns. The entry keeps the numbers that it already has.
+
+**Agent view**
+- `ui.render` reads `e.props.view.agentId`. When it has a value, the band shows the sum of that agent and of all the agents below it.
+- The band starts with `◆ agent │`. It does not show `cost`, `work`, `agents` or `bg`. These numbers are available for the session only.
+- The cache countdown uses the last step of that agent only.
+- The numbers in the agent view are not animated.
+- The 1 s tick continues while the cache of the main loop or of an agent is live.
+
+**Limits**
+- The mod counts an agent only if its events occur in this process.
+- A teammate in a terminal pane of its own runs no loop in this process (typings 2.1.289). The mod counts its spawn, but not its tokens or its tool calls.
+- The typings do not tell us if a remote agent (`isolation: 'remote'`) raises `turn.step` and `tool.call` in this process. No test of this was done.
+- The typings do not tell us that an agent of a workflow raises `agent.spawn`. `$.agent.list()` does not list such an agent. Thus `agents` possibly does not include it.
+- The tokens of an agent of a workflow are in the session totals, because its events have an `agentId`.

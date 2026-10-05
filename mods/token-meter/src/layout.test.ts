@@ -11,6 +11,9 @@ const snap: Snapshot = {
   costUsd: 0.416,
   added: 120,
   removed: 30,
+  agents: 2,
+  bg: 1,
+  byAgent: {},
 }
 const base = { snap, busySince: null, now: 78_000, ttl: '5m' as const }
 const segs = (cols: number) => bandSegments({ ...base, columns: cols })
@@ -20,7 +23,7 @@ const text = (cols: number) =>
     .join('')
 
 test('every metric is icon, label, value', () => {
-  const t = text(120)
+  const t = text(140)
   expect(t).toContain('↑ in 12.5k')
   expect(t).toContain('↓ out 3.1k')
   expect(t).toContain('◈ hit 1%')
@@ -33,15 +36,15 @@ test('every metric is icon, label, value', () => {
 })
 
 test('every metric uses the same spacing: one icon, a space, the label, a space, the value', () => {
-  const metrics = segs(120).filter((s) => /^\S \S/.test(s.text))
-  expect(metrics.length).toBe(8)
+  const metrics = segs(140).filter((s) => /^\S \S/.test(s.text))
+  expect(metrics.length).toBe(10)
   for (const m of metrics) expect(m.text).toMatch(/^\S [a-z]+ \S+$/)
 })
 
 test('metrics are grouped: tokens | activity | spend | cache', () => {
-  expect(text(120).split(' │ ')).toEqual([
+  expect(text(140).split(' │ ')).toEqual([
     '↑ in 12.5k  ↓ out 3.1k  ◈ hit 1%',
-    '⌘ calls 14  ◷ work 12:05',
+    '⌘ calls 14  ◆ agents 2  ◇ bg 1  ◷ work 12:05',
     '$ cost 0.42  ± diff +120 -30',
     expect.stringMatching(/^◔ cache 3:42 ━{10}$/),
   ])
@@ -132,4 +135,27 @@ test('parts are dropped by the target values, so a part does not come and go dur
     .join('')
   expect(t).toContain('↑ in 999')
   expect(t).not.toContain('━')
+})
+
+test('spawn counts are the first metrics dropped after the bar', () => {
+  const full = text(200)
+  expect(full).toContain('◆ agents 2')
+  expect(full).toContain('◇ bg 1')
+  const w = full.length
+  expect(text(w - 1)).not.toContain('━')
+  const noBar = text(w - 1).length
+  expect(text(noBar - 1)).not.toContain('◇ bg')
+  expect(text(noBar - 1)).toContain('◆ agents 2')
+  expect(text(noBar - 1)).toContain('± diff')
+})
+
+test('an agent view is marked and leaves out the session-only metrics', () => {
+  const t = bandSegments({ ...base, columns: 200, isAgentView: true })
+    .map((s) => s.text)
+    .join('')
+  expect(t.startsWith('◆ agent │ ↑ in 12.5k')).toBe(true)
+  expect(t).toContain('⌘ calls 14')
+  expect(t).toContain('± diff +120 -30')
+  expect(t).toContain('◔ cache 3:42')
+  for (const gone of ['$ cost', '◷ work', '◆ agents', '◇ bg']) expect(t).not.toContain(gone)
 })

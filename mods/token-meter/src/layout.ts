@@ -22,6 +22,8 @@ type Input = {
   columns: number
   // The counts as they are drawn during a tween; the snapshot's own counts when absent.
   shown?: Counts
+  // One agent's numbers are drawn: the metrics that exist per session only are left out.
+  isAgentView?: boolean
 }
 
 const TONE = { ok: PALETTE.green, warn: PALETTE.yellow, danger: PALETTE.red } as const
@@ -31,12 +33,15 @@ const SEP: Segment = { text: ' │ ', color: PALETTE.dim }
 
 // Every metric reads `icon label value`, with the same spacing. Icons are single-width,
 // text-presentation characters: emoji are double width and misalign the row.
-// `in` goes up to the server, `out` comes back down; `calls` counts tool calls.
+// `in` goes up to the server, `out` comes back down; `calls` counts tool calls; `agents`
+// and `bg` count the subagents and the background tasks that were started.
 const LABEL = {
   in: '↑ in',
   out: '↓ out',
   hit: '◈ hit',
   tools: '⌘ calls',
+  agents: '◆ agents',
+  bg: '◇ bg',
   work: '◷ work',
   cost: '$ cost',
   diff: '± diff',
@@ -45,21 +50,43 @@ const LABEL = {
 
 const GROUPS: readonly (readonly Part[])[] = [
   ['in', 'out', 'hit'],
-  ['tools', 'work'],
+  ['tools', 'agents', 'bg', 'work'],
   ['cost', 'diff'],
   ['cache'],
 ]
 
 // Metrics in the order they are dropped when the band is too narrow (first = dropped first).
-const DROP_ORDER = ['bar', 'diff', 'hit', 'tools', 'work', 'cost', 'out', 'in'] as const
+const DROP_ORDER = [
+  'bar',
+  'bg',
+  'agents',
+  'diff',
+  'hit',
+  'tools',
+  'work',
+  'cost',
+  'out',
+  'in',
+] as const
 type Part = (typeof DROP_ORDER)[number] | 'cache'
+
+const SESSION_ONLY = ['cost', 'work', 'agents', 'bg'] as const
+const AGENT_MARK: Segment[] = [{ text: '◆ agent', color: PALETTE.orange, bold: true }, SEP]
 
 const width = (segs: Segment[]): number => segs.reduce((n, s) => n + s.text.length, 0)
 
 // The band as styled segments. Plain single-width characters only: emoji are double width
 // and misalign the row. Parts are dropped, least important first, until it fits `columns`.
 // The fit uses the target counts, so a part does not come and go while a count animates.
-export const bandSegments = ({ snap, busySince, now, ttl, columns, shown }: Input): Segment[] => {
+export const bandSegments = ({
+  snap,
+  busySince,
+  now,
+  ttl,
+  columns,
+  shown,
+  isAgentView = false,
+}: Input): Segment[] => {
   const total = ttlMs(ttl)
   const rem = remainingMs(snap.lastStepAt, now, total)
   const tone = countdownTone(rem)
@@ -77,6 +104,8 @@ export const bandSegments = ({ snap, busySince, now, ttl, columns, shown }: Inpu
     out: [{ text: `${LABEL.out} ${formatTokens(c.out)}`, color: PALETTE.purple }],
     hit: [{ text: `${LABEL.hit} ${pct}%`, color: TONE[cacheHitTone(pct)] }],
     tools: [{ text: `${LABEL.tools} ${c.tools}`, color: PALETTE.orange }],
+    agents: [{ text: `${LABEL.agents} ${snap.agents}`, color: PALETTE.orange }],
+    bg: [{ text: `${LABEL.bg} ${snap.bg}`, color: PALETTE.orange }],
     work: [
       {
         text: `${LABEL.work} ${formatDuration(workElapsed({ workMs: snap.workMs, active: 0, busySince }, now))}`,
@@ -106,11 +135,12 @@ export const bandSegments = ({ snap, busySince, now, ttl, columns, shown }: Inpu
   })
 
   const build = (parts: Record<Part, Segment[]>, dropped: ReadonlySet<string>): Segment[] => {
-    const segs: Segment[] = []
+    const segs: Segment[] = isAgentView ? [...AGENT_MARK] : []
+    const start = segs.length
     for (const group of GROUPS) {
       const present = group.filter((part) => !dropped.has(part))
       if (present.length === 0) continue
-      if (segs.length > 0) segs.push(SEP)
+      if (segs.length > start) segs.push(SEP)
       present.forEach((part, i) => {
         if (i > 0) segs.push({ text: '  ' })
         segs.push(...parts[part])
@@ -120,7 +150,7 @@ export const bandSegments = ({ snap, busySince, now, ttl, columns, shown }: Inpu
     return segs
   }
 
-  const dropped = new Set<string>()
+  const dropped = new Set<string>(isAgentView ? SESSION_ONLY : [])
   const target = partsFor(countsOf(snap))
   let segs = build(target, dropped)
   for (const next of DROP_ORDER) {

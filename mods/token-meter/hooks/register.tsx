@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
+import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { ttlMs } from '../src/countdown'
 import { linesChanged } from '../src/diff'
@@ -65,6 +66,9 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     costUsd: s.costUsd,
     added: s.added,
     removed: s.removed,
+    agents: s.agents,
+    bg: s.bg,
+    byAgent: s.byAgent,
   })
 }
 
@@ -82,7 +86,12 @@ function startTimer($: Api, ttl: Ttl): void {
   timer = $.clock.every(1000, async () => {
     const at = await stamp($)
     const s = await read($, meter)
-    const isCacheDone = s.lastStepAt === null || s.lastStepAt + ttlMs(ttl) <= at
+    // A subagent's countdown is drawn in its own view: it keeps the tick running too.
+    const lastStepAt = Math.max(
+      s.lastStepAt ?? 0,
+      ...Object.values(s.byAgent).map((a) => a.lastStepAt ?? 0),
+    )
+    const isCacheDone = lastStepAt + ttlMs(ttl) <= at
     if (isCacheDone && s.busySince === null) {
       timer?.cancel()
       timer = null
@@ -143,13 +152,18 @@ export const register: Register = (on, options) => {
     const id = await ensureLoaded($)
     await stamp($)
     // Subagents (agentId set) have their own caches: count their tokens but do not
-    // touch the main countdown.
+    // touch the main countdown. Each keeps its own share and its own countdown.
     const isMain = e.agentId === undefined
     // Compute inside the updater: concurrent events must not overwrite each other.
     const nextMeter = await update($, meter, (c) => ({
       ...c,
       totals: addUsage(c.totals, res.usage),
       lastStepAt: isMain && res.usage !== null ? sentAt : c.lastStepAt,
+      byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
+        ...a,
+        totals: addUsage(a.totals, res.usage),
+        lastStepAt: res.usage !== null ? sentAt : a.lastStepAt,
+      })),
     }))
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
@@ -165,13 +179,44 @@ export const register: Register = (on, options) => {
     await stamp($)
     // A failed edit changed nothing on disk.
     const diff = res.isError ? { added: 0, removed: 0 } : linesChanged(res.result)
+    // A background Agent call is a subagent: `agent.spawn` counts it.
+    // A monitor is a background task by nature and has no flag.
+    const isBackground =
+      !res.isError &&
+      e.tool !== 'Agent' &&
+      (e.tool === 'Monitor' || ('run_in_background' in e && e.run_in_background === true))
     const nextMeter = await update($, meter, (c) => ({
       ...c,
       tools: c.tools + 1,
       added: c.added + diff.added,
       removed: c.removed + diff.removed,
+      bg: c.bg + (isBackground ? 1 : 0),
+      byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
+        ...a,
+        tools: a.tools + 1,
+        added: a.added + diff.added,
+        removed: a.removed + diff.removed,
+      })),
     }))
     await animate($, id, nextMeter)
+    await save($, id, nextMeter)
+    return res
+  })
+
+  on('agent.spawn', async ($, e, next) => {
+    const res = await next(e)
+    // A refused spawn started nothing.
+    const agentId = res.agentId
+    if (agentId === undefined) return res
+    const id = await ensureLoaded($)
+    // The agent's first step can arrive before this: keep what it already counted.
+    const nextMeter = await update($, meter, (c) => ({
+      ...c,
+      agents: c.agents + 1,
+      byAgent: bumpAgent(c.byAgent, agentId, (a) =>
+        e.parentAgentId === undefined ? a : { ...a, parentId: e.parentAgentId },
+      ),
+    }))
     await save($, id, nextMeter)
     return res
   })
@@ -209,15 +254,23 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
-    const snap = await currentMeter($)
+    const session = await currentMeter($)
     const now = (await read($, nowAtom)) || (await $.clock.now())
     const tweens = await read($, shown)
+    // An agent's transcript is on screen: draw that agent's numbers, which are not animated.
+    const viewed = e.props.view.agentId
+    const snap = viewed === undefined ? session : agentView(session, viewed)
     return (
       <Band
         ui={$.ui.resolve(e)}
         snap={snap}
-        shown={tweens.sessionId === snap.sessionId ? shownAt(tweens, now) : undefined}
-        busySince={snap.busySince}
+        shown={
+          viewed === undefined && tweens.sessionId === session.sessionId
+            ? shownAt(tweens, now)
+            : undefined
+        }
+        isAgentView={viewed !== undefined}
+        busySince={session.busySince}
         now={now}
         ttl={ttl}
         columns={e.props.bodyColumns ?? 120}

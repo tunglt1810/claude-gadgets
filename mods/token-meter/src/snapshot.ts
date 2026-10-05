@@ -1,4 +1,4 @@
-import type { Snapshot } from '../types'
+import type { AgentUsage, Snapshot, Totals } from '../types'
 import { emptyTotals } from './usage'
 
 export type { Snapshot }
@@ -11,43 +11,71 @@ export const emptySnapshot = (): Snapshot => ({
   costUsd: 0,
   added: 0,
   removed: 0,
+  agents: 0,
+  bg: 0,
+  byAgent: {},
 })
 
 export const storeKey = (sessionId: string): string => `session:${sessionId}`
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
+
+const parseTotals = (raw: unknown): Totals => {
+  const t = isRecord(raw) ? raw : {}
+  return {
+    input: num(t.input),
+    output: num(t.output),
+    cacheRead: num(t.cacheRead),
+    cacheWrite: num(t.cacheWrite),
+  }
+}
+
+const stepAt = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null
+
+const parseAgents = (raw: unknown): Record<string, AgentUsage> =>
+  Object.fromEntries(
+    Object.entries(isRecord(raw) ? raw : {})
+      .filter((kv): kv is [string, Record<string, unknown>] => isRecord(kv[1]))
+      .map(([id, a]) => [
+        id,
+        {
+          totals: parseTotals(a.totals),
+          tools: num(a.tools),
+          added: num(a.added),
+          removed: num(a.removed),
+          lastStepAt: stepAt(a.lastStepAt),
+          ...(typeof a.parentId === 'string' ? { parentId: a.parentId } : {}),
+        },
+      ]),
+  )
+
 // Defensive read: the store is JSON written by an earlier version or by hand.
 export const parseSnapshot = (raw: unknown): Snapshot => {
-  if (typeof raw !== 'object' || raw === null) return emptySnapshot()
-  const r = raw as Record<string, unknown>
-  const t = (typeof r.totals === 'object' && r.totals !== null ? r.totals : {}) as Record<
-    string,
-    unknown
-  >
+  if (!isRecord(raw)) return emptySnapshot()
+  const r = raw
   return {
-    totals: {
-      input: num(t.input),
-      output: num(t.output),
-      cacheRead: num(t.cacheRead),
-      cacheWrite: num(t.cacheWrite),
-    },
+    totals: parseTotals(r.totals),
     tools: num(r.tools),
-    lastStepAt:
-      typeof r.lastStepAt === 'number' && Number.isFinite(r.lastStepAt) ? r.lastStepAt : null,
+    lastStepAt: stepAt(r.lastStepAt),
     workMs: num(r.workMs),
     costUsd: num(r.costUsd),
     added: num(r.added),
     removed: num(r.removed),
+    agents: num(r.agents),
+    bg: num(r.bg),
+    byAgent: parseAgents(r.byAgent),
   }
 }
 
 // False for a value of an older shape: live state outlasts a hot reload, so after the mod
 // gains a field the state it finds lacks it (and `undefined + n` is NaN).
 export const isComplete = (s: Partial<Snapshot>): boolean =>
-  [s.tools, s.workMs, s.costUsd, s.added, s.removed].every(
+  [s.tools, s.workMs, s.costUsd, s.added, s.removed, s.agents, s.bg].every(
     (v) => typeof v === 'number' && Number.isFinite(v),
-  )
+  ) && isRecord(s.byAgent)
 
 // Recency index of stored sessions: the id first, duplicates removed, anything past `max`
 // is dropped so the store does not grow by a key per session forever.
