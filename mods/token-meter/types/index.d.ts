@@ -53,12 +53,63 @@ export type Counts = {
 // The tweens of one session; another session's values are never drawn.
 export type Shown = { sessionId: string | null; tweens: Record<keyof Counts, Tween> }
 
+// One subagent of the session, as the pane lists it. `runs` counts completed runs: a
+// message to a completed agent starts it again under the same id.
+export type AgentEntry = {
+  id: string
+  parentId?: string
+  type?: string
+  description?: string
+  name?: string
+  status: 'running' | 'idle'
+  runs: number
+  startedAt: number
+  endedAt: number | null
+}
+
+export type Registry = Record<string, AgentEntry>
+
+// The registry of one session; another session's entries are never drawn.
+export type Agents = { sessionId: string | null; entries: Registry }
+
+// One row of the transcript screen.
+export type TranscriptItem =
+  | { kind: 'prompt'; text: string }
+  | { kind: 'text'; text: string }
+  | {
+      kind: 'tool'
+      id: string
+      tool: string
+      input: Record<string, unknown>
+      result?: string
+      isError: boolean
+      agentId?: string
+    }
+  | { kind: 'answer'; text: string }
+
+export type Transcript =
+  | { agentId: string; items: TranscriptItem[] }
+  | { agentId: string; deny: string }
+
+// What the pane shows. `agentId` null is the agent tree; `expanded` holds the tool_use ids
+// of the open tool calls; `isWrapped` draws a transcript's long text on several rows.
+export type PaneView = {
+  isOpen: boolean
+  isWrapped: boolean
+  agentId: string | null
+  expanded: string[]
+  transcript: Transcript | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'token-meter': {
       meter: Meter
       now: number
       shown: Shown
+      agents: Agents
+      pane: PaneView
+      spin: number
     }
   }
 }

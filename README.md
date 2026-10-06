@@ -26,6 +26,20 @@ bun run check      # biome + tsc + claude plugin validate + claude plugin test
 
 `token-meter` option `cacheTtl` is `5m` (default) or `1h`. Set `1h` when your session uses the 1-hour prompt cache.
 
+## Agents pane
+
+`token-meter` has a pane that shows the subagents of the session.
+
+- Press `◆ agents N` on the band, or run `/agent-log`, to open the pane. Do the same to close it.
+- The pane lists the subagents as a tree. A child agent is below its parent.
+- Press an agent to see its transcript. Press a tool call to see its input and its result.
+- The pane shows an agent after it completes, after a new message starts it again, and after `--resume`.
+
+Limits:
+
+- An agent that started before the mod loaded is not in the list.
+- The engine does not let a mod read the agents of a workflow run. The same is true for a teammate in its own terminal pane. The pane shows the refusal text of the engine.
+
 ## Adding a mod
 
 Run the `/new-mod <name>` skill, or copy `mods/token-meter` and trim it. Rules the engine enforces: the `types` contract is self-contained (no imports), helpers that take `$` are module-level function declarations, and plugin files link with static `import` only.

@@ -1,5 +1,5 @@
 import type { Elements } from 'claude-code'
-import { bandSegments } from './layout'
+import { bandSegments, type Segment } from './layout'
 import type { Snapshot } from './snapshot'
 import type { Counts } from './tween'
 
@@ -12,26 +12,55 @@ type Props = {
   ttl: '5m' | '1h'
   columns: number
   isAgentView?: boolean
+  isPaneOpen: boolean
+  onToggle: () => void
 }
 
-// One Text with nested Texts: a single inline row, no flex container that could grow an
-// extra row. `bandSegments` already fits the text to `columns`.
-export const Band = ({ ui, snap, shown, busySince, now, ttl, columns, isAgentView }: Props) => {
-  const { Text } = ui
-  const segments = bandSegments({ snap, shown, busySince, now, ttl, columns, isAgentView })
-  return (
-    <Text wrap="truncate">
-      {segments.map((s, i) => (
-        <Text
-          key={String(i)}
-          color={s.color}
-          bold={s.bold}
-          inverse={s.inverse}
-          strikethrough={s.strike}
-        >
+// A single inline row. With the agents button the row is a Box of three parts (text, button,
+// text); without it, one Text with nested Texts, which cannot grow an extra row.
+// `bandSegments` already fits the text to `columns`. The agents button is a primary Button, so it reads as a
+// control: `[ label ]` in the accent color on the terminal, a native button on desktop.
+// `bandSegments` puts the open or closed mark in its label.
+export const Band = ({
+  ui,
+  snap,
+  shown,
+  busySince,
+  now,
+  ttl,
+  columns,
+  isAgentView,
+  isPaneOpen,
+  onToggle,
+}: Props) => {
+  const { Box, Text, Button } = ui
+  const segments = bandSegments({
+    snap,
+    shown,
+    busySince,
+    now,
+    ttl,
+    columns,
+    isAgentView,
+    isPaneOpen,
+  })
+  const run = (segs: Segment[], key: string) => (
+    <Text key={key} wrap="truncate">
+      {segs.map((s, i) => (
+        <Text key={String(i)} color={s.color} bold={s.bold} inverse={s.inverse}>
           {s.text}
         </Text>
       ))}
     </Text>
+  )
+  const at = segments.findIndex((s) => s.isButton)
+  const button = segments[at]
+  if (button === undefined) return run(segments, 'all')
+  return (
+    <Box flexDirection="row">
+      {run(segments.slice(0, at), 'before')}
+      <Button key="agents" variant="primary" label={button.text} onPress={onToggle} />
+      {run(segments.slice(at + 1), 'after')}
+    </Box>
   )
 }

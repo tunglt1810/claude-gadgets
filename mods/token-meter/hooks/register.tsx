@@ -4,6 +4,8 @@ import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { ttlMs } from '../src/countdown'
 import { linesChanged } from '../src/diff'
+import { AgentPane } from '../src/pane'
+import { agentsKey, completed, merged, parseRegistry, ran, spawned } from '../src/registry'
 import {
   emptySnapshot,
   isComplete,
@@ -12,10 +14,11 @@ import {
   storeKey,
   touchSessions,
 } from '../src/snapshot'
+import { transcriptItems } from '../src/transcript'
 import { countsOf, isSettled, retargetShown, shownAt, snapShown } from '../src/tween'
 import { addUsage } from '../src/usage'
 import { endTurn, startTurn } from '../src/work'
-import type { Meter } from '../types'
+import type { Agents, Meter, PaneView, Registry, Transcript } from '../types'
 
 type Api = EngineInterface
 type Ttl = '5m' | '1h'
@@ -27,6 +30,20 @@ const shown = atom(
   { plugin: 'token-meter', key: 'shown' } as const,
   snapShown(null, countsOf(emptySnapshot())),
 )
+
+const initialAgents: Agents = { sessionId: null, entries: {} }
+const agents = atom({ plugin: 'token-meter', key: 'agents' } as const, initialAgents)
+
+const PANE_ID = 'agents'
+const initialPane: PaneView = {
+  isOpen: false,
+  isWrapped: false,
+  agentId: null,
+  expanded: [],
+  transcript: null,
+}
+const pane = atom({ plugin: 'token-meter', key: 'pane' } as const, initialPane)
+const spin = atom({ plugin: 'token-meter', key: 'spin' } as const, 0)
 
 // The engine only follows `$` into functions declared at the top of this file, so
 // the helpers live here and take what they need as arguments.
@@ -57,7 +74,10 @@ const MAX_SESSIONS = 50
 async function save($: Api, id: string, s: Snapshot): Promise<void> {
   const { keep, drop } = touchSessions(await $.store.get('sessions'), id, MAX_SESSIONS)
   await $.store.set('sessions', keep)
-  for (const old of drop) await $.store.delete(storeKey(old))
+  for (const old of drop) {
+    await $.store.delete(storeKey(old))
+    await $.store.delete(agentsKey(old))
+  }
   await $.store.set(storeKey(id), {
     totals: s.totals,
     tools: s.tools,
@@ -69,6 +89,87 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     agents: s.agents,
     bg: s.bg,
     byAgent: s.byAgent,
+  })
+}
+
+// The registry of the session `id`: the live atom, or the stored copy on a session change.
+// The pane goes back to the tree then: a transcript of the other session is never drawn.
+async function loadAgents($: Api, id: string): Promise<void> {
+  const cur = await read($, agents)
+  if (cur.sessionId === id) return
+  const entries = parseRegistry(await $.store.get(agentsKey(id)))
+  await update($, agents, (c) => (c.sessionId === id ? c : { sessionId: id, entries }))
+  await update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
+}
+
+// One registry change, then the engine's list merged in (it has the agents that raised no
+// spawn), then stored.
+async function trackAgent(
+  $: Api,
+  id: string,
+  change: (r: Registry, at: number) => Registry,
+): Promise<void> {
+  await loadAgents($, id)
+  const at = await $.clock.now()
+  const list = await $.agent.list()
+  const next = await update($, agents, (c) =>
+    c.sessionId === id ? { ...c, entries: merged(change(c.entries, at), list, at) } : c,
+  )
+  if (next.sessionId === id) await $.store.set(agentsKey(id), next.entries)
+  startSpinner($)
+}
+
+// Reads one agent's transcript into the pane. A result for an agent that is no longer on
+// the transcript screen is discarded.
+async function loadTranscript($: Api, agentId: string): Promise<void> {
+  const rows = await $.session.messages({ agentId })
+  const transcript: Transcript = Array.isArray(rows)
+    ? { agentId, items: transcriptItems(rows) }
+    : { agentId, deny: rows.deny }
+  await update($, pane, (c) => (c.agentId === agentId ? { ...c, transcript } : c))
+}
+
+async function openAgent($: Api, agentId: string): Promise<void> {
+  await update($, pane, (c) => ({ ...c, agentId, expanded: [], transcript: null }))
+  await loadTranscript($, agentId)
+}
+
+// The agent on the transcript screen had an event: read its transcript again.
+async function refreshViewed($: Api, agentId: string): Promise<void> {
+  const cur = await read($, pane)
+  if (cur.isOpen && cur.agentId === agentId) await loadTranscript($, agentId)
+}
+
+async function togglePane($: Api): Promise<boolean> {
+  const cur = await read($, pane)
+  if (cur.isOpen) {
+    await update($, pane, (c) => ({ ...c, isOpen: false }))
+    await $.ui.close({ id: PANE_ID })
+    return false
+  }
+  await loadAgents($, await $.session.id())
+  await update($, pane, (c) => ({ ...c, isOpen: true }))
+  await $.ui.open({ id: PANE_ID, title: 'Agents' })
+  startSpinner($)
+  return true
+}
+
+// The spinner of the running agents: a short tick of its own, alive only while the pane is
+// open and an agent of this session runs. It stops itself, so an idle session draws nothing.
+const SPIN_MS = 120
+let spinner: { cancel: () => void } | null = null
+function startSpinner($: Api): void {
+  if (spinner !== null) return
+  spinner = $.clock.every(SPIN_MS, async () => {
+    const isOpen = (await read($, pane)).isOpen
+    const reg = await read($, agents)
+    const isBusy = isOpen && Object.values(reg.entries).some((a) => a.status === 'running')
+    if (!isBusy) {
+      spinner?.cancel()
+      spinner = null
+      return
+    }
+    await update($, spin, (n) => (Number.isInteger(n) ? n + 1 : 0) % 1000)
   })
 }
 
@@ -142,6 +243,12 @@ export const register: Register = (on, options) => {
     const cur = await read($, meter)
     const at = await stamp($)
     if (cur.lastStepAt !== null && cur.lastStepAt + ttlMs(ttl) > at) startTimer($, ttl)
+    // A pane that stayed open across a hot reload keeps its spinner.
+    startSpinner($)
+    await $.command.register({
+      name: 'agent-log',
+      description: 'Show or hide the agents of this session',
+    })
     return next(e)
   })
 
@@ -167,6 +274,8 @@ export const register: Register = (on, options) => {
     }))
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
+    const agentId = e.agentId
+    if (agentId !== undefined) await trackAgent($, id, (r, t) => ran(r, agentId, t))
     startTimer($, ttl)
     return res
   })
@@ -200,6 +309,11 @@ export const register: Register = (on, options) => {
     }))
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
+    const loop = e.agentId
+    if (loop !== undefined) {
+      await trackAgent($, id, (r, t) => ran(r, loop, t))
+      await refreshViewed($, loop)
+    }
     return res
   })
 
@@ -218,6 +332,14 @@ export const register: Register = (on, options) => {
       ),
     }))
     await save($, id, nextMeter)
+    await trackAgent($, id, (r, t) =>
+      spawned(r, agentId, t, {
+        ...(e.parentAgentId === undefined ? {} : { parentId: e.parentAgentId }),
+        ...(e.subagentType === undefined ? {} : { type: e.subagentType }),
+        ...(e.description === undefined ? {} : { description: e.description }),
+        ...(e.name === undefined ? {} : { name: e.name }),
+      }),
+    )
     return res
   })
 
@@ -243,13 +365,56 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     // A subagent's run raises turn.complete without a turn.start: it must not close
-    // the main turn's interval.
-    if (e.agentId !== undefined) return next(e)
+    // the main turn's interval. It ends one run of that agent.
+    const agentId = e.agentId
+    if (agentId !== undefined) {
+      const session = await ensureLoaded($)
+      await trackAgent($, session, (r, t) => completed(r, agentId, t))
+      await refreshViewed($, agentId)
+      return next(e)
+    }
     const id = await ensureLoaded($)
     const at = await stamp($)
     const nextMeter = await update($, meter, (c) => ({ ...c, ...endTurn(c, at) }))
     await save($, id, nextMeter)
     return next(e)
+  })
+
+  on('command.run', { command: 'agent-log' }, async ($) => ({
+    text: (await togglePane($)) ? 'Agents pane opened.' : 'Agents pane closed.',
+  }))
+
+  // The person can close the pane with the engine's mark: the button follows.
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANE_ID) await update($, pane, (c) => ({ ...c, isOpen: false }))
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
+    const id = await $.session.id()
+    const reg = await read($, agents)
+    return (
+      <AgentPane
+        ui={$.ui.resolve(e)}
+        entries={reg.sessionId === id ? reg.entries : {}}
+        view={await read($, pane)}
+        spin={await read($, spin)}
+        columns={e.props.bodyColumns}
+        onOpen={(agentId) => openAgent($, agentId)}
+        onBack={() =>
+          update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
+        }
+        onWrap={() => update($, pane, (c) => ({ ...c, isWrapped: !c.isWrapped }))}
+        onTool={(toolUseId) =>
+          update($, pane, (c) => ({
+            ...c,
+            expanded: c.expanded.includes(toolUseId)
+              ? c.expanded.filter((x) => x !== toolUseId)
+              : [...c.expanded, toolUseId],
+          }))
+        }
+      />
+    )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -258,6 +423,7 @@ export const register: Register = (on, options) => {
     const now = (await read($, nowAtom)) || (await $.clock.now())
     const tweens = await read($, shown)
     // An agent's transcript is on screen: draw that agent's numbers, which are not animated.
+    const isPaneOpen = (await read($, pane)).isOpen
     const viewed = e.props.view.agentId
     const snap = viewed === undefined ? session : agentView(session, viewed)
     return (
@@ -274,6 +440,8 @@ export const register: Register = (on, options) => {
         now={now}
         ttl={ttl}
         columns={e.props.bodyColumns ?? 120}
+        isPaneOpen={isPaneOpen}
+        onToggle={() => togglePane($)}
       />
     )
   })

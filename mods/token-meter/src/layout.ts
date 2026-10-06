@@ -10,8 +10,9 @@ export type Segment = {
   text: string
   color?: string
   bold?: boolean
-  strike?: boolean
   inverse?: boolean
+  // The agents count: the band draws it as the button that toggles the agents pane.
+  isButton?: boolean
 }
 
 type Input = {
@@ -24,6 +25,8 @@ type Input = {
   shown?: Counts
   // One agent's numbers are drawn: the metrics that exist per session only are left out.
   isAgentView?: boolean
+  // The agents pane is open: the button carries a mark.
+  isPaneOpen?: boolean
 }
 
 const TONE = { ok: PALETTE.green, warn: PALETTE.yellow, danger: PALETTE.red } as const
@@ -40,7 +43,6 @@ const LABEL = {
   out: '↓ out',
   hit: '◈ hit',
   tools: '⌘ calls',
-  agents: '◆ agents',
   bg: '◇ bg',
   work: '◷ work',
   cost: '$ cost',
@@ -59,7 +61,6 @@ const GROUPS: readonly (readonly Part[])[] = [
 const DROP_ORDER = [
   'bar',
   'bg',
-  'agents',
   'diff',
   'hit',
   'tools',
@@ -67,13 +68,17 @@ const DROP_ORDER = [
   'cost',
   'out',
   'in',
+  'agents',
 ] as const
 type Part = (typeof DROP_ORDER)[number] | 'cache'
 
 const SESSION_ONLY = ['cost', 'work', 'agents', 'bg'] as const
 const AGENT_MARK: Segment[] = [{ text: '◆ agent', color: PALETTE.orange, bold: true }, SEP]
 
-const width = (segs: Segment[]): number => segs.reduce((n, s) => n + s.text.length, 0)
+// The button is drawn as `[ label ]`: four cells of chrome around its text.
+const BUTTON_CHROME = 4
+const width = (segs: Segment[]): number =>
+  segs.reduce((n, s) => n + s.text.length + (s.isButton ? BUTTON_CHROME : 0), 0)
 
 // The band as styled segments. Plain single-width characters only: emoji are double width
 // and misalign the row. Parts are dropped, least important first, until it fits `columns`.
@@ -86,6 +91,7 @@ export const bandSegments = ({
   columns,
   shown,
   isAgentView = false,
+  isPaneOpen = false,
 }: Input): Segment[] => {
   const total = ttlMs(ttl)
   const rem = remainingMs(snap.lastStepAt, now, total)
@@ -104,7 +110,14 @@ export const bandSegments = ({
     out: [{ text: `${LABEL.out} ${formatTokens(c.out)}`, color: PALETTE.purple }],
     hit: [{ text: `${LABEL.hit} ${pct}%`, color: TONE[cacheHitTone(pct)] }],
     tools: [{ text: `${LABEL.tools} ${c.tools}`, color: PALETTE.orange }],
-    agents: [{ text: `${LABEL.agents} ${snap.agents}`, color: PALETTE.orange }],
+    agents: [
+      {
+        // The icon is the pane's disclosure mark: closed or open.
+        text: `${isPaneOpen ? '▾' : '▸'} agents ${snap.agents}`,
+        color: PALETTE.orange,
+        isButton: true,
+      },
+    ],
     bg: [{ text: `${LABEL.bg} ${snap.bg}`, color: PALETTE.orange }],
     work: [
       {
@@ -124,7 +137,6 @@ export const bandSegments = ({
         color: cacheColor,
         bold: pulse,
         inverse: pulse,
-        strike: expired && rem !== null,
       },
     ],
     bar: [
@@ -144,7 +156,8 @@ export const bandSegments = ({
       present.forEach((part, i) => {
         if (i > 0) segs.push({ text: '  ' })
         segs.push(...parts[part])
-        if (part === 'cache' && !dropped.has('bar')) segs.push(...parts.bar)
+        // An expired cache has no time left to show: the bar is drawn for a live one only.
+        if (part === 'cache' && !expired && !dropped.has('bar')) segs.push(...parts.bar)
       })
     }
     return segs
