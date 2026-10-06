@@ -9,6 +9,14 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+### [0.3.1] - 2026-10-06
+
+Tested on Claude Code 2.1.291.
+
+#### Fixed
+
+- The band's `agents` count left out an agent with no spawn event (a skill that runs in a subagent).
+
 ### [0.3.0] - 2026-10-06
 
 Tested on Claude Code 2.1.291.

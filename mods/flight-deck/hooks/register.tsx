@@ -410,6 +410,8 @@ export const register: Register = (on, options) => {
                     0) + stepCost,
               },
         advisor: advised(c.advisor, res.serverToolUses ?? [], advisorModel),
+        // An agent with no `agent.spawn` (a skill that runs in a subagent) is counted here.
+        agents: c.agents + (e.agentId === undefined || e.agentId in c.byAgent ? 0 : 1),
         totals: addUsage(c.totals, res.usage),
         byModel: {
           ...c.byModel,
@@ -484,7 +486,8 @@ export const register: Register = (on, options) => {
     // The agent's first step can arrive before this: keep what it already counted.
     const nextMeter = await update($, meter, (c) => ({
       ...c,
-      agents: c.agents + 1,
+      // Its first step can count it before this.
+      agents: c.agents + (agentId in c.byAgent ? 0 : 1),
       byAgent: bumpAgent(c.byAgent, agentId, (a) =>
         e.parentAgentId === undefined ? a : { ...a, parentId: e.parentAgentId },
       ),

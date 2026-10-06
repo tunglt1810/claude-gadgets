@@ -1616,3 +1616,28 @@ test('a session over its plan limit caches the main loop for 5m', async ($, on) 
   await runStep($, STEP)
   expect(await settled($, clock)).toContain('◔ cache 5:00')
 })
+
+// A skill that runs in a subagent raises no `agent.spawn`: its steps are the first sign of it.
+test('an agent that was not spawned is counted at its first step, once', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+  await runStep($, { ...STEP, agentId: 'skill1' })
+  await runStep($, { ...STEP, index: 1, agentId: 'skill1' })
+  expect(await settled($, clock)).toContain('▸ agents 1 ')
+  // A spawned agent is counted at its spawn, and not again at its steps.
+  await spawn($)
+  await runStep($, { ...STEP, agentId: 'a1' })
+  expect(await settled($, clock)).toContain('▸ agents 2 ')
+})
+
+test('a spawn that arrives after the first step of its agent does not count it again', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+  await runStep($, { ...STEP, agentId: 'a1' })
+  await spawn($)
+  expect(await settled($, clock)).toContain('▸ agents 1 ')
+})
