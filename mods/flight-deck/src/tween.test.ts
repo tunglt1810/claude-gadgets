@@ -2,8 +2,11 @@ import { expect, test } from 'claude-code/testing'
 import { emptySnapshot } from './snapshot'
 import {
   countsOf,
+  isNamedSettled,
   isSettled,
+  namedAt,
   retarget,
+  retargetNamed,
   retargetShown,
   shownAt,
   snapShown,
@@ -77,4 +80,22 @@ test('a change for a different session snaps: no count-up from the other session
   const s = retargetShown(snapShown('S1', counts), 'S2', { ...counts, in: 900 }, 1000)
   expect(s.sessionId).toBe('S2')
   expect(shownAt(s, 1000).in).toBe(900)
+})
+
+test('named values: a new name snaps, a changed one runs, another session snaps', () => {
+  const first = retargetNamed({ sessionId: null, tweens: {} }, 'S1', { total: 1 }, 1000)
+  expect(namedAt(first, 1000)).toEqual({ total: 1 })
+  expect(isNamedSettled(first, 1000)).toBe(true)
+
+  const next = retargetNamed(first, 'S1', { total: 2, 'row:opus': 0.5 }, 2000)
+  expect(isNamedSettled(next, 2000)).toBe(false)
+  const mid = namedAt(next, 2000 + TWEEN_MS / 2)
+  expect(mid.total).toBeGreaterThan(1)
+  expect(mid.total).toBeLessThan(2)
+  expect(mid['row:opus']).toBe(0.5)
+  expect(namedAt(next, 2000 + TWEEN_MS)).toEqual({ total: 2, 'row:opus': 0.5 })
+  expect(isNamedSettled(next, 2000 + TWEEN_MS)).toBe(true)
+
+  const other = retargetNamed(next, 'S2', { total: 9 }, 3000)
+  expect(namedAt(other, 3000)).toEqual({ total: 9 })
 })

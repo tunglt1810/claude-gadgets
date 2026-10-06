@@ -1,6 +1,14 @@
 import { expect, test } from 'claude-code/testing'
 import { emptyAgent } from './agents'
-import { dashboard, runsText, SIDE, shareColor, sharePct, shortModel } from './dashboard'
+import {
+  dashboard,
+  runsText,
+  SIDE,
+  shareColor,
+  sharePct,
+  shortModel,
+  usdTargets,
+} from './dashboard'
 import { PALETTE } from './palette'
 import { completed, spawned, tuned } from './registry'
 import { emptySnapshot } from './snapshot'
@@ -124,4 +132,16 @@ test('shareColor is warmer for a larger share', () => {
   expect(shareColor(25)).toBe(PALETTE.orange)
   expect(shareColor(10)).toBe(PALETTE.yellow)
   expect(shareColor(9)).toBe(PALETTE.dim)
+})
+
+test('usdTargets names the costs the pane animates: the total and each priced row', () => {
+  expect(
+    usdTargets({
+      costUsd: 5,
+      rows: [
+        { model: 'opus-5-5', costUsd: 4, workMs: 0, runs: 0 },
+        { model: 'unknown', costUsd: null, workMs: 0, runs: 0 },
+      ],
+    }),
+  ).toEqual({ total: 5, 'row:opus-5-5': 4 })
 })

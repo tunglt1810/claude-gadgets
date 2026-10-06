@@ -10,8 +10,8 @@ import type {
 } from '../types'
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
-import { runsText, SIDE, shareColor, sharePct } from './dashboard'
-import { formatDuration, formatUsd } from './format'
+import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
+import { formatDuration } from './format'
 import { statSegments } from './layout'
 import { PALETTE } from './palette'
 import { modelLabel, workedMs } from './registry'
@@ -28,6 +28,9 @@ type Props = {
   stats: Snapshot | null
   // The session's cost and a row per model, above the agents table.
   dashboard: Dashboard | null
+  // The dashboard's costs as they are on screen, by name, where the pane is drawn on each
+  // frame (the terminal). Absent on a desktop: a cell runs to its new cost by itself.
+  shownUsd?: Record<string, number>
   // The spinner's tick count: a running mark turns with it. Null where the pane must not be
   // drawn again on each frame (a desktop): each cell is a `Client` with its own timer then.
   spin: number | null
@@ -59,9 +62,9 @@ const CLOCK = '◷ '
 const TIME_WIDTH = 9
 // Parts the model, the runs and the time below an agent's title.
 const SEP = '·'
-// The dashboard's columns: a model name stops at MAX_MODEL cells, a cost fits `≈1234.56`, a
-// share its header `cost(%)`.
-const MAX_MODEL = 16
+// The dashboard's columns: a cost fits `≈1234.56`, a share its header `cost(%)`. The model
+// takes the rest of the pane, five cells at least.
+const MIN_MODEL = 5
 const USD_WIDTH = 9
 const PCT_WIDTH = 7
 // The color of an agent's runs and time by how recent its activity is.
@@ -107,6 +110,7 @@ export const AgentPane = ({
   view,
   stats,
   dashboard,
+  shownUsd,
   spin,
   now,
   columns,
@@ -146,26 +150,42 @@ export const AgentPane = ({
   if (viewed === null) {
     const head = (key: string, text: string, width: number, align?: 'right') =>
       cell(key, { text, dim: true, width, ...(align === undefined ? {} : { align }) })
-    const rule = (key: string) => (
-      <Text key={key} dimColor wrap="truncate">
-        {'─'.repeat(Math.max(0, columns))}
-      </Text>
-    )
+    // A desktop's font is not fixed-width: a count of `─` does not give a width there. The
+    // line is longer than the pane, and the layout cuts it at the pane's width.
+    const rule = (key: string) =>
+      isClient ? (
+        <Box key={key} width={columns} height={1} overflow="hidden">
+          <Text dimColor>{'─'.repeat(Math.max(0, columns) * 3)}</Text>
+        </Box>
+      ) : (
+        <Text key={key} dimColor wrap="truncate">
+          {'─'.repeat(Math.max(0, columns))}
+        </Text>
+      )
     // The dashboard: the session's cost, then per model an estimated cost (≈), its share of
     // the total (colored by its size), the working time and the runs of its agents.
     const board = () => {
       if (dashboard === null) return null
-      const MODEL = Math.min(MAX_MODEL, Math.max(5, ...dashboard.rows.map((r) => r.model.length)))
+      // As wide as the pane, with the runs and the time last, as in the agents table: the two
+      // tables end at one edge, and their runs and times line up.
+      const MODEL = Math.max(
+        MIN_MODEL,
+        columns - (USD_WIDTH + 1) - (PCT_WIDTH + 1) - (RUNS_WIDTH + 1) - (TIME_WIDTH + 1),
+      )
       return (
         <Box key="dashboard" flexDirection="column">
-          {cell('cost', { text: `total ≈$${formatUsd(dashboard.costUsd)}`, bold: true })}
+          {cell('cost', {
+            text: 'total ≈$',
+            usd: shownUsd?.total ?? dashboard.costUsd,
+            bold: true,
+          })}
           {dashboard.rows.length > 0 && (
             <Box key="dash:head" flexDirection="row" gap={1}>
               {head('dash:head:model', 'model', MODEL)}
               {head('dash:head:cost', 'cost($)', USD_WIDTH, 'right')}
               {head('dash:head:pct', 'cost(%)', PCT_WIDTH, 'right')}
-              {head('dash:head:time', 'time', TIME_WIDTH, 'right')}
               {head('dash:head:runs', 'runs', RUNS_WIDTH, 'right')}
+              {head('dash:head:time', 'time', TIME_WIDTH, 'right')}
             </Box>
           )}
           {dashboard.rows.map((r) => {
@@ -174,7 +194,9 @@ export const AgentPane = ({
               <Box key={`dash:${r.model}`} flexDirection="row" gap={1}>
                 {cell(`dash:model:${r.model}`, { text: cut(r.model, MODEL), width: MODEL })}
                 {cell(`dash:cost:${r.model}`, {
-                  text: r.costUsd === null ? '—' : `≈${formatUsd(r.costUsd)}`,
+                  ...(r.costUsd === null
+                    ? { text: '—' }
+                    : { text: '≈', usd: shownUsd?.[rowKey(r.model)] ?? r.costUsd }),
                   width: USD_WIDTH,
                   align: 'right',
                 })}
@@ -184,16 +206,16 @@ export const AgentPane = ({
                   width: PCT_WIDTH,
                   align: 'right',
                 })}
-                {cell(`dash:time:${r.model}`, {
-                  text: r.model === SIDE ? '' : formatDuration(r.workMs),
-                  dim: true,
-                  width: TIME_WIDTH,
-                  align: 'right',
-                })}
                 {cell(`dash:runs:${r.model}`, {
                   text: r.model === SIDE ? '' : runsText(r),
                   dim: true,
                   width: RUNS_WIDTH,
+                  align: 'right',
+                })}
+                {cell(`dash:time:${r.model}`, {
+                  text: r.model === SIDE ? '' : formatDuration(r.workMs),
+                  dim: true,
+                  width: TIME_WIDTH,
                   align: 'right',
                 })}
               </Box>
@@ -224,7 +246,13 @@ export const AgentPane = ({
               and a cell in different units, so only the same parts line up. */}
           {head('head:mark', '', MARK_WIDTH)}
           <Box key="head:namebox" width={t.name} flexShrink={0}>
-            {head('head:name', 'agents', t.name)}
+            {/* A desktop draws a button's label after a margin of its own: the header is a
+                button there too (it does nothing), so it starts where the names start. */}
+            {isClient ? (
+              <Button key="head:name" plain dimColor label="agents" onPress={() => {}} />
+            ) : (
+              head('head:name', 'agents', t.name)
+            )}
           </Box>
           {head('head:runs', 'runs', t.runs, 'right')}
           {head('head:time', 'time', t.time, 'right')}

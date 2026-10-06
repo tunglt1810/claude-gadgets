@@ -72,6 +72,17 @@ export const dashboard = (snap: Snapshot, entries: Registry, now: number): Dashb
   }
 }
 
+// The name of a row's cost among the costs the pane animates.
+export const rowKey = (model: string): string => `row:${model}`
+
+// The costs of a dashboard that run to a new value when they change, by name.
+export const usdTargets = (d: Dashboard): Record<string, number> => ({
+  total: d.costUsd,
+  ...Object.fromEntries(
+    d.rows.flatMap((r) => (r.costUsd === null ? [] : [[rowKey(r.model), r.costUsd]])),
+  ),
+})
+
 // The runs cell of a row. The main loop is not a run of an agent: its row says `main`, with
 // the runs of the agents on the same model after it.
 export const runsText = (r: ModelRow): string =>

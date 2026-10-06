@@ -12,3 +12,8 @@ test('cellText pads a right-aligned cell to its width', () => {
   expect(cellText({ text: '◷ ', since: 0, width: 9, align: 'right' }, 0, 5000)).toBe('   ◷ 0:05')
   expect(cellText({ text: '1 run', width: 8 }, 0, 0)).toBe('1 run')
 })
+
+test("cellText draws a cost after the text: the cell's own, or the one on screen", () => {
+  expect(cellText({ text: 'total ≈$', usd: 1.5 }, 0, 0)).toBe('total ≈$1.50')
+  expect(cellText({ text: '≈', usd: 2, width: 9, align: 'right' }, 0, 0, 1.234)).toBe('    ≈1.23')
+})
