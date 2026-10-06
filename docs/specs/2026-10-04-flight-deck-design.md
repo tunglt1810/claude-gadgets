@@ -247,7 +247,9 @@ When the transcript of an agent is in view (`e.props.view.agentId`), the band sh
 
 ## 11. Pane
 
-The pane opens from the `agents` button and from the `/agent-log` command. It has two screens.
+The pane opens from the `agents` button and from the `/agent-log` command. Its title is `Flight Deck`. The pane has two screens.
+
+Section 11.7 gives the layout of the pane. That layout is the same on each surface. Section 11.8 gives how each surface draws it.
 
 ### 11.1 Dashboard
 
@@ -255,10 +257,11 @@ The dashboard is above the agents table.
 
 ```
 total ≈$1.42
-model          cost($) cost(%)      time    runs
-opus-5-5         ≈1.12     79%      4:22  main+1
-advisor·opus     ≈0.21     15%      0:15       2
-side requests    ≈0.08      6%
+model                         cost($) cost(%)    runs      time
+opus-5-5                        ≈1.12     79%  main+1      4:22
+advisor·opus                    ≈0.21     15%       2      0:15
+side requests                   ≈0.08      6%
+────────────────────────────────────────────────────────────────
 ```
 
 - `total` is the engine ledger.
@@ -268,6 +271,9 @@ side requests    ≈0.08      6%
 - `runs` of a model is the number of runs of its agents. The row of the main loop shows `main`, or `main+N` when N runs of agents used that model.
 - The advisor row is after the model rows. It shows its calls in `runs` and `—` as cost until the mod settles the cost.
 - The `side requests` row is last. It has no time and no runs.
+- A changed `total` and a changed cost of a row run to the new value, as a count of the band does (section 10.1).
+- A cost shows its value immediately in three cases: when the pane opens, when the session changes, and when its row is new.
+- `cost(%)`, `time` and `runs` do not run. They show the new value immediately.
 
 ### 11.2 Agents table
 
@@ -277,7 +283,6 @@ side requests    ≈0.08      6%
 - The button of an agent that does not run is dim. A button takes no color.
 - The runs and the time are green while the agent runs, and yellow for 5 minutes after it ends. After that they are dim.
 - The header has the same parts as a row: a cell as wide as a mark, and a box as wide as the name.
-- Thus `runs` and `time` are above their cells on each surface.
 - An empty registry shows `No agents yet.`
 
 ### 11.3 Transcript screen
@@ -317,11 +322,46 @@ Each of these rules comes from a failure on a live desktop.
 - A click on a pane that does not hold the keys raises `ui.focus` and no press. The mod runs the action of the button from `ui.focus`.
 - `$.ui.open` `rows` and `columns` are requests. A desktop ignores them.
 
+- The font of a desktop does not have a fixed width. A space is narrower than a digit, and a `─` is narrower than a cell.
+- Thus a number of characters does not give a width on a desktop, and spaces do not align a text.
+
 ### 11.6 Why the status has no timeout
 
 The mod does not use a timeout on the last event of an agent. An agent that waits for a permission gives the same signal as a dead agent. In one saved session, an agent showed no activity for 5.5 hours and was not dead. Its last record was a `Bash` tool use with no result.
 
 The pane does not show `killed` and `failed` as two states. `stopped` is sufficient.
+
+### 11.7 Layout
+
+These rules are the layout of the pane. They are the same on each surface. A surface that cannot obey a rule has a defect.
+
+- The pane has one content width. The dashboard, the rule and the agents table start at the same left edge and end at the same right edge.
+- A table has columns of a fixed width, with a gap of one cell between two columns. One column takes the width that stays.
+- The column that takes the width that stays is `model` in the dashboard and the name in the agents table.
+- The text of a column of numbers ends at the right edge of the column. Its header ends at the same edge.
+- The text of a column of names starts at the left edge of the column. A name that is too long is cut.
+- The last two columns of the two tables are the same: `runs`, then `time`. Each has the same right edge in the two tables.
+- The rule below the dashboard has the content width.
+- Each row has a height of one line. A row does not wrap.
+- A cell keeps its width when its value changes. A value that runs or counts does not move the cells after it.
+
+### 11.8 How each surface draws the layout
+
+The layout of section 11.7 does not change. Only the method changes.
+
+| Part of the layout | Terminal | Desktop |
+|---|---|---|
+| Content width | `bodyColumns` less 2 | `bodyColumns` |
+| Title | The first row of the pane, bold | The title bar of the desktop pane |
+| Side margin | One cell of padding at the left and at the right | None. The desktop pane has its own margin. |
+| Text at the right edge of a column | Spaces before the text | A box of the column width that puts the text at its end |
+| Header of the agent names | A `Text`, as a cell | A button that does nothing. A desktop draws the label of a button after a margin of its own. |
+| Rule | A `─` for each cell of the content width | A box of the content width that cuts a longer line |
+| Cell that is not a button | A `Text` in a box of the cell width | A `Client` of the cell width |
+| Spinner, live time, cost that runs | The pane is drawn again on each tick | The `Client` of the cell has its own timer |
+
+- The terminal method uses a number of characters as a width. It gives the layout only because the terminal font has a fixed width.
+- A test of the desktop method examines the elements and their properties. It cannot measure a position. A person must examine a change of the desktop method on a live desktop.
 
 ## 12. Tests
 
@@ -384,5 +424,5 @@ Open questions, with no probe:
 - On a desktop, the color of a recent agent changes only when the pane is drawn again.
 - Not verified live: a session over a plan limit.
 - Not verified live: a background agent that runs at the same time as an advisor call.
-- Not verified live: the alignment of the agents table header on a desktop.
+- Not verified live: the rule of the dashboard on a desktop, and a cost that runs in a desktop cell.
 - The overage rule and the default lifetime are estimates of account state that a plugin cannot read.

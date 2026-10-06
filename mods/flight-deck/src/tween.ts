@@ -1,6 +1,6 @@
-import type { Counts, Shown, Snapshot, Tween } from '../types'
+import type { Counts, NamedShown, Shown, Snapshot, Tween } from '../types'
 
-export type { Counts, Shown, Tween }
+export type { Counts, NamedShown, Shown, Tween }
 
 export const TWEEN_MS = 400
 
@@ -53,3 +53,26 @@ export const shownAt = (c: Shown, now: number): Counts =>
 
 export const isSettled = (c: Shown, now: number): boolean =>
   KEYS.every((k) => valueAt(c.tweens[k], now) === c.tweens[k].to)
+
+// The same for values with a name each (the costs of the dashboard): a changed value runs,
+// and a new name or another session shows its value at once.
+export const retargetNamed = (
+  c: NamedShown,
+  sessionId: string,
+  target: Record<string, number>,
+  now: number,
+): NamedShown => ({
+  sessionId,
+  tweens: Object.fromEntries(
+    Object.entries(target).map(([k, to]) => {
+      const t = c.sessionId === sessionId ? c.tweens[k] : undefined
+      return [k, t === undefined ? { from: to, to, startedAt: 0 } : retarget(t, to, now)]
+    }),
+  ),
+})
+
+export const namedAt = (c: NamedShown, now: number): Record<string, number> =>
+  Object.fromEntries(Object.entries(c.tweens).map(([k, t]) => [k, valueAt(t, now)]))
+
+export const isNamedSettled = (c: NamedShown, now: number): boolean =>
+  Object.values(c.tweens).every((t) => valueAt(t, now) === t.to)

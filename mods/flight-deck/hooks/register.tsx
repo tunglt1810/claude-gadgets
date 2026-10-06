@@ -4,6 +4,7 @@ import { focusAction } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { ttlMs } from '../src/countdown'
+import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
@@ -33,7 +34,17 @@ import {
 import { SPIN_MS } from '../src/spinner'
 import { transcriptItems } from '../src/transcript'
 import { cacheTtls, isOverLimit, type Ttl } from '../src/ttl'
-import { countsOf, isSettled, retargetShown, shownAt, snapShown } from '../src/tween'
+import {
+  countsOf,
+  isNamedSettled,
+  isSettled,
+  type NamedShown,
+  namedAt,
+  retargetNamed,
+  retargetShown,
+  shownAt,
+  snapShown,
+} from '../src/tween'
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
 import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
@@ -59,6 +70,7 @@ const initialAgents: Agents = { sessionId: null, entries: {} }
 const agents = atom({ plugin: 'flight-deck', key: 'agents' } as const, initialAgents)
 
 const PANE_ID = 'agents'
+const PANE_TITLE = 'Flight Deck'
 // The store key of the last wrap choice: one for the plugin, not one per session.
 const WRAP_KEY = 'wrap'
 const initialPane: PaneView = {
@@ -71,6 +83,9 @@ const initialPane: PaneView = {
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
 const initialData: PaneData = { sessionId: null, entries: {}, stats: null, dashboard: null }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
+// The dashboard's costs as the terminal draws them: a changed cost runs to its new value.
+const initialPaneShown: NamedShown = { sessionId: null, tweens: {} }
+const paneShown = atom({ plugin: 'flight-deck', key: 'paneShown' } as const, initialPaneShown)
 const spin = atom({ plugin: 'flight-deck', key: 'spin' } as const, 0)
 // Null until an event read the settings: the mod option stands in for them.
 const ttlsAtom = atom({ plugin: 'flight-deck', key: 'ttls' } as const, null as Ttls | null)
@@ -158,6 +173,13 @@ async function syncPane($: Api): Promise<void> {
   )
   const cur = await read($, shownData)
   if (JSON.stringify(cur) !== JSON.stringify(next)) await update($, shownData, () => next)
+  if (next.dashboard === null) return
+  const target = usdTargets(next.dashboard)
+  const at = await $.clock.now()
+  const tweens = await read($, paneShown)
+  if (JSON.stringify(tweens) === JSON.stringify(retargetNamed(tweens, id, target, at))) return
+  await update($, paneShown, (c) => retargetNamed(c, id, target, at))
+  startFrames($)
 }
 
 // The engine's list merged in (it has the agents that raised no spawn), then one registry
@@ -257,7 +279,7 @@ async function togglePane($: Api): Promise<boolean> {
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
   await syncPane($)
   // The pane takes the keyboard: a click on a pane without it only focuses.
-  await $.ui.open({ id: PANE_ID, title: 'Agents', focus: true })
+  await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true })
   startSpinner($)
   return true
 }
@@ -334,12 +356,16 @@ function startTimer($: Api, ttls: Ttls): void {
 }
 
 // Changed counts run to their new values. A short frame tick redraws the band (through
-// `now`) and stops itself when every count has arrived.
+// `now`) and stops itself when every count, and every cost of the dashboard, has arrived.
 const FRAME_MS = 60
 let frames: { cancel: () => void } | null = null
 async function animate($: Api, id: string, s: Snapshot): Promise<void> {
   const at = await $.clock.now()
   await update($, shown, (c) => retargetShown(c, id, countsOf(s), at))
+  startFrames($)
+}
+
+function startFrames($: Api): void {
   if (frames !== null) return
   frames = $.clock.every(FRAME_MS, async () => {
     const now = await stamp($)
@@ -350,7 +376,7 @@ async function animate($: Api, id: string, s: Snapshot): Promise<void> {
         ? retargetShown(c, m.sessionId, countsOf(m), now)
         : c,
     )
-    if (isSettled(cur, now)) {
+    if (isSettled(cur, now) && isNamedSettled(await read($, paneShown), now)) {
       frames?.cancel()
       frames = null
     }
@@ -584,6 +610,8 @@ export const register: Register = (on, options) => {
         ? ended
         : { ...ended, advisor: settled(ended) }
     })
+    // The band draws the cost through its tween: give it the new figure.
+    await animate($, id, nextMeter)
     await save($, id, nextMeter)
     await syncPane($)
     return next(e)
@@ -637,23 +665,40 @@ export const register: Register = (on, options) => {
     const id = await $.session.id()
     const data = await read($, shownData)
     const isCurrent = data.sessionId === id
-    return (
+    // Only the terminal draws the costs on each frame. `now` is read while a cost runs, so the
+    // frame tick draws the pane again; a pane at rest does not read it.
+    const now = await $.clock.now()
+    const costs = e.surface === 'terminal' ? await read($, paneShown) : null
+    if (costs !== null && !isNamedSettled(costs, now)) await read($, nowAtom)
+    // The terminal's pane has no margin and no title of its own: a cell of padding at each
+    // side, and the title as the first row.
+    const ui = $.ui.resolve(e)
+    const pad = e.surface === 'terminal' ? 1 : 0
+    const body = (
       <AgentPane
-        ui={$.ui.resolve(e)}
+        ui={ui}
         entries={isCurrent ? data.entries : {}}
         view={await read($, pane)}
         stats={isCurrent ? data.stats : null}
         dashboard={isCurrent ? data.dashboard : null}
+        {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
         spin={e.surface === 'terminal' ? await read($, spin) : null}
-        now={await $.clock.now()}
-        columns={e.props.bodyColumns}
+        now={now}
+        columns={e.props.bodyColumns - pad * 2}
         onOpen={(agentId) => act($, { kind: 'open', agentId })}
         onBack={() => act($, { kind: 'back' })}
         onWrap={() => act($, { kind: 'wrap' })}
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
       />
+    )
+    if (pad === 0) return body
+    return (
+      <ui.Box flexDirection="column" paddingX={pad}>
+        <ui.Text bold>{PANE_TITLE}</ui.Text>
+        {body}
+      </ui.Box>
     )
   })
 

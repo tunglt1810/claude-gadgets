@@ -9,6 +9,28 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+### [0.4.0] - 2026-10-06
+
+Tested on Claude Code 2.1.291.
+
+#### Added
+
+- Dashboard: a changed `total` and a changed cost of a row run to the new value, as a count of the band does. The terminal draws each frame. A desktop cell runs with its own timer, so the pane is not drawn again.
+- The title of the pane is `Flight Deck`. A desktop shows it in the title bar of the pane. The terminal shows it as the first row of the pane.
+- Terminal: the pane has one cell of padding at the left and at the right.
+- Spec: section 11.7 gives the layout of the pane for each surface. Section 11.8 gives how the terminal and a desktop draw it.
+
+#### Changed
+
+- Dashboard: it is as wide as the pane, and its last two columns are `runs`, then `time`, as in the agents table. The two tables end at one edge.
+
+#### Fixed
+
+- The band kept the old cost after a turn ended, while the dashboard showed the new cost. The band now takes the cost that the mod reads at the end of a turn.
+- Desktop: a right-aligned cell did not end at the edge of its column, because the font of a desktop does not have a fixed width. The layout now puts the text at the edge.
+- Desktop: the rule below the dashboard was shorter than the tables.
+- Desktop: the `agents` header did not start where the names of the agents start.
+
 ### [0.3.2] - 2026-10-06
 
 Tested on Claude Code 2.1.291.

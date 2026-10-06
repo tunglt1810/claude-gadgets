@@ -1,4 +1,5 @@
 import { type Engine, expect, mock, test } from 'claude-code/testing'
+import { cellText } from '../src/cell'
 import type { Cell } from '../types'
 
 const USAGE = {
@@ -492,6 +493,22 @@ test('cost follows the session ledger: the latest figure, not a sum', async ($, 
   expect(await settled($, clock)).toContain('$ cost 0.42')
 })
 
+// The end of a turn reads the ledger: the band shows that figure, as the dashboard does.
+test('the band shows the ledger cost read at the end of a turn', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  let ledger = 0
+  engine(on, undefined, undefined, undefined, undefined, undefined, () => ({
+    cost: { usd: ledger },
+  }))
+
+  await $.turn.start({ text: 'a', turnId: 't1' })
+  ledger = 1.5
+  await $.turn.complete({ turnId: 't1', ...DONE })
+
+  expect(await settled($, clock)).toContain('$ cost 1.50')
+})
+
 test('edits add their changed lines to the diff; failed and denied calls do not', async ($, on) => {
   const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
@@ -758,11 +775,12 @@ const SURFACES = ['terminal', 'desktop'] as const
 
 // The pane's answers beneath the plugin; `opens` and `closes` record what the plugin asked.
 const paneEngine = (on: Parameters<typeof mock.store>[0], messages: () => unknown = () => ROWS) => {
-  const calls = { opens: 0, closes: 0, isOpenFocused: false }
+  const calls = { opens: 0, closes: 0, isOpenFocused: false, title: '' }
   on('session.messages', () => ({ value: messages() }) as never)
   on('ui.open', (_$, e) => {
     calls.opens++
     calls.isOpenFocused = e.focus === true
+    calls.title = String(e.title)
     return { value: { isPlaced: true } } as never
   })
   on('ui.close', () => {
@@ -796,9 +814,15 @@ const paneText = async (ui: Awaited<ReturnType<typeof mountPane>>) => {
     ...(await ui.findAll({ type: 'Markdown' })).map((m) => String(m.props.text)),
     ...(await ui.findAll({ type: 'Code' })).map((c) => String(c.props.source)),
     // A desktop draws each cell of a row in a Client: its text is in its props.
-    ...(await ui.findAll({ type: 'Client' })).map((c) => String((c.props.props as Cell).text)),
+    ...(await ui.findAll({ type: 'Client' })).map((c) => cellText(c.props.props as Cell, 0, 0)),
   ]
   return all.join('\n')
+}
+
+// One cell of the pane as text: a desktop draws it in a Client, with its text in its props.
+const cellOf = async (ui: Awaited<ReturnType<typeof mountPane>>, key: string) => {
+  const node = await ui.find({ key })
+  return node?.type === 'Client' ? cellText(node.props.props as Cell, 0, 0) : JSON.stringify(node)
 }
 
 // The status marks the pane draws, in order: a Text of indent, one mark glyph and a space.
@@ -949,6 +973,7 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   })
   await band.press({ key: 'agents' })
   expect(calls.opens).toBe(1)
+  expect(calls.title).toBe('Flight Deck')
   const ui = await mountPane($, 'terminal')
   await ui.press({ key: 'agent:a1' })
   expect(await paneText(ui)).not.toContain('Again.')
@@ -1143,9 +1168,12 @@ test('an agent row is colored by its status', async ($, on) => {
     expect((await ui.find({ key: 'agent:a2' }))?.props.dimColor).toBeUndefined()
     expect((await ui.find({ key: 'agent:a1' }))?.props.dimColor).toBe(true)
 
-    // The title is a bold cell: a Text on the terminal, a Client's props on the desktop.
+    // The title is a bold cell: a Text on the terminal, a Client's props on the desktop. The
+    // terminal's first bold Text is the title of the pane.
     const titleColor = async () =>
-      (await ui.findAll({ type: 'Text' })).find((x) => x.props.bold === true)?.props.color ??
+      (await ui.findAll({ type: 'Text' })).find(
+        (x) => x.props.bold === true && x.text !== 'Flight Deck',
+      )?.props.color ??
       (await ui.findAll({ type: 'Client' }))
         .map((c) => c.props.props as Cell)
         .find((c) => c.bold === true)?.color
@@ -1379,6 +1407,8 @@ test("the dashboard shows the session cost and each model's cost, time and runs"
   await clock.advance(65_000)
   await completeAgent($, 'a1')
   await measure($, 1.5)
+  // A changed cost runs to its new value: let it arrive.
+  await clock.advance(SETTLE_MS)
 
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
@@ -1508,6 +1538,119 @@ test('a click that gives the pane the focus also presses the button', async ($, 
   await focused.unmount()
 })
 
+// The dashboard is as wide as the pane, and its last columns are the agents table's: the runs,
+// then the time. So the two tables end at one edge and their runs and times line up.
+test('the dashboard spans the pane and ends with the runs and the time', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5' } as never)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    const head = (await ui.find({ key: 'dash:head' })) as {
+      children?: { props?: { key?: string } }[]
+    }
+    expect(head.children?.map((c) => c.props?.key)).toEqual([
+      'dash:head:model',
+      'dash:head:cost',
+      'dash:head:pct',
+      'dash:head:runs',
+      'dash:head:time',
+    ])
+    // The pane's columns less the cost (9), the share (7), the runs (7), the time (9) and four
+    // gaps. The terminal's pane has a cell of padding at each side.
+    const model = await ui.find({ key: 'dash:head:model' })
+    expect(model?.props.width).toBe(surface === 'terminal' ? 42 : 44)
+    await ui.unmount()
+  }
+})
+
+test('the terminal pads the pane at the left and the right; a desktop has its own margins', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+
+  const term = await mountPane($, 'terminal')
+  expect(await term.drawn()).toMatchObject({ type: 'Box', props: { paddingX: 1 } })
+  // The terminal draws no title of the pane: the pane's first row is the title there.
+  expect(await paneText(term)).toMatch(/^Flight Deck\n/)
+  await term.unmount()
+  const desk = await mountPane($, 'desktop')
+  expect(await paneText(desk)).not.toContain('Flight Deck')
+  expect(await desk.drawn()).not.toMatchObject({ props: { paddingX: 1 } })
+  await desk.unmount()
+})
+
+// A desktop draws a button's label after a margin of its own. The header of the names is a
+// button there too, so `agents` starts where the names start.
+test('the header of the agent names is built as a name is', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+
+  const desk = await mountPane($, 'desktop')
+  expect(await desk.find({ key: 'head:name' })).toMatchObject({
+    type: 'Button',
+    props: { label: 'agents', plain: true, dimColor: true },
+  })
+  await desk.unmount()
+  const term = await mountPane($, 'terminal')
+  expect((await term.find({ key: 'head:name' }))?.type).not.toBe('Button')
+  await term.unmount()
+})
+
+// A desktop's font is not fixed-width, so a count of `─` does not give a width there: the
+// layout cuts a longer line at the pane's width.
+test('the rule below the dashboard is as wide as the pane', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await measure($, 1)
+
+  const term = await mountPane($, 'terminal')
+  expect(await paneText(term)).toContain(`\n${'─'.repeat(78)}\n`)
+  await term.unmount()
+  const desk = await mountPane($, 'desktop')
+  expect(await desk.find({ key: 'dash:rule' })).toMatchObject({
+    type: 'Box',
+    props: { width: 80, height: 1, overflow: 'hidden' },
+  })
+  await desk.unmount()
+})
+
+// A changed cost runs to its new value. The terminal draws each frame; a desktop is not drawn
+// again (a redraw drops a click), so its cell takes the new cost and runs to it by itself.
+test('a changed cost of the dashboard runs to its new value', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await measure($, 1)
+  await clock.advance(SETTLE_MS)
+  await measure($, 2)
+  await clock.advance(100)
+
+  const term = await mountPane($, 'terminal')
+  const mid = Number(/total ≈\$(\d+\.\d+)/.exec(await paneText(term))?.[1])
+  expect(mid).toBeGreaterThan(1)
+  expect(mid).toBeLessThan(2)
+  await clock.advance(SETTLE_MS)
+  expect(await paneText(term)).toContain('total ≈$2.00')
+  await term.unmount()
+
+  const desk = await mountPane($, 'desktop')
+  const cells = (await desk.findAll({ type: 'Client' })).map((c) => c.props.props as Cell)
+  expect(cells).toContainEqual({ text: 'total ≈$', usd: 2, bold: true })
+  await desk.unmount()
+})
+
 // The engine measures the ledger late, so the cost of the advisor is read at the end of the
 // turn: the growth of the ledger cost that no step holds, since the turn started.
 test('the dashboard takes the ledger growth over an advisor turn as the cost of the advisor', async ($, on) => {
@@ -1548,11 +1691,13 @@ test('the dashboard takes the ledger growth over an advisor turn as the cost of 
   await clock.advance(1000)
   ledger = 1.63
   await $.turn.complete({ turnId: 't2', ...DONE })
+  // A changed cost runs to its new value: let it arrive.
+  await clock.advance(SETTLE_MS)
 
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
-    expect(JSON.stringify(await ui.find({ key: 'dash:cost:advisor·opus' }))).toContain('≈0.63')
-    expect(JSON.stringify(await ui.find({ key: 'dash:cost:side requests' }))).toContain('≈1.00')
+    expect(await cellOf(ui, 'dash:cost:advisor·opus')).toContain('≈0.63')
+    expect(await cellOf(ui, 'dash:cost:side requests')).toContain('≈1.00')
     await ui.unmount()
   }
 })

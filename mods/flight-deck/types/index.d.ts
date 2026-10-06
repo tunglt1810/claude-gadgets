@@ -65,6 +65,9 @@ export type Counts = {
 // The tweens of one session; another session's values are never drawn.
 export type Shown = { sessionId: string | null; tweens: Record<keyof Counts, Tween> }
 
+// The tweens of the named values of one session: the costs of the dashboard.
+export type NamedShown = { sessionId: string | null; tweens: Record<string, Tween> }
+
 // One subagent of the session, as the pane lists it. `runs` counts completed runs: a
 // message to a completed agent starts it again under the same id. `stopped` is a run that
 // ended with no answer: killed, failed or aborted.
@@ -133,6 +136,8 @@ export type Cell = {
   bold?: boolean
   spin?: boolean
   since?: number
+  // A cost in US dollars, drawn after `text`. A changed cost runs to its new value.
+  usd?: number
   width?: number
   align?: 'right'
 }
@@ -168,6 +173,7 @@ declare module 'claude-code' {
       agents: Agents
       pane: PaneView
       paneData: PaneData
+      paneShown: NamedShown
       spin: number
       ttls: { main: '5m' | '1h'; agent: '5m' | '1h' } | null
     }
