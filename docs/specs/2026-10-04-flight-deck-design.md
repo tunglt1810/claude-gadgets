@@ -1,153 +1,388 @@
 # flight-deck: design spec
 
-## Goal
-A Claude Code mod (hot-reloadable plugin) that draws one band above the prompt tracking the current session. One module runs on the CLI (`terminal`) and Claude Desktop (Code tab, `desktop`).
+Status: this spec describes version 0.3.2. It is the full spec of the mod. It includes the agent pane design and the agent stop detection analysis, which were two specs of their own before (2026-10-06). The git history has those files.
 
-## Scope (agreed)
-- Input, output and cache-hit tokens, accumulated per session.
-- Total number of tool calls.
-- Total time the model has been working (union of `turn.start` -> `turn.complete` intervals, aborted/error turns included; overlapping turns are not double counted; the clock runs live while a turn is active; `workMs` survives resume).
-- Cache countdown with styling. Default TTL is 5 minutes; `userConfig.cacheTtl` (`5m` | `1h`) switches to 1 hour.
-- Styling on the whole band, not only the countdown.
-- Data survives session resume.
-- Out of scope: detail pane, status line, marketplace, TTL auto-detection.
+## 1. Goal
 
-## Conventions
-- Docs, code comments, identifiers and commit messages are in English (chat with the user stays Vietnamese).
-- Toolchain: Bun (install and scripts), TypeScript 7, Biome (lint + format). Every dependency is pinned to an exact version (`bunfig.toml` sets `exact = true`, `bun.lock` is committed, CI/dev installs use `--frozen-lockfile`).
-- Pinned versions at design time (checked against the registry on 2026-10-04): `typescript@7.0.2`, `@biomejs/biome@2.5.15`. No other runtime or dev dependency (the plugin runtime is the engine's; tests use `claude-code/testing`).
+`flight-deck` is a Claude Code mod. It shows the cost and the activity of the current session.
 
-## Repo layout (monorepo, one plugin per mod)
+- A band above the prompt shows tokens, tool calls, agents, working time, cost, changed lines and a prompt cache countdown.
+- A pane shows a cost dashboard, the agents of the session and the transcript of each agent.
+
+One module runs on the CLI (`terminal`) and on Claude Desktop (`desktop`).
+
+## 2. Scope
+
+In scope:
+
+- Session totals that include each loop: the main loop, each subagent and each agent below a subagent.
+- The numbers of one agent while its transcript is in view.
+- An estimated cost for each model, and the cost that no model row holds.
+- Data that stays available after `--resume`, after an in-process resume and after `/clear`.
+
+Out of scope:
+
+- A status line and a marketplace entry.
+- An agent that started before the engine loaded the mod.
+- The agents of other sessions.
+- A change to the Desktop transcript viewer. The mod draws its own pane.
+
+## 3. Compatibility and conventions
+
+- The tests of the mod run against Claude Code 2.1.291 and Bun 1.4.2.
+- The plugin API is EARLY ACCESS. A new release can change it without notice.
+- Docs, code comments, identifiers and commit messages are in English.
+- Each dependency has an exact version (`bunfig.toml` sets `exact = true`).
+- `hooks/register.tsx` connects events to state. Pure logic is in `src/` and has unit tests that do not use the engine.
+- `bun run check` runs the lint, the typecheck, `claude plugin validate` and the tests. It must pass before a change is complete.
+
+## 4. Files
+
+| File | Function |
+| --- | --- |
+| `hooks/register.tsx` | The event hooks, the state atoms, the timers and the store calls. |
+| `src/usage.ts` | Token totals, cache hit percent, advisor calls and advisor cost. |
+| `src/snapshot.ts` | The stored snapshot: empty value, defensive read, session index. |
+| `src/work.ts` | Working time as a union of intervals. |
+| `src/ttl.ts` | The prompt cache lifetime rule. |
+| `src/price.ts` | The price table and the cost of a set of tokens. |
+| `src/dashboard.ts` | The rows of the cost dashboard. |
+| `src/countdown.ts`, `src/format.ts` | Countdown tones and number formats. |
+| `src/layout.ts`, `src/band.tsx` | The band: segments, drop order, drawing. |
+| `src/tween.ts` | The count animation. |
+| `src/agents.ts` | The numbers of each agent and the agent view. |
+| `src/registry.ts`, `src/tree.ts`, `src/table.ts` | The agent registry, its tree order and the table columns. |
+| `src/transcript.ts`, `src/summary.ts`, `src/clip.ts` | Transcript items, tool summaries and line limits. |
+| `src/pane.tsx`, `src/paneData.ts`, `src/cell.ts`, `src/cellClient.tsx` | The pane and its cells. |
+| `src/palette.ts`, `src/spinner.ts`, `src/diff.ts`, `src/action.ts` | Colors, the spinner, changed lines, pane button actions. |
+| `types/index.d.ts` | The types of the state and of the data. It has no imports. |
+
+## 5. Events
+
+The mod hooks these events. Each hook passes the event on with `next(e)`.
+
+| Event | Effect |
+| --- | --- |
+| `session.start` | Load the session. Start the one-second tick when the cache is live. Register `/agent-log`. |
+| `turn.start` | Open a work interval of the main loop. Set the start of the advisor cost growth. |
+| `turn.step` | Add the usage to the totals, to the model and to the agent. Price the step. Count advisor calls. Count a new agent. Open a work interval for an agent. |
+| `tool.call` | Count the call. Count changed lines. Count a background task. |
+| `agent.spawn` | Count the agent. Add it to the registry with its type, description, name and parent. |
+| `turn.complete` | Main loop: close the work interval, read the ledger, settle the advisor cost. Agent: close its work interval and count a run. |
+| `prompt.submit` | A task notification with `killed`, `failed` or `completed` ends the agent and its work interval. |
+| `session.measure` | Store the session cost. Settle the advisor cost between turns. |
+| `command.run`, `ui.focus`, `ui.close`, `ui.render` | The pane and the band. |
+
+Rules for the hooks:
+
+- `turn.step` is a streaming event. The hook is `async function*` and uses `const res = yield* next(e)`.
+- The updater computes each state change (`update($, atom, c => ...)`). Thus concurrent events do not overwrite each other.
+- `ui.render` writes no state.
+- `session.start` does not fire on `/clear` or on an in-process resume. Each hook compares `$.session.id()` with the id of the loaded data and loads again when they are different.
+
+Facts about the events, from live probes on 2.1.288 to 2.1.291:
+
+- A subagent raises `turn.step`, `tool.call` and `turn.complete` with an `agentId`. It raises no `turn.start`.
+- A skill that runs in a subagent (`context: fork`) runs in the same session. It raises no `agent.spawn`.
+- When the user types such a skill as `/skill`, the main loop raises no `turn.start`, no `turn.complete` and no `prompt.submit`.
+- `session.measure` does not arrive in a fixed order relative to `turn.step`. It can arrive before or after the hook of a step counts that step.
+
+## 6. Data
+
+### 6.1 Snapshot
+
+The mod stores one snapshot for each session in `$.store` with the key `session:<id>`.
+
+| Field | Meaning |
+| --- | --- |
+| `totals` | `input`, `output`, `cacheRead`, `cacheWrite` tokens of all loops. |
+| `tools` | The number of tool calls. |
+| `lastStepAt` | The time when the main loop sent its last request. |
+| `workMs` | The closed working time. |
+| `costUsd` | The session cost from the engine ledger. |
+| `added`, `removed` | The changed lines that the mod counted. |
+| `agents`, `bg` | The number of agents and of background tasks. |
+| `byAgent` | For each agent: its totals, tool calls, changed lines, last step time and parent id. |
+| `byModel` | The tokens of each model. |
+| `costByModel` | The estimated cost of each model, priced at each step. |
+| `advisor` | `calls`, `ms`, `usd`, `base`, `model`, `pending`. See section 9.4. |
+| `mainModel` | The model of the main loop. |
+
+- The read of a stored snapshot is defensive. A field that is absent or not a number reads as zero.
+- Live state stays after a hot reload. When the state has an older shape, the mod loads the snapshot again from the store.
+- The store keeps the 50 most recent sessions.
+
+### 6.2 Runtime state
+
+The meter is the snapshot plus `sessionId`, `active`, `busySince` and `working`. The mod does not store these four fields.
+
+Other atoms: `now`, `shown` (the count animation), `agents` (the registry), `pane` (the pane view), `paneData` (the data that the pane draws), `spin` and `ttls`.
+
+### 6.3 Agent registry
+
+The mod stores the registry with the key `agents:<sessionId>`. One entry for each agent:
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `parentId` | The agent id and the id of the agent that started it. |
+| `type`, `description`, `name` | From `agent.spawn` or from `$.agent.list()`. |
+| `model`, `effort` | From the latest step of the agent. |
+| `status` | `running`, `idle` or `stopped`. |
+| `runs` | The number of runs that ended with an answer. |
+| `startedAt`, `endedAt` | The time of the first event and of the last end. |
+
+## 7. Counts
+
+- Tokens: the mod sums the `usage` of each `turn.step`. It never sums `turn.complete`.
+- `in` is each prompt token: `input + cacheRead + cacheWrite`. `input_tokens` alone is only the part that the cache does not hold.
+- Cache hit percent: `cacheRead / (input + cacheRead + cacheWrite)`.
+- `calls`: one for each `tool.call` that the user or a rule did not deny.
+- `diff`: the `+` and `-` lines of `structuredPatch`, or each line of `content` when the patch is empty. A failed or denied call counts nothing. This number is not `git diff`.
+- `bg`: one for each successful tool call with `run_in_background: true`, and one for each successful `Monitor` call. An `Agent` call is not counted here.
+- `agents`: one for each agent, at the first sign of it. The first sign is its `agent.spawn` or its first `turn.step`. The mod counts each agent one time.
+
+## 8. Working time
+
+Working time is the union of work intervals. `active` counts the open intervals, and `busySince` is the start of the union.
+
+- `turn.start` opens an interval of the main loop. The `turn.complete` of the main loop closes it. The time of an aborted turn counts.
+- The first step of a run of an agent opens an interval for that agent. The `turn.complete` of the agent closes it.
+- A task notification of the agent also closes its interval, because a killed agent possibly raises no `turn.complete`.
+- Intervals that overlap count one time. Thus an agent that runs in a turn of the main loop adds no time.
+- A background agent that runs after the turn of the main loop adds its time.
+- The clock runs live while an interval is open.
+
+## 9. Cost
+
+### 9.1 Sources
+
+- The session total is `cost.usd` of `session.measure` and of `$.session.usage()`. It is the engine ledger. The mod stores the latest value and never sums it.
+- The plugin API gives no cost for each model. The mod estimates it from the tokens of each step.
+
+### 9.2 Price of a step
+
+- `src/price.ts` has the first-party prices for each million tokens (2026-09-25). Update the table when the prices change.
+- A cache read costs the `read` price of the model, or 0.1 times the input price.
+- A cache write costs 1.25 times the input price for a 5m lifetime and 2 times for a 1h lifetime.
+- The mod prices each step when it arrives, with the lifetime of its loop. The main loop uses `main`. Each other loop uses `agent`.
+- A model that is not in the table has no price. Its row shows `—`.
+
+For `claude-opus-5-5` on a 1h main loop, the estimate was equal to the engine ledger to 7 decimal places in two sessions.
+
+### 9.3 Cache lifetime
+
+The engine selects the lifetime in this order. The mod follows the same order, as far as a plugin can see it.
+
+1. `FORCE_PROMPT_CACHING_5M` gives 5m for each loop.
+2. `CLAUDE_CODE_PROMPT_CACHE_TTL` (main loop) and `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL` (each other loop).
+3. The settings `promptCacheTtl` and `subagentPromptCacheTtl`.
+4. `ENABLE_PROMPT_CACHING_1H` gives 1h.
+5. The default. The main loop of a subscriber uses 1h, and each other loop uses 5m.
+
+For step 5, the mod cannot read the account type. The option `cacheTtl` (`1h` by default) is the lifetime of the main loop. When a `five_hour` or `seven_day` rate-limit window is at 100 percent or more, the main loop uses 5m.
+
+A plugin cannot see these inputs:
+
+- The `cacheTtl` field in the frontmatter of an agent.
+- An account that is not a subscriber. Set the option `cacheTtl` to `5m` for it.
+- The remote flag that names the loops with a 1h lifetime.
+
+### 9.4 Advisor
+
+The API runs the advisor in a step. The `usage` of the step does not include the tokens of the advisor, and the plugin API does not give them. The engine ledger includes their cost at the price of the advisor model.
+
+- `turn.step` gives the advisor calls in `serverToolUses`. The mod counts each call and adds its time (`endedAt - startedAt`).
+- The label of the row uses the `advisorModel` setting.
+- A call with no result has no time and no cost to settle.
+- The cost is an estimate: the growth of the rest since the turn started. The rest is the ledger cost minus `costByModel`.
+- `turn.start` stores the rest as `base`. A call with a result sets `pending`.
+- The mod settles at the `turn.complete` of the main loop, where it reads the ledger with `$.session.usage()`. It also settles at a `session.measure` between turns and at the next `turn.start`.
+- The mod does not settle while a turn of the main loop is open or while a step is in flight. The ledger can hold a step before the hook counts that step.
+- A rest that did not grow means that the ledger does not hold the call yet. The call stays `pending`.
+
+In two live sessions the estimate was 0.5 and 0.7 percent below the ledger. The cause: the API writes the cache for 5m after an advisor call, and the mod prices that write at 1h.
+
+### 9.5 Side requests
+
+The `side requests` row is the ledger cost that no model row and no advisor cost holds. It is not a model.
+
+- A prompt suggestion is one known source. After each response, the engine sends a request to the model of the session. A live test showed a rest of zero with suggestions off, and a rest above zero with suggestions on.
+- Compaction and other requests that are not a step of a loop are also in this row.
+- The auto-mode permission classifier is not in this row. Its cost is not in the engine ledger.
+- The row is absent when its value is below half a cent, or when a model row has no price.
+
+## 10. Band
+
+The band is one row above the prompt (`AbovePrompt`). Each metric is `icon label value`. A `│` separates the groups.
+
 ```
-claude-gadgets/
-├── package.json  bunfig.toml  bun.lock  biome.json  tsconfig.base.json
-├── mods/flight-deck/
-│   ├── .claude-plugin/plugin.json      # name, version, types, userConfig.cacheTtl
-│   ├── hooks/{hooks.json, register.tsx}
-│   ├── src/{usage,format,countdown,work,snapshot}.ts, band.tsx
-│   ├── types/index.d.ts                # PluginState contract
-│   ├── tsconfig.json
-│   └── *.test.ts
-├── docs/{specs,plans}/
-├── .tmp/                               # gitignored scratch
-└── README.md                           # how to load/develop a mod
+↑ in 12.5k  ↓ out 3.1k  ◈ hit 89% │ ⌘ calls 14  [ ▸ agents 2 ]  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30 │ ◔ cache 3:42 ━━━━━━━━━━
 ```
-A new mod is a new `mods/<name>/`. No shared `packages/` yet (YAGNI); extract one when a second mod needs shared code. `mods/*/.claude-plugin/types/` is engine-generated and gitignored.
 
-Dev loop: `claude --plugin-dir mods/<name>` (hot reload; a symlink is watched at its target). Desktop: set `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`. Relative static `import`s between the plugin's `.ts`/`.tsx` files work; dynamic `import()` does not.
+- No emoji. Each drawn character has a width of one cell.
+- The band fits `e.props.bodyColumns`. On a narrow width it drops parts in this order: bar, bg, diff, hit, calls, work, cost, out, in, agents.
+- The `agents` part is a button. It opens and closes the pane. Its mark is `▸` for a closed pane and `▾` for an open pane.
+- Cache hit: green from 70 percent, yellow from 40 percent, red below 40 percent.
+- Countdown: `lastStepAt + lifetime - now`. Green above 60 s, yellow from 15 s to 60 s, red below 15 s with a pulse, dim when expired.
+- The bar after the countdown has 10 cells. An expired cache has no bar.
+- The work clock is bold while an interval is open.
+- A one-second tick redraws the band while the cache is live or a turn is open.
 
-## Design
-**Data**
-- `turn.step` -> `usage` (`input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`) is summed into totals; the main thread's step also sets `lastStepAt`.
-- `tool.call` -> `tools += 1`.
-- Cache hit % = `cache_read / (input + cache_read + cache_creation)`.
-- Countdown = `lastStepAt + ttl - now`, ticked once a second by `$.clock.every` while the band matters.
-- Work time: `turn.start` opens an interval (`active` counter, `busySince`), `turn.complete` closes it and adds to `workMs`.
+### 10.1 Count animation
 
-**State:** `$.state` atoms for drawn values (`meter`, `now`), declared in `types/index.d.ts`.
-
-**UI:** a `ui.render` hook on `{ component: 'AbovePrompt' }`, elements from `$.ui.resolve(e)`. Example: `↓12.4k ↑3.1k ⚡89% · 🔧14 · ⏱12:05 · ⏳3:42`.
-- Countdown: green above 60s, yellow 15-60s, red and pulsing below 15s, dim with strikethrough once expired; plus a small progress bar.
-- Cache-hit %: green >= 70%, yellow 40-70%, red < 40%.
-- Work clock: blue, bold while a turn is running.
-- One color table shared by both surfaces.
-
-**Persistence / resume**
-- After each `turn.step`, `tool.call` and `turn.complete`, write `{ totals, tools, lastStepAt, workMs }` to `$.store` under `session:<id>`.
-- Every read/write compares `$.session.id()` with the id the atoms were loaded for and reloads from `$.store` on mismatch. This covers `--resume`, in-process resume and `/clear` without relying on `session.start`.
-- To verify when implementing: whether `--resume` keeps the old id or issues a new one. If it issues a new one and totals are lost, take the target id from `session.end` (`e.resume.id`).
-- After resume `lastStepAt` may be past the TTL, so the countdown shows "expired".
-
-## Post-verification amendments
-- Subagents: `turn.step` carries `agentId` (absent on main). Only main-thread steps update `lastStepAt` (subagents have their own caches). Totals include subagents. Sum `turn.step` only, never `turn.complete`.
-- No blink: `Text` has no blink prop (only `strikethrough`, `bold`, `dimColor`, ...). Pulsing alternates `bold`/`inverse` per tick.
-- `$.session.usage()` has no cumulative tokens (context, rate limits, cost only), so totals are accumulated from `turn.step`.
-- README notes: a session using the 1-hour cache should set `cacheTtl=1h` (default stays `5m`).
-
-- After review: a subagent's `turn.complete` (no `turn.start`, has `agentId`) is ignored by the work clock; state updates compute inside `update` so concurrent events do not overwrite each other; the band reads the stored snapshot when the live state belongs to another session; `lastStepAt` is the time the request was sent; `session.start` (re)starts the tick when the cache is still live (`--resume`, hot reload).
-
-- Restyle (after seeing it on Desktop): Monokai Pro hex palette (`src/palette.ts`); no emoji (double width, misaligned, overlapped text), plain labels instead: `↓12.4k · ↑3.1k · hit 89% · tools 14 · work 12:05 · cache 3:42 ━━━━━━╌╌╌╌`; the old `░` bar drew as a gray block, now a thin `━` line (filled in the tone color, track `#403e41`); one non-wrapping row that drops parts (bar, hit, tools, work, out, in) until it fits `bodyColumns`.
-
-- `↓` is every prompt token (`input + cacheRead + cacheWrite`): `input_tokens` alone is only the uncached remainder (a warm cache shows `↓16`). The band root is a single `Text` with nested `Text`s instead of a `Box` row, (kept as a single row). The extra blank row under the band is not caused by the tree: plain Ink renders every variant (Box row, nested Text) as exactly 1 line, and the engine's `AbovePromptSite` (`flexDirection: column`, `maxHeight`, no margin/padding) adds none. It is the engine's own spacing above the prompt rule.
-
-- Grouping and icons (supersedes the plain-label format above): `↓12.5k ↑3.1k ◈ 89% │ ⌘ 14 ◷ 12:05 │ ◔ 3:42 ━━━━━━━━━━` = tokens │ activity │ cache. Icons are single-width, text-presentation characters (`◈` hit, `⌘` tools, `◷` work time, `◔` cache countdown; arrows for in/out), never emoji (those are double width and misaligned the row). Narrow widths drop, in order: bar, hit, tools, work, out, in; empty groups and their separators disappear.
-
-- Labels (supersedes the icon-only format above): every metric is `icon label value` with identical spacing, input and output included: `↓ in 12.5k  ↑ out 3.1k  ◈ hit 89% │ ⌘ tools 14  ◷ work 12:05 │ ◔ cache 3:42 ━━━━━━━━━━`. Two spaces between metrics in a group.
-
-- Final wording: input goes up to the server (`↑ in`), output comes back down (`↓ out`); the tool-call counter is labelled `calls`: `↑ in 12.5k  ↓ out 3.1k  ◈ hit 89% │ ⌘ calls 14  ◷ work 12:05 │ ◔ cache 3:42 ━━━━━━━━━━`.
-
-- Cost and diff (the status line's figures, in a third group): `… │ ⌘ calls 14  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30 │ ◔ cache 3:42 ━━━━━━━━━━`. Cost is `session.measure`'s `cost.usd` (the engine's session total: stored as the latest figure, never summed). The plugin API does not expose the status line's `total_lines_added`/`total_lines_removed`, so the mod counts them itself from `tool.call` results, following the engine's rule as read from 2.1.289 (parity is not proven for an edit whose patch is empty): the `+` and `-` lines of `structuredPatch`, or every line of `content` when the patch is empty (a created file); failed and denied calls count nothing. This is not `git diff`: repeated edits add up, manual edits are not counted, a commit does not reset it. Drop order is now bar, diff, hit, calls, work, cost, out, in.
-
-## Count animation (added 2026-10-05)
-When a count changes, the band shows the number as it runs from the old value to the new value.
-
-**Scope**
 - The animated counts are `in`, `out`, `calls`, `cost` and the two `diff` numbers.
-- `work`, `cache` and `hit` are not animated. `work` and `cache` already change each second.
+- One run has a duration of 400 ms and an ease-out curve. A frame tick of 60 ms redraws the band.
+- A change during a run starts a new run from the value on the screen.
+- A loaded session shows its stored counts immediately.
+- The band uses the target values to select the parts that it drops.
 
-**Rules**
-- One run has a duration of 400 ms and uses a cubic ease-out curve.
-- If a count changes during a run, the new run starts from the value on the screen.
-- When the mod loads a session, the band shows the stored counts immediately. It does not count up from zero.
-- The band never shows the values of a different session.
-- Token, call and line counts are integers in each frame. Cost keeps its decimal part, and the band rounds it to the cent.
-- The band uses the target values to select the parts that it drops. As a result, a part does not come into view and go out of view during a run.
+### 10.2 Agent view
 
-**Structure**
-- `src/tween.ts` contains the shared logic. It does not use the engine. All animated counts go through it.
-- The `shown` atom holds one tween (`from`, `to`, `startedAt`) for each count, and the session id.
-- An event that changes a count sets a new target in `shown`. The updater calculates the new tween.
-- A frame tick of 60 ms writes `now`, and that write redraws the band. Each tick also sets the targets again from the current meter. The tick stops when all counts are at their targets.
-- `ui.render` only reads `shown` and `now`. It calculates the displayed value from them.
-- The one-second tick does not change.
+When the transcript of an agent is in view (`e.props.view.agentId`), the band shows that agent and each agent below it.
 
-**Alternative that was not used**
-- A `Client` element for each number can hold local state and a frame clock. But a `Client` is a region, and you cannot put it in a `Text` element. With a `Client`, the band is a `Box` row. Then the width calculation in `bandSegments` is not correct.
+- The band starts with `◆ agent` and the model of the agent.
+- It does not show `cost`, `work`, `agents` or `bg`. These numbers are available for the session only.
+- The countdown uses the last step of that agent and the `agent` lifetime.
+- The numbers are not animated.
 
-## Tests (`claude plugin test`)
-- Usage accumulation across steps; `null` usage and missing fields.
-- Token and duration formatting; cache-hit %.
-- Countdown and cache-hit tone thresholds; expired/unknown states.
-- Work time: single turn, overlapping turns, aborted turn.
-- Reload after resume (same id and changed id).
-- Band renders on `terminal` and `desktop`.
-- Count animation: start, middle and end of a run; a change during a run; a loaded session; a different session; the parts that the band drops.
+## 11. Pane
 
-## Risks
-- The plugin API is EARLY ACCESS and may change between releases.
-- Claude Desktop may not draw `AbovePrompt` the same way as the terminal; check with a `surface: 'desktop'` test, then run it for real.
-- TypeScript 7 is the native compiler; the engine-generated `tsconfig.json` and types must work with it. Verify in Task 0 and fall back to the engine's documented `tsc` setup if not.
+The pane opens from the `agents` button and from the `/agent-log` command. It has two screens.
 
-## Subagents and background tasks (added 2026-10-05)
-The band counts the subagents and the background tasks that the session starts. It also shows the numbers of one subagent when the transcript of that subagent is on the screen.
+### 11.1 Dashboard
 
-**Spawn counts**
-- `◆ agents` increases by one when `agent.spawn` returns an `agentId`. A refused spawn is not counted.
-- `◇ bg` increases by one when a tool call with `run_in_background: true` is successful. It also increases by one when a `Monitor` call is successful. An `Agent` call is not counted here, because `agent.spawn` counts it.
-- The two counts are in the activity group: `⌘ calls 14  ◆ agents 2  ◇ bg 1  ◷ work 12:05`. They are not animated.
-- Drop order is now bar, bg, agents, diff, hit, calls, work, cost, out, in. The full band is wider than 120 columns.
+The dashboard is above the agents table.
 
-**Session totals**
-- The session totals include each loop: the main loop, each subagent and each agent that a subagent starts.
-- This behavior did not change. Tests now make sure that it stays correct.
+```
+total ≈$1.42
+model          cost($) cost(%)      time    runs
+opus-5-5         ≈1.12     79%      4:22  main+1
+advisor·opus     ≈0.21     15%      0:15       2
+side requests    ≈0.08      6%
+```
 
-**Data for each agent**
-- The snapshot has a `byAgent` table. The key is the agent id.
-- Each entry contains the tokens, the tool calls and the changed lines of that agent.
-- Each entry also contains the time of the last step of that agent and the id of its parent agent.
-- `turn.step` and `tool.call` write the entry of the agent that raised the event. `agent.spawn` writes the parent id.
-- A step of an agent can occur before `agent.spawn` returns. The entry keeps the numbers that it already has.
+- `total` is the engine ledger.
+- One row for each model that ran a step or an agent. The row with the highest cost is first.
+- `cost(%)` is the share of the row in the total. Its color is red from 50 percent, orange from 25 percent, yellow from 10 percent and dim below 10 percent.
+- `time` of a model is the working time of its agents. The model of the main loop also has the working time of the session.
+- `runs` of a model is the number of runs of its agents. The row of the main loop shows `main`, or `main+N` when N runs of agents used that model.
+- The advisor row is after the model rows. It shows its calls in `runs` and `—` as cost until the mod settles the cost.
+- The `side requests` row is last. It has no time and no runs.
 
-**Agent view**
-- `ui.render` reads `e.props.view.agentId`. When it has a value, the band shows the sum of that agent and of all the agents below it.
-- The band starts with `◆ agent │`. It does not show `cost`, `work`, `agents` or `bg`. These numbers are available for the session only.
-- The cache countdown uses the last step of that agent only.
-- The numbers in the agent view are not animated.
-- The 1 s tick continues while the cache of the main loop or of an agent is live.
+### 11.2 Agents table
 
-**Limits**
-- The mod counts an agent only if its events occur in this process.
-- A teammate in a terminal pane of its own runs no loop in this process (typings 2.1.289). The mod counts its spawn, but not its tokens or its tool calls.
-- The typings do not tell us if a remote agent (`isolation: 'remote'`) raises `turn.step` and `tool.call` in this process. No test of this was done.
-- The typings do not tell us that an agent of a workflow raises `agent.spawn`. `$.agent.list()` does not list such an agent. Thus `agents` possibly does not include it.
-- The tokens of an agent of a workflow are in the session totals, because its events have an `agentId`.
+- One row for each agent: a status mark, a button with the type and the description, the runs and the working time.
+- An agent that the main loop started is at depth 0. A child agent is below its parent with one more indent level.
+- The mark of a running agent is a green spinner. An idle agent has a dim mark, and a stopped agent has a red mark.
+- The button of an agent that does not run is dim. A button takes no color.
+- The runs and the time are green while the agent runs, and yellow for 5 minutes after it ends. After that they are dim.
+- The header has the same parts as a row: a cell as wide as a mark, and a box as wide as the name.
+- Thus `runs` and `time` are above their cells on each surface.
+- An empty registry shows `No agents yet.`
+
+### 11.3 Transcript screen
+
+A press on an agent opens its transcript. The mod reads it with `$.session.messages({ agentId })`. It does not store transcripts.
+
+- A toolbar with a back button and a wrap button.
+- A title row with the status mark, the type and the description.
+- A row with the model and the effort, the runs and the working time, with `·` between them.
+- A row with the tokens, the cache hit, the tool calls and the changed lines of the agent.
+- The transcript items: `prompt`, `text`, `tool` and `answer`. The answer of a run is the input of a `SubagentHandback` tool use.
+- A `tool` item is a button with one summary line. A press shows or hides its input and its result.
+- A `tool` item of an Agent call has a second button that opens the child agent.
+- The pane draws a maximum of 40 lines of an input and 40 lines of a result.
+- The pane draws the newest 300 items of a long transcript.
+- When the engine refuses the read, the pane shows the refusal text.
+- An event of the agent in view reads its transcript again. The mod discards a result for an agent that is no longer in view.
+
+### 11.4 Agent status
+
+Only events and the engine list set the status.
+
+- `agent.spawn`, `turn.step` and `tool.call` with an `agentId` set `running`.
+- `turn.complete` with an `agentId` and the reason `answer` sets `idle` and adds one run. Another reason sets `stopped` and adds no run.
+- A task notification with `killed` or `failed` sets `stopped`. One with `completed` sets `idle`.
+- Each of these events merges `$.agent.list()` into the registry. The merge adds an agent that raised no `agent.spawn`. It fills absent fields. It stops a running agent that the list shows as `failed` or `killed`.
+- When the mod loads a stored registry, it sets a running agent that the list does not show to `stopped`. The process of that agent ended.
+
+### 11.5 Rules for Claude Desktop
+
+Each of these rules comes from a failure on a live desktop.
+
+- A button handle lives for one drawing. A redraw during a click drops the click. `ui.render` reads only the data that it draws, and the mod writes that data only when its JSON changes.
+- An animation runs in a `Client` module with its own timer. The pane is not drawn again for it.
+- In a row with a button, each other cell is a `Client` with a fixed width. A `Text` does not line up with a button.
+- A box and a `Client` have widths in different units. Only parts of the same structure line up.
+- A click on a pane that does not hold the keys raises `ui.focus` and no press. The mod runs the action of the button from `ui.focus`.
+- `$.ui.open` `rows` and `columns` are requests. A desktop ignores them.
+
+### 11.6 Why the status has no timeout
+
+The mod does not use a timeout on the last event of an agent. An agent that waits for a permission gives the same signal as a dead agent. In one saved session, an agent showed no activity for 5.5 hours and was not dead. Its last record was a `Bash` tool use with no result.
+
+The pane does not show `killed` and `failed` as two states. `stopped` is sufficient.
+
+## 12. Tests
+
+`claude plugin test` runs the tests. Tests import from `claude-code/testing`.
+
+- Each file in `src/` has unit tests of its pure logic.
+- `hooks/register.test.ts` tests the hooks through the band and the pane. The UI tests run in a loop over `terminal` and `desktop`.
+- The test hooks are below the plugin and answer each event that the mod uses.
+- A new behavior starts with a test that fails.
+
+The tests include these cases:
+
+- Usage with `null` and absent fields.
+- The lifetime rule with each source.
+- A step priced by the lifetime of its loop.
+- The advisor cost with a measure in a turn and with a step in flight.
+- An agent with no spawn event.
+- A run of an agent outside a turn of the main loop.
+- A killed agent.
+- A session change, and state of an older shape.
+
+## 13. Probe record
+
+Throwaway probe mods ran in headless sessions (`claude -p`). These results are the base of the design.
+
+Agent transcripts (2.1.289):
+
+- `$.session.messages({ agentId })` gives all rows after the agent leaves `$.agent.list()`. The agent leaves the list at its `turn.complete`.
+- After `SendMessage` starts an agent again, the call gives the full history. The agent keeps its id and raises a second `turn.complete`.
+- After `--resume`, the session id stays the same and the data is available at `session.start`.
+- A tool result is a `user` row with an empty `text`. Its data is in `toolResults`.
+- One agent can run more than one time.
+
+Agent stops (2.1.290):
+
+- A killed subagent raises `turn.complete` with `reason: 'aborted'` and `isAborted: true`.
+- `prompt.submit` fires for a task notification with `origin.kind: 'task-notification'`. The text is in `e.text`. The probe ran with a turn in progress only.
+- `$.agent.list()` shows `killed` for a killed agent immediately, and for 30 s at a minimum.
+- `classic.SubagentStop` has no status field. It cannot tell a kill from a normal end.
+- `session.end` does not fire when the process dies.
+
+Cost and events (2.1.288 to 2.1.291):
+
+- The engine ledger includes the advisor at the price of the advisor model. In one session the ledger had 0.1737 dollars for it, and the mod estimated 0.1725.
+- With prompt suggestions off, the rest was zero. With them on, two suggestions on `claude-haiku-4-5` cost 0.018 dollars.
+- A skill with `context: fork` raised no `agent.spawn`, and the main loop raised no `turn.start`. The transcript of the skill is a sidechain of the same session.
+
+Open questions, with no probe:
+
+- What fires for an agent that fails with an API error.
+- If a background agent continues after the user interrupts the main turn.
+- If `$.agent.list()` shows `waiting` for an agent that waits for a permission.
+- What a foreground Agent call gives when the user interrupts it.
+
+## 14. Limits
+
+- The mod counts an agent only when its events occur in this process. It counts the spawn of a teammate in its own terminal pane, but not its tokens.
+- The typings do not say that an agent of a workflow raises `agent.spawn`. Its tokens are in the session totals, because its events have an `agentId`.
+- The advisor cost includes a side request that arrives in the same turn before the mod settles.
+- On a desktop, the color of a recent agent changes only when the pane is drawn again.
+- Not verified live: a session over a plan limit.
+- Not verified live: a background agent that runs at the same time as an advisor call.
+- Not verified live: the alignment of the agents table header on a desktop.
+- The overage rule and the default lifetime are estimates of account state that a plugin cannot read.

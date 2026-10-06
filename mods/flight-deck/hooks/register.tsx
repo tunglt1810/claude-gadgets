@@ -35,13 +35,19 @@ import { transcriptItems } from '../src/transcript'
 import { cacheTtls, isOverLimit, type Ttl } from '../src/ttl'
 import { countsOf, isSettled, retargetShown, shownAt, snapShown } from '../src/tween'
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
-import { endTurn, startTurn } from '../src/work'
+import { endRun, endTurn, startRun, startTurn } from '../src/work'
 import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
 
 type Api = EngineInterface
 type Ttls = { main: Ttl; agent: Ttl }
 
-const initialMeter: Meter = { ...emptySnapshot(), sessionId: null, active: 0, busySince: null }
+const initialMeter: Meter = {
+  ...emptySnapshot(),
+  sessionId: null,
+  active: 0,
+  busySince: null,
+  working: [],
+}
 const meter = atom({ plugin: 'flight-deck', key: 'meter' } as const, initialMeter)
 const nowAtom = atom({ plugin: 'flight-deck', key: 'now' } as const, 0)
 const shown = atom(
@@ -85,6 +91,7 @@ async function ensureLoaded($: Api): Promise<string> {
     sessionId: id,
     active: c.active,
     busySince: c.busySince,
+    working: c.working ?? [],
   }))
   // A loaded session shows its counts at once: no count-up from zero.
   await update($, shown, () => snapShown(id, countsOf(snap)))
@@ -300,6 +307,9 @@ async function loadTtls($: Api, settings: Record<string, unknown>, option: unkno
   return next
 }
 
+// The open turns of the main loop: the open intervals that are not a run of an agent.
+const mainTurns = (m: Meter): number => m.active - (m.working ?? []).length
+
 // The steps whose request is out and whose usage is not counted yet. The engine's ledger can
 // hold such a step already, so the cost of the advisor is not settled while one is in flight.
 let stepsInFlight = 0
@@ -354,7 +364,13 @@ async function currentMeter($: Api): Promise<Meter> {
   const cur = await read($, meter)
   if (cur.sessionId === id && isComplete(cur)) return cur
   const snap = parseSnapshot(await $.store.get(storeKey(id)))
-  return { ...snap, sessionId: id, active: cur.active, busySince: cur.busySince }
+  return {
+    ...snap,
+    sessionId: id,
+    active: cur.active,
+    busySince: cur.busySince,
+    working: cur.working ?? [],
+  }
 }
 
 export const register: Register = (on, options) => {
@@ -379,6 +395,13 @@ export const register: Register = (on, options) => {
     // The cache is refreshed when the request is processed, not when the response ends.
     const sentAt = await $.clock.now()
     stepsInFlight++
+    // A run of an agent has no start event: its first step opens its working time.
+    const runner = e.agentId
+    if (runner !== undefined) {
+      await ensureLoaded($)
+      await update($, meter, (c) => ({ ...c, ...startRun(c, runner, sentAt) }))
+      startTimer($, (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl))
+    }
     try {
       const res = yield* next(e)
       const id = await ensureLoaded($)
@@ -513,7 +536,7 @@ export const register: Register = (on, options) => {
     // Between turns the ledger may now hold a turn that called the advisor: settle its cost.
     const nextMeter = await update($, meter, (c) => {
       const measured = { ...c, costUsd: usd }
-      return c.active > 0 || stepsInFlight > 0
+      return mainTurns(c) > 0 || stepsInFlight > 0
         ? measured
         : { ...measured, advisor: settled(measured) }
     })
@@ -542,6 +565,9 @@ export const register: Register = (on, options) => {
     const agentId = e.agentId
     if (agentId !== undefined) {
       const session = await ensureLoaded($)
+      const at = await stamp($)
+      const nextMeter = await update($, meter, (c) => ({ ...c, ...endRun(c, agentId, at) }))
+      await save($, session, nextMeter)
       const end = e.reason === 'answer' ? completed : stopped
       await trackAgent($, session, (r, t) => end(r, agentId, t))
       await refreshViewed($, agentId)
@@ -554,7 +580,9 @@ export const register: Register = (on, options) => {
     const usd = (await $.session.usage()).cost?.usd
     const nextMeter = await update($, meter, (c) => {
       const ended = { ...c, ...endTurn(c, at), ...(usd === undefined ? {} : { costUsd: usd }) }
-      return ended.active > 0 || stepsInFlight > 0 ? ended : { ...ended, advisor: settled(ended) }
+      return mainTurns(ended) > 0 || stepsInFlight > 0
+        ? ended
+        : { ...ended, advisor: settled(ended) }
     })
     await save($, id, nextMeter)
     await syncPane($)
@@ -567,6 +595,9 @@ export const register: Register = (on, options) => {
     const notice = e.origin.kind === 'task-notification' ? taskNotice(e.text) : null
     if (notice !== null) {
       const session = await ensureLoaded($)
+      // A killed agent raises no turn.complete: its working time ends here.
+      const at = await stamp($)
+      await update($, meter, (c) => ({ ...c, ...endRun(c, notice.id, at) }))
       await trackAgent($, session, (r, t) => ended(r, notice.id, notice.status, t))
     }
     return res

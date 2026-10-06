@@ -45,6 +45,8 @@ export type Meter = Snapshot & {
   sessionId: string | null
   active: number
   busySince: number | null
+  // The agents whose run holds a work interval.
+  working: string[]
 }
 
 // One animated number: it moves from `from` to `to`, starting at `startedAt`.

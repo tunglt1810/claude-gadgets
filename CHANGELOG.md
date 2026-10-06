@@ -9,6 +9,18 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+### [0.3.2] - 2026-10-06
+
+Tested on Claude Code 2.1.291.
+
+#### Fixed
+
+- The working time left out a run of an agent outside a turn of the main loop: a skill that runs in a subagent and is typed as `/skill`, or a background agent after the turn ended. A run of an agent now holds a work interval from its first step to its end.
+
+#### Changed
+
+- `docs/specs/2026-10-04-flight-deck-design.md` is now the full spec of the mod. It includes the agent pane spec and the agent stop detection spec, which are removed.
+
 ### [0.3.1] - 2026-10-06
 
 Tested on Claude Code 2.1.291.

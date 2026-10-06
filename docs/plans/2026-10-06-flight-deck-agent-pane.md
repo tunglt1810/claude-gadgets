@@ -8,7 +8,7 @@
 
 **Tech Stack:** Claude Code plugin API 2.1.289 (early access), TypeScript 7.0.2, Bun 1.4.2, Biome 2.5.15, `claude-code/testing`.
 
-**Spec:** `docs/specs/2026-10-06-flight-deck-agent-pane-design.md`. Read it before Task 1.
+**Spec:** `docs/specs/2026-10-04-flight-deck-design.md` (sections 6.3, 11 and 13). The pane design was a spec of its own before.
 
 ## Global Constraints
 

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Claude Code plugin API 2.1.290 (early access), TypeScript, Bun, `claude-code/testing`.
 
-**Spec:** `docs/specs/2026-10-06-agent-stop-detection-analysis.md`.
+**Spec:** `docs/specs/2026-10-04-flight-deck-design.md` (sections 11.4, 11.6 and 13). The analysis was a spec of its own before.
 
 ## Probe results (2.1.290, `.tmp/stop-probe/`, run with `claude -p`)
 

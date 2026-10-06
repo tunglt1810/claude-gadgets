@@ -1641,3 +1641,46 @@ test('a spawn that arrives after the first step of its agent does not count it a
   await spawn($)
   expect(await settled($, clock)).toContain('▸ agents 1 ')
 })
+
+// A skill that runs in a subagent, typed as `/skill`, raises no turn.start and no turn.complete
+// of the main loop: the run of the agent is the working time.
+test('the working time covers a run of an agent outside a turn of the main loop', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+  await runStep($, { ...STEP, agentId: 'skill1' })
+  await clock.advance(3000)
+  await runStep($, { ...STEP, index: 1, agentId: 'skill1' })
+  await clock.advance(2000)
+  await completeAgent($, 'skill1')
+  await clock.advance(4000)
+  expect(await settled($, clock)).toContain('◷ work 0:05')
+})
+
+test('a run of an agent inside a turn of the main loop is not counted twice', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+  await $.turn.start({ text: 'a', turnId: 't1' })
+  await clock.advance(1000)
+  await runStep($, { ...STEP, agentId: 'a1' })
+  await clock.advance(2000)
+  await completeAgent($, 'a1')
+  await clock.advance(1000)
+  await $.turn.complete({ ...DONE, turnId: 't1' })
+  expect(await settled($, clock)).toContain('◷ work 0:04')
+})
+
+test('a killed notification ends the working time of the agent', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+  await runStep($, { ...STEP, agentId: 'a1' })
+  await clock.advance(3000)
+  await notify($, 'a1', 'killed')
+  await clock.advance(5000)
+  expect(await settled($, clock)).toContain('◷ work 0:03')
+})
