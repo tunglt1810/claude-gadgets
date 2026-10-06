@@ -1,15 +1,15 @@
 {
   "name": "flight-deck",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Band tracking session tokens, tool calls, model working time and cache countdown, with a pane that shows each subagent's transcript",
   "types": "./types/index.d.ts",
   "userConfig": {
     "cacheTtl": {
       "type": "string",
       "title": "Cache TTL",
-      "description": "Prompt cache lifetime used by the countdown",
+      "description": "Prompt cache lifetime of the main loop, for the countdown and the cost, unless the promptCacheTtl setting names one",
       "options": ["5m", "1h"],
-      "default": "5m"
+      "default": "1h"
     }
   },
   "author": {

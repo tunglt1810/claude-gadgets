@@ -7,6 +7,7 @@ import { ttlMs } from '../src/countdown'
 import { linesChanged } from '../src/diff'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
+import { costOf } from '../src/price'
 import {
   agentsKey,
   completed,
@@ -31,13 +32,14 @@ import {
 } from '../src/snapshot'
 import { SPIN_MS } from '../src/spinner'
 import { transcriptItems } from '../src/transcript'
+import { cacheTtls, isOverLimit, type Ttl } from '../src/ttl'
 import { countsOf, isSettled, retargetShown, shownAt, snapShown } from '../src/tween'
-import { addUsage, emptyTotals } from '../src/usage'
+import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
 import { endTurn, startTurn } from '../src/work'
 import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
 
 type Api = EngineInterface
-type Ttl = '5m' | '1h'
+type Ttls = { main: Ttl; agent: Ttl }
 
 const initialMeter: Meter = { ...emptySnapshot(), sessionId: null, active: 0, busySince: null }
 const meter = atom({ plugin: 'flight-deck', key: 'meter' } as const, initialMeter)
@@ -64,6 +66,8 @@ const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
 const initialData: PaneData = { sessionId: null, entries: {}, stats: null, dashboard: null }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
 const spin = atom({ plugin: 'flight-deck', key: 'spin' } as const, 0)
+// Null until an event read the settings: the mod option stands in for them.
+const ttlsAtom = atom({ plugin: 'flight-deck', key: 'ttls' } as const, null as Ttls | null)
 
 // The engine only follows `$` into functions declared at the top of this file, so
 // the helpers live here and take what they need as arguments.
@@ -110,6 +114,8 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     bg: s.bg,
     byAgent: s.byAgent,
     byModel: s.byModel,
+    costByModel: s.costByModel,
+    advisor: s.advisor,
     ...(s.mainModel === undefined ? {} : { mainModel: s.mainModel }),
   })
 }
@@ -273,20 +279,43 @@ async function stamp($: Api): Promise<number> {
   return at
 }
 
+// The cache lifetimes of the main loop and of the others, from the environment, the settings,
+// the plan limits and the mod option. `$.env.get` takes a literal name.
+async function loadTtls($: Api, settings: Record<string, unknown>, option: unknown): Promise<Ttls> {
+  const next = cacheTtls(
+    settings,
+    option,
+    {
+      FORCE_PROMPT_CACHING_5M: await $.env.get('FORCE_PROMPT_CACHING_5M'),
+      CLAUDE_CODE_PROMPT_CACHE_TTL: await $.env.get('CLAUDE_CODE_PROMPT_CACHE_TTL'),
+      CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL: await $.env.get(
+        'CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL',
+      ),
+      ENABLE_PROMPT_CACHING_1H: await $.env.get('ENABLE_PROMPT_CACHING_1H'),
+    },
+    isOverLimit((await $.session.usage()).rateLimits),
+  )
+  const cur = await read($, ttlsAtom)
+  if (cur?.main !== next.main || cur.agent !== next.agent) await update($, ttlsAtom, () => next)
+  return next
+}
+
+// The steps whose request is out and whose usage is not counted yet. The engine's ledger can
+// hold such a step already, so the cost of the advisor is not settled while one is in flight.
+let stepsInFlight = 0
+
 // One 1s tick drives both the countdown and the live work clock; it stops itself
 // once the cache has lapsed and no turn is running.
 let timer: { cancel: () => void } | null = null
-function startTimer($: Api, ttl: Ttl): void {
+function startTimer($: Api, ttls: Ttls): void {
   if (timer !== null) return
   timer = $.clock.every(1000, async () => {
     const at = await stamp($)
     const s = await read($, meter)
     // A subagent's countdown is drawn in its own view: it keeps the tick running too.
-    const lastStepAt = Math.max(
-      s.lastStepAt ?? 0,
-      ...Object.values(s.byAgent).map((a) => a.lastStepAt ?? 0),
-    )
-    const isCacheDone = lastStepAt + ttlMs(ttl) <= at
+    const agentStepAt = Math.max(0, ...Object.values(s.byAgent).map((a) => a.lastStepAt ?? 0))
+    const isCacheDone =
+      (s.lastStepAt ?? 0) + ttlMs(ttls.main) <= at && agentStepAt + ttlMs(ttls.agent) <= at
     if (isCacheDone && s.busySince === null) {
       timer?.cancel()
       timer = null
@@ -329,14 +358,14 @@ async function currentMeter($: Api): Promise<Meter> {
 }
 
 export const register: Register = (on, options) => {
-  const ttl: Ttl = options.cacheTtl === '1h' ? '1h' : '5m'
-
   // Start the tick for a session that already has a live cache (--resume, hot reload).
   on('session.start', async ($, e, next) => {
     await ensureLoaded($)
     const cur = await read($, meter)
     const at = await stamp($)
-    if (cur.lastStepAt !== null && cur.lastStepAt + ttlMs(ttl) > at) startTimer($, ttl)
+    const settings = await $.settings.read()
+    const ttls = await loadTtls($, settings, options.cacheTtl)
+    if (cur.lastStepAt !== null && cur.lastStepAt + ttlMs(ttls.main) > at) startTimer($, ttls)
     // A pane that stayed open across a hot reload keeps its spinner.
     startSpinner($)
     await $.command.register({
@@ -349,38 +378,64 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     // The cache is refreshed when the request is processed, not when the response ends.
     const sentAt = await $.clock.now()
-    const res = yield* next(e)
-    const id = await ensureLoaded($)
-    await stamp($)
-    // Subagents (agentId set) have their own caches: count their tokens but do not
-    // touch the main countdown. Each keeps its own share and its own countdown.
-    const isMain = e.agentId === undefined
-    // Compute inside the updater: concurrent events must not overwrite each other.
-    const nextMeter = await update($, meter, (c) => ({
-      ...c,
-      totals: addUsage(c.totals, res.usage),
-      byModel: {
-        ...c.byModel,
-        [e.model]: addUsage(c.byModel[e.model] ?? emptyTotals(), res.usage),
-      },
-      ...(isMain ? { mainModel: e.model } : {}),
-      lastStepAt: isMain && res.usage !== null ? sentAt : c.lastStepAt,
-      byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
-        ...a,
-        totals: addUsage(a.totals, res.usage),
-        lastStepAt: res.usage !== null ? sentAt : a.lastStepAt,
-      })),
-    }))
-    await animate($, id, nextMeter)
-    await save($, id, nextMeter)
-    const agentId = e.agentId
-    const effort = e.effort === undefined ? undefined : String(e.effort)
-    if (agentId !== undefined)
-      await trackAgent($, id, (r, t) => tuned(ran(r, agentId, t), agentId, e.model, effort))
-    // The dashboard's numbers changed.
-    else await syncPane($)
-    startTimer($, ttl)
-    return res
+    stepsInFlight++
+    try {
+      const res = yield* next(e)
+      const id = await ensureLoaded($)
+      await stamp($)
+      // Subagents (agentId set) have their own caches: count their tokens but do not
+      // touch the main countdown. Each keeps its own share and its own countdown.
+      const isMain = e.agentId === undefined
+      const settings = await $.settings.read()
+      const ttls = await loadTtls($, settings, options.cacheTtl)
+      // Priced now: the step's cache writes cost by its loop's lifetime.
+      const stepCost = costOf(
+        e.model,
+        addUsage(emptyTotals(), res.usage),
+        isMain ? ttls.main : ttls.agent,
+      )
+      const advisorModel = settings.advisorModel
+      // Compute inside the updater: concurrent events must not overwrite each other.
+      const nextMeter = await update($, meter, (c) => ({
+        ...c,
+        costByModel:
+          stepCost === null
+            ? c.costByModel
+            : {
+                ...c.costByModel,
+                // A model counted before this field existed starts from its tokens' estimate.
+                [e.model]:
+                  (c.costByModel[e.model] ??
+                    costOf(e.model, c.byModel[e.model] ?? emptyTotals(), ttls.main) ??
+                    0) + stepCost,
+              },
+        advisor: advised(c.advisor, res.serverToolUses ?? [], advisorModel),
+        totals: addUsage(c.totals, res.usage),
+        byModel: {
+          ...c.byModel,
+          [e.model]: addUsage(c.byModel[e.model] ?? emptyTotals(), res.usage),
+        },
+        ...(isMain ? { mainModel: e.model } : {}),
+        lastStepAt: isMain && res.usage !== null ? sentAt : c.lastStepAt,
+        byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
+          ...a,
+          totals: addUsage(a.totals, res.usage),
+          lastStepAt: res.usage !== null ? sentAt : a.lastStepAt,
+        })),
+      }))
+      await animate($, id, nextMeter)
+      await save($, id, nextMeter)
+      const agentId = e.agentId
+      const effort = e.effort === undefined ? undefined : String(e.effort)
+      if (agentId !== undefined)
+        await trackAgent($, id, (r, t) => tuned(ran(r, agentId, t), agentId, e.model, effort))
+      // The dashboard's numbers changed.
+      else await syncPane($)
+      startTimer($, ttls)
+      return res
+    } finally {
+      stepsInFlight--
+    }
   })
 
   on('tool.call', async ($, e, next) => {
@@ -452,7 +507,13 @@ export const register: Register = (on, options) => {
     const usd = e.cost?.usd
     if (usd === undefined) return next(e)
     const id = await ensureLoaded($)
-    const nextMeter = await update($, meter, (c) => ({ ...c, costUsd: usd }))
+    // Between turns the ledger may now hold a turn that called the advisor: settle its cost.
+    const nextMeter = await update($, meter, (c) => {
+      const measured = { ...c, costUsd: usd }
+      return c.active > 0 || stepsInFlight > 0
+        ? measured
+        : { ...measured, advisor: settled(measured) }
+    })
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
     await syncPane($)
@@ -462,8 +523,12 @@ export const register: Register = (on, options) => {
   on('turn.start', async ($, e, next) => {
     await ensureLoaded($)
     const at = await stamp($)
-    await update($, meter, (c) => ({ ...c, ...startTurn(c, at) }))
-    startTimer($, ttl)
+    await update($, meter, (c) => ({
+      ...c,
+      ...startTurn(c, at),
+      ...(stepsInFlight > 0 ? {} : { advisor: rebased(c) }),
+    }))
+    startTimer($, (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl))
     return next(e)
   })
 
@@ -481,8 +546,15 @@ export const register: Register = (on, options) => {
     }
     const id = await ensureLoaded($)
     const at = await stamp($)
-    const nextMeter = await update($, meter, (c) => ({ ...c, ...endTurn(c, at) }))
+    // The steps of the turn are counted, and the ledger holds them: read it now and settle the
+    // cost of the advisor, before a side request of the idle time (a prompt suggestion) grows it.
+    const usd = (await $.session.usage()).cost?.usd
+    const nextMeter = await update($, meter, (c) => {
+      const ended = { ...c, ...endTurn(c, at), ...(usd === undefined ? {} : { costUsd: usd }) }
+      return ended.active > 0 || stepsInFlight > 0 ? ended : { ...ended, advisor: settled(ended) }
+    })
     await save($, id, nextMeter)
+    await syncPane($)
     return next(e)
   })
 
@@ -562,6 +634,7 @@ export const register: Register = (on, options) => {
     const snap = viewed === undefined ? session : agentView(session, viewed)
     const reg = viewed === undefined ? null : await read($, agents)
     const model = modelLabel(viewed === undefined ? undefined : reg?.entries[viewed])
+    const ttls = (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl)
     return (
       <Band
         ui={$.ui.resolve(e)}
@@ -575,7 +648,7 @@ export const register: Register = (on, options) => {
         {...(model === undefined ? {} : { model })}
         busySince={session.busySince}
         now={now}
-        ttl={ttl}
+        ttl={viewed === undefined ? ttls.main : ttls.agent}
         columns={e.props.bodyColumns ?? 120}
         isPaneOpen={isPaneOpen}
         onToggle={() => togglePane($)}

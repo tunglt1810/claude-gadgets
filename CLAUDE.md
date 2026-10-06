@@ -4,7 +4,7 @@ Mods (hot-reloadable function-hook plugins) for Claude Code. One self-contained 
 
 ## Compatibility
 
-- Built and tested against **Claude Code 2.1.289** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.289.`
+- Built and tested against **Claude Code 2.1.291** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.291.`
 - Bun 1.4.2 (not pinned in the repo).
 - The plugin API may change between Claude Code releases without notice. After an update: let the engine rewrite `mods/<name>/.claude-plugin/types/` (load the mod once), run `bun run check`, then update the version on this line.
 - Not verified on any other Claude Code version, and not yet run live on Claude Desktop.

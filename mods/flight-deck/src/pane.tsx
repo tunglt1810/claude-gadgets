@@ -10,12 +10,13 @@ import type {
 } from '../types'
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
+import { runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { formatDuration, formatUsd } from './format'
 import { statSegments } from './layout'
 import { PALETTE } from './palette'
 import { modelLabel, workedMs } from './registry'
 import { inputCode, toolSummary } from './summary'
-import { agentTable, runsLabel } from './table'
+import { agentTable, recency, runsLabel } from './table'
 import { lastItems } from './transcript'
 import { treeRows } from './tree'
 
@@ -53,13 +54,22 @@ const OPEN_CHILD = ' [open]'
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const
 const TOOL_TONE = { done: PALETTE.green, failed: PALETTE.red, running: PALETTE.yellow } as const
-// The icon of a working time, as the band's work clock.
+// The icon of a working time, as the band's work clock. A table's time column has no icon.
 const CLOCK = '◷ '
 const TIME_WIDTH = 9
-// The dashboard's columns: a model name stops at MAX_MODEL cells, a cost fits `≈$1234.56`.
+// Parts the model, the runs and the time below an agent's title.
+const SEP = '·'
+// The dashboard's columns: a model name stops at MAX_MODEL cells, a cost fits `≈1234.56`, a
+// share its header `cost(%)`.
 const MAX_MODEL = 16
 const USD_WIDTH = 9
-const RUNS_WIDTH = 4
+const PCT_WIDTH = 7
+// The color of an agent's runs and time by how recent its activity is.
+const RECENCY_TONE = { active: PALETTE.green, recent: PALETTE.yellow } as const
+const RUNS_WIDTH = 7
+
+// The tone of a cell: dim, or a color.
+type Tone = Pick<Cell, 'dim' | 'color'>
 
 const name = (a: AgentEntry): string =>
   [a.type ?? 'agent', a.description ?? a.name ?? a.id].join(' · ')
@@ -71,11 +81,17 @@ const agentMark = (a: AgentEntry): Cell =>
 
 // How long an agent worked: a running agent's time counts up from its start. The cell keeps
 // room for `h:mm:ss`, so a running time never outgrows it.
-const timeCell = (a: AgentEntry, now: number, align?: 'right'): Cell => ({
+const timeCell = (
+  a: AgentEntry,
+  now: number,
+  align?: 'right',
+  tone: Tone = { dim: true },
+  icon = CLOCK,
+): Cell => ({
   ...(a.status === 'running'
-    ? { text: CLOCK, since: a.startedAt }
-    : { text: `${CLOCK}${formatDuration(workedMs(a, now))}` }),
-  dim: true,
+    ? { text: icon, since: a.startedAt }
+    : { text: `${icon}${formatDuration(workedMs(a, now))}` }),
+  ...tone,
   width: TIME_WIDTH,
   ...(align === undefined ? {} : { align }),
 })
@@ -135,44 +151,54 @@ export const AgentPane = ({
         {'─'.repeat(Math.max(0, columns))}
       </Text>
     )
-    // The dashboard: the session's cost, then per model an estimated cost (≈), the working
-    // time and the runs of its agents.
+    // The dashboard: the session's cost, then per model an estimated cost (≈), its share of
+    // the total (colored by its size), the working time and the runs of its agents.
     const board = () => {
       if (dashboard === null) return null
       const MODEL = Math.min(MAX_MODEL, Math.max(5, ...dashboard.rows.map((r) => r.model.length)))
       return (
         <Box key="dashboard" flexDirection="column">
-          {cell('cost', { text: `total $${formatUsd(dashboard.costUsd)}`, bold: true })}
+          {cell('cost', { text: `total ≈$${formatUsd(dashboard.costUsd)}`, bold: true })}
           {dashboard.rows.length > 0 && (
             <Box key="dash:head" flexDirection="row" gap={1}>
               {head('dash:head:model', 'model', MODEL)}
-              {head('dash:head:cost', 'cost', USD_WIDTH, 'right')}
+              {head('dash:head:cost', 'cost($)', USD_WIDTH, 'right')}
+              {head('dash:head:pct', 'cost(%)', PCT_WIDTH, 'right')}
               {head('dash:head:time', 'time', TIME_WIDTH, 'right')}
               {head('dash:head:runs', 'runs', RUNS_WIDTH, 'right')}
             </Box>
           )}
-          {dashboard.rows.map((r) => (
-            <Box key={`dash:${r.model}`} flexDirection="row" gap={1}>
-              {cell(`dash:model:${r.model}`, { text: cut(r.model, MODEL), width: MODEL })}
-              {cell(`dash:cost:${r.model}`, {
-                text: r.costUsd === null ? '—' : `≈$${formatUsd(r.costUsd)}`,
-                width: USD_WIDTH,
-                align: 'right',
-              })}
-              {cell(`dash:time:${r.model}`, {
-                text: `${CLOCK}${formatDuration(r.workMs)}`,
-                dim: true,
-                width: TIME_WIDTH,
-                align: 'right',
-              })}
-              {cell(`dash:runs:${r.model}`, {
-                text: String(r.runs),
-                dim: true,
-                width: RUNS_WIDTH,
-                align: 'right',
-              })}
-            </Box>
-          ))}
+          {dashboard.rows.map((r) => {
+            const pct = sharePct(r.costUsd, dashboard.costUsd)
+            return (
+              <Box key={`dash:${r.model}`} flexDirection="row" gap={1}>
+                {cell(`dash:model:${r.model}`, { text: cut(r.model, MODEL), width: MODEL })}
+                {cell(`dash:cost:${r.model}`, {
+                  text: r.costUsd === null ? '—' : `≈${formatUsd(r.costUsd)}`,
+                  width: USD_WIDTH,
+                  align: 'right',
+                })}
+                {cell(`dash:pct:${r.model}`, {
+                  text: pct === null ? '' : `${pct}%`,
+                  ...(pct === null ? {} : { color: shareColor(pct) }),
+                  width: PCT_WIDTH,
+                  align: 'right',
+                })}
+                {cell(`dash:time:${r.model}`, {
+                  text: r.model === SIDE ? '' : formatDuration(r.workMs),
+                  dim: true,
+                  width: TIME_WIDTH,
+                  align: 'right',
+                })}
+                {cell(`dash:runs:${r.model}`, {
+                  text: r.model === SIDE ? '' : runsText(r),
+                  dim: true,
+                  width: RUNS_WIDTH,
+                  align: 'right',
+                })}
+              </Box>
+            )
+          })}
           {rule('dash:rule')}
         </Box>
       )
@@ -194,34 +220,43 @@ export const AgentPane = ({
       <Box flexDirection="column">
         {board()}
         <Box key="head" flexDirection="row" gap={1}>
-          {head('head:name', 'agent', MARK_WIDTH + t.name)}
+          {/* Built as a row is, a mark and a box of the name's width: a desktop sizes a box
+              and a cell in different units, so only the same parts line up. */}
+          {head('head:mark', '', MARK_WIDTH)}
+          <Box key="head:namebox" width={t.name} flexShrink={0}>
+            {head('head:name', 'agents', t.name)}
+          </Box>
           {head('head:runs', 'runs', t.runs, 'right')}
           {head('head:time', 'time', t.time, 'right')}
         </Box>
-        {rows.map(({ agent, depth }) => (
-          // A Button takes no color: the status is the colored mark before it, and an ended
-          // agent's row is dim at rest.
-          <Box key={`row:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
-            {depth > 0 && <Box key={`indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />}
-            {cell(`mark:${agent.id}`, agentMark(agent))}
-            <Box key={`name:${agent.id}`} width={t.name - depth * 2} flexShrink={0}>
-              <Button
-                key={`agent:${agent.id}`}
-                plain
-                {...(agent.status === 'running' ? {} : { dimColor: true })}
-                label={cut(name(agent), t.name - depth * 2)}
-                onPress={() => onOpen(agent.id)}
-              />
+        {rows.map(({ agent, depth }) => {
+          const recent = recency(agent, now)
+          const tone: Tone = recent === 'old' ? { dim: true } : { color: RECENCY_TONE[recent] }
+          return (
+            // A Button takes no color: the status is the colored mark before it, and an ended
+            // agent's row is dim at rest. The runs and the time take the color of the recency.
+            <Box key={`row:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
+              {depth > 0 && <Box key={`indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />}
+              {cell(`mark:${agent.id}`, agentMark(agent))}
+              <Box key={`name:${agent.id}`} width={t.name - depth * 2} flexShrink={0}>
+                <Button
+                  key={`agent:${agent.id}`}
+                  plain
+                  {...(agent.status === 'running' ? {} : { dimColor: true })}
+                  label={cut(name(agent), t.name - depth * 2)}
+                  onPress={() => onOpen(agent.id)}
+                />
+              </Box>
+              {cell(`runs:${agent.id}`, {
+                text: String(agent.runs),
+                ...tone,
+                width: t.runs,
+                align: 'right',
+              })}
+              {cell(`time:${agent.id}`, timeCell(agent, now, 'right', tone, ''))}
             </Box>
-            {cell(`runs:${agent.id}`, {
-              text: String(agent.runs),
-              dim: true,
-              width: t.runs,
-              align: 'right',
-            })}
-            {cell(`time:${agent.id}`, timeCell(agent, now, 'right'))}
-          </Box>
-        ))}
+          )
+        })}
       </Box>
     )
   }
@@ -312,7 +347,8 @@ export const AgentPane = ({
           width: titleWidth,
         })}
       </Box>
-      {/* Below the title: the model, the runs and the working time, under the title's text. */}
+      {/* Below the title: the model, the runs and the working time, with a dot between them,
+          under the title's text. */}
       {agent !== undefined && (
         <Box
           key="meta"
@@ -323,7 +359,9 @@ export const AgentPane = ({
         >
           {agent.model !== undefined &&
             cell('meta:model', { text: modelLabel(agent) ?? '', dim: true })}
+          {agent.model !== undefined && cell('meta:sep:runs', { text: SEP, dim: true })}
           {cell('meta:runs', { text: runsLabel(agent.runs), dim: true })}
+          {cell('meta:sep:time', { text: SEP, dim: true })}
           {cell('meta:time', timeCell(agent, now))}
         </Box>
       )}

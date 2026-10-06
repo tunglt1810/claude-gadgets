@@ -34,6 +34,8 @@ test('parseSnapshot keeps valid data', () => {
     bg: 0,
     byAgent: {},
     byModel: { 'claude-opus-5-5': { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 } },
+    costByModel: { 'claude-opus-5-5': 0.5 },
+    advisor: { calls: 2, ms: 900, usd: 0.5, base: 0.25, model: 'opus', pending: true },
     mainModel: 'claude-opus-5-5',
   }
   expect(parseSnapshot(JSON.parse(JSON.stringify(s)))).toEqual(s)
@@ -44,6 +46,9 @@ test('isComplete: state written before a field existed, or holding NaN, is not c
   const { added: _added, ...old } = emptySnapshot()
   expect(isComplete(old)).toBe(false)
   expect(isComplete({ ...emptySnapshot(), removed: Number.NaN })).toBe(false)
+  // An advisor record from before its cost existed: `undefined + n` is NaN.
+  const advisor = { calls: 1, ms: 5 } as never
+  expect(isComplete({ ...emptySnapshot(), advisor })).toBe(false)
 })
 
 test('touchSessions puts the id first, de-duplicates and drops the overflow', () => {

@@ -30,6 +30,13 @@ export type Snapshot = {
   byAgent: Record<string, AgentUsage>
   // The tokens of every loop by the model its steps named, and the main loop's model.
   byModel: Record<string, Totals>
+  // The cost of those tokens priced at each step, by the cache lifetime of its loop.
+  costByModel: Record<string, number>
+  // The advisor calls the API ran inside the steps: how many, their time, and the model the
+  // settings name. A step's usage leaves their tokens out, so their cost is estimated.
+  // `usd` is the growth of the ledger cost that no step holds, over the turns that called it.
+  // `base` is that rest at the start of the turn; `pending` marks a call not settled yet.
+  advisor: { calls: number; ms: number; usd: number; base: number; model?: string; pending?: true }
   mainModel?: string
 }
 
@@ -130,7 +137,14 @@ export type Cell = {
 
 // One model's row of the dashboard: its estimated cost (null with no price), the working
 // time and the runs of its agents. The main loop's model also takes the session's work time.
-export type ModelRow = { model: string; costUsd: number | null; workMs: number; runs: number }
+// `main` marks the row of the main loop's model: the main loop is not a run of an agent.
+export type ModelRow = {
+  model: string
+  costUsd: number | null
+  workMs: number
+  runs: number
+  main?: true
+}
 
 // The numbers above the agents table: the engine's session cost and a row per model.
 export type Dashboard = { costUsd: number; rows: ModelRow[] }
@@ -153,6 +167,7 @@ declare module 'claude-code' {
       pane: PaneView
       paneData: PaneData
       spin: number
+      ttls: { main: '5m' | '1h'; agent: '5m' | '1h' } | null
     }
   }
 }

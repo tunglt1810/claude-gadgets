@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { AgentEntry } from '../types'
-import { agentTable } from './table'
+import { agentTable, RECENT_MS, recency } from './table'
 
 const agent = (over: Partial<AgentEntry>): AgentEntry => ({
   id: 'a',
@@ -28,4 +28,11 @@ test('agentTable sizes the runs column to its longest cell; the name takes the r
 
 test('agentTable keeps a usable name', () => {
   expect(agentTable([agent({})], 10).name).toBe(8)
+})
+
+test('recency: a running agent is active, one that ended a short time ago is recent', () => {
+  expect(recency(agent({ status: 'running' }), 5000)).toBe('active')
+  expect(recency(agent({ endedAt: 1000 }), 1000 + RECENT_MS - 1)).toBe('recent')
+  expect(recency(agent({ endedAt: 1000 }), 1000 + RECENT_MS)).toBe('old')
+  expect(recency(agent({ status: 'stopped', endedAt: null }), 5000)).toBe('old')
 })

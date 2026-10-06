@@ -59,12 +59,23 @@ docs/plans/   implementation plans
 - Main view
 ![Claude Code CLI flight deck preview](previews/preview-cli.png)
 
-- Session view
-![Agent view](previews/preview-cli-agent-view.png)
+- Agent dashboard
+![alt text](previews/preview-cli-agent-dashboard.png)
+
+- Agent transcript view
+![alt text](previews/preview-cli-agent-transcript.png)
 
 ### Claude Desktop
 
+- Above prompt bar
 ![Claude Desktop flight deck preview](previews/preview-desktop.png)
+
+- Agent dashboard
+![Claude Desktop flight deck - agent dashboard preview](previews/preview-desktop-agent-dashboard.png)
+
+- Agent transcript view
+![Claude Desktop flight deck - agent transcript preview](previews/preview-desktop-agent-transcript.png)
+
 ## License
 
 [MIT](LICENSE)

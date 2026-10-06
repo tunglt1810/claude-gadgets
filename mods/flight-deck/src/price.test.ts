@@ -25,3 +25,9 @@ test('costOf prices output, cache reads and 5-minute cache writes', () => {
 test('costOf has no price for an unknown model', () => {
   expect(costOf('gpt-x', MTOK)).toBeNull()
 })
+
+test('costOf prices 1-hour cache writes at 2 x input', () => {
+  const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 1e6 }
+  expect(usd(costOf('claude-sonnet-5-5', t, '1h'))).toBe(4)
+  expect(usd(costOf('claude-sonnet-5-5', t, '5m'))).toBe(2.5)
+})

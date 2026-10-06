@@ -15,6 +15,8 @@ const snap: Snapshot = {
   bg: 1,
   byAgent: {},
   byModel: {},
+  costByModel: {},
+  advisor: { calls: 0, ms: 0, usd: 0, base: 0 },
 }
 const base = { snap, busySince: null, now: 78_000, ttl: '5m' as const }
 const segs = (cols: number) => bandSegments({ ...base, columns: cols })
@@ -210,6 +212,8 @@ test('the stats of an agent are its tokens, cache hit, calls and diff, with no c
     bg: 0,
     byAgent: {},
     byModel: {},
+    costByModel: {},
+    advisor: { calls: 0, ms: 0, usd: 0, base: 0 },
   } satisfies Snapshot
   const text = statSegments(snap)
     .map((s) => s.text)

@@ -17,3 +17,14 @@ export const agentTable = (agents: AgentEntry[], columns: number): AgentTable =>
   const rest = 3 + (runs + 1) + (TIME + 1)
   return { name: Math.max(MIN_NAME, columns - rest), runs, time: TIME }
 }
+
+// How long after its end an agent still counts as recent.
+export const RECENT_MS = 5 * 60_000
+
+// How recent an agent's activity is at `now`: it runs, it ended a short time ago, or neither.
+export const recency = (a: AgentEntry, now: number): 'active' | 'recent' | 'old' =>
+  a.status === 'running'
+    ? 'active'
+    : a.endedAt !== null && now - a.endedAt < RECENT_MS
+      ? 'recent'
+      : 'old'

@@ -74,7 +74,15 @@ const engine = (
   id: () => string = () => 'S1',
   toolResult: () => object = () => ({ result: {} as never, text: 'ok' }),
   isSpawnRefused: () => boolean = () => false,
+  settings: () => object = () => ({}),
+  env: Record<string, string> = {},
+  usage: () => object = () => ({}),
 ) => {
+  mock.env(on, env)
+  on(
+    'session.usage',
+    () => ({ value: { startedAt: 0, context: {}, rateLimits: [], ...usage() } }) as never,
+  )
   on('session.id', () => ({ value: id() }))
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
@@ -83,6 +91,7 @@ const engine = (
   on('tool.call', () => toolResult() as never)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: [] }))
+  on('settings.read', () => ({ value: settings() }) as never)
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   let spawned = 0
   on('agent.spawn', () =>
@@ -102,36 +111,44 @@ const measure = ($: Engine, usd?: number) =>
     changed: ['cost'],
   } as never)
 
-test('turn.step accumulates usage and shows cache hit', async ($, on) => {
-  const clock = mock.clock(on, { now: 1000 })
-  mock.store(on, {})
-  engine(on)
-  on('turn.step', stepHook(USAGE))
+test(
+  'turn.step accumulates usage and shows cache hit',
+  { options: { cacheTtl: '5m' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    mock.store(on, {})
+    engine(on)
+    on('turn.step', stepHook(USAGE))
 
-  await runStep($, STEP)
-  await runStep($, { ...STEP, index: 1 })
+    await runStep($, STEP)
+    await runStep($, { ...STEP, index: 1 })
 
-  const text = await settled($, clock)
-  expect(text).toContain('↑ in 200')
-  expect(text).toContain('↓ out 10')
-  expect(text).toContain('◈ hit 80%')
-  expect(text).toContain('◔ cache 5:00')
-})
+    const text = await settled($, clock)
+    expect(text).toContain('↑ in 200')
+    expect(text).toContain('↓ out 10')
+    expect(text).toContain('◈ hit 80%')
+    expect(text).toContain('◔ cache 5:00')
+  },
+)
 
-test('a subagent step adds tokens but does not extend the countdown', async ($, on) => {
-  const clock = mock.clock(on, { now: 1000 })
-  mock.store(on, {})
-  engine(on)
-  on('turn.step', stepHook(USAGE))
+test(
+  'a subagent step adds tokens but does not extend the countdown',
+  { options: { cacheTtl: '5m' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    mock.store(on, {})
+    engine(on)
+    on('turn.step', stepHook(USAGE))
 
-  await runStep($, STEP)
-  await clock.advance(10_000)
-  await runStep($, { ...STEP, agentId: 'sub1' })
+    await runStep($, STEP)
+    await clock.advance(10_000)
+    await runStep($, { ...STEP, agentId: 'sub1' })
 
-  const text = await settled($, clock)
-  expect(text).toContain('↑ in 200')
-  expect(text).toContain('◔ cache 4:50')
-})
+    const text = await settled($, clock)
+    expect(text).toContain('↑ in 200')
+    expect(text).toContain('◔ cache 4:50')
+  },
+)
 
 test('a step without usage changes nothing and never produces NaN', async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
@@ -249,7 +266,7 @@ test('the work clock runs live while a turn is open', async ($, on) => {
   expect(await settled($, clock)).toContain('◷ work 0:03')
 })
 
-test('the countdown changes tone and expires', async ($, on) => {
+test('the countdown changes tone and expires', { options: { cacheTtl: '5m' } }, async ($, on) => {
   const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
   engine(on)
@@ -306,38 +323,46 @@ test('parallel tool calls are all counted', async ($, on) => {
   expect(await settled($, clock)).toContain('⌘ calls 5')
 })
 
-test('the band shows the stored session before any event happens', async ($, on) => {
-  const clock = mock.clock(on, { now: 5000 })
-  mock.store(on, {
-    'session:S1': {
-      totals: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
-      tools: 7,
-      lastStepAt: 1000,
-      workMs: 9000,
-    },
-  })
-  engine(on)
+test(
+  'the band shows the stored session before any event happens',
+  { options: { cacheTtl: '5m' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: 5000 })
+    mock.store(on, {
+      'session:S1': {
+        totals: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 },
+        tools: 7,
+        lastStepAt: 1000,
+        workMs: 9000,
+      },
+    })
+    engine(on)
 
-  const text = await settled($, clock)
-  expect(text).toContain('⌘ calls 7')
-  expect(text).toContain('◷ work 0:09')
-  expect(text).toContain('◔ cache 4:56')
-})
+    const text = await settled($, clock)
+    expect(text).toContain('⌘ calls 7')
+    expect(text).toContain('◷ work 0:09')
+    expect(text).toContain('◔ cache 4:56')
+  },
+)
 
-test('the countdown starts when the request was sent, not when the response ended', async ($, on) => {
-  const clock = mock.clock(on, { now: 1000 })
-  mock.store(on, {})
-  engine(on)
-  on('turn.step', async function* (_$, e) {
-    yield* [] as never[]
-    await clock.advance(100_000)
-    return { ...stepResult(USAGE), turnId: e.turnId, index: e.index }
-  })
+test(
+  'the countdown starts when the request was sent, not when the response ended',
+  { options: { cacheTtl: '5m' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    mock.store(on, {})
+    engine(on)
+    on('turn.step', async function* (_$, e) {
+      yield* [] as never[]
+      await clock.advance(100_000)
+      return { ...stepResult(USAGE), turnId: e.turnId, index: e.index }
+    })
 
-  await runStep($, STEP)
+    await runStep($, STEP)
 
-  expect(await settled($, clock)).toContain('◔ cache 3:20')
-})
+    expect(await settled($, clock)).toContain('◔ cache 3:20')
+  },
+)
 
 test('a denied tool call is not counted', async ($, on) => {
   const clock = mock.clock(on, { now: 0 })
@@ -413,23 +438,27 @@ test('a turn that is open when the session id changes keeps its time', async ($,
   expect(await settled($, clock)).toContain('◷ work 0:04')
 })
 
-test('session.start starts the tick for a session with a live cache', async ($, on) => {
-  const clock = mock.clock(on, { now: 1000 })
-  mock.store(on, {
-    'session:S1': {
-      totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-      tools: 0,
-      lastStepAt: 1000,
-      workMs: 0,
-    },
-  })
-  engine(on)
+test(
+  'session.start starts the tick for a session with a live cache',
+  { options: { cacheTtl: '5m' } },
+  async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    mock.store(on, {
+      'session:S1': {
+        totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        tools: 0,
+        lastStepAt: 1000,
+        workMs: 0,
+      },
+    })
+    engine(on)
 
-  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await clock.advance(10_000)
+    await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+    await clock.advance(10_000)
 
-  expect(await settled($, clock)).toContain('◔ cache 4:50')
-})
+    expect(await settled($, clock)).toContain('◔ cache 4:50')
+  },
+)
 
 test('the band is one flex row: the segments around the agents button, not a column', async ($, on) => {
   mock.clock(on, { now: 0 })
@@ -621,41 +650,45 @@ test('the session totals include a subagent and the agents it spawned', async ($
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
-  test(`an agent's transcript shows that agent and the agents below it (${surface})`, async ($, on) => {
-    const clock = mock.clock(on, { now: 1000 })
-    mock.store(on, {})
-    engine(
-      on,
-      () => 'S1',
-      () => ({ result: { structuredPatch: [{ lines: ['+a', '-b'] }] }, text: 'ok' }),
-    )
-    on('turn.step', stepHook(USAGE))
+  test(
+    `an agent's transcript shows that agent and the agents below it (${surface})`,
+    { options: { cacheTtl: '5m' } },
+    async ($, on) => {
+      const clock = mock.clock(on, { now: 1000 })
+      mock.store(on, {})
+      engine(
+        on,
+        () => 'S1',
+        () => ({ result: { structuredPatch: [{ lines: ['+a', '-b'] }] }, text: 'ok' }),
+      )
+      on('turn.step', stepHook(USAGE))
 
-    await runStep($, STEP)
-    await spawn($)
-    await spawn($, 'a1')
-    await spawn($)
-    await clock.advance(10_000)
-    await runStep($, { ...STEP, agentId: 'a1' })
-    await runStep($, { ...STEP, agentId: 'a2' })
-    await runStep($, { ...STEP, agentId: 'a3' })
-    await $.tool.call({ tool: 'Edit', file_path: 'a', agentId: 'a2' } as never)
-    await clock.advance(SETTLE_MS)
+      await runStep($, STEP)
+      await spawn($)
+      await spawn($, 'a1')
+      await spawn($)
+      await clock.advance(10_000)
+      await runStep($, { ...STEP, agentId: 'a1' })
+      await runStep($, { ...STEP, agentId: 'a2' })
+      await runStep($, { ...STEP, agentId: 'a3' })
+      await $.tool.call({ tool: 'Edit', file_path: 'a', agentId: 'a2' } as never)
+      await clock.advance(SETTLE_MS)
 
-    const sub = await bandText($, surface, 'a1')
-    expect(sub).toContain('◆ agent m │ ↑ in 200 ')
-    expect(sub).toContain('↓ out 10 ')
-    expect(sub).toContain('⌘ calls 1 ')
-    expect(sub).toContain('± diff +1 -1 ')
-    // The agent's own cache: its step was sent 10s after the main one.
-    expect(sub).toContain('◔ cache 5:00')
-    expect(sub).not.toContain('$ cost')
+      const sub = await bandText($, surface, 'a1')
+      expect(sub).toContain('◆ agent m │ ↑ in 200 ')
+      expect(sub).toContain('↓ out 10 ')
+      expect(sub).toContain('⌘ calls 1 ')
+      expect(sub).toContain('± diff +1 -1 ')
+      // The agent's own cache: its step was sent 10s after the main one.
+      expect(sub).toContain('◔ cache 5:00')
+      expect(sub).not.toContain('$ cost')
 
-    const main = await bandText($, surface)
-    expect(main).toContain('↑ in 400 ')
-    expect(main).toContain('▸ agents 3 ')
-    expect(main).toContain('◔ cache 4:50')
-  })
+      const main = await bandText($, surface)
+      expect(main).toContain('↑ in 400 ')
+      expect(main).toContain('▸ agents 3 ')
+      expect(main).toContain('◔ cache 4:50')
+    },
+  )
 }
 
 test('spawn counts and per-agent data survive a session id round trip', async ($, on) => {
@@ -788,10 +821,17 @@ const marks = async (ui: Awaited<ReturnType<typeof mountPane>>) => {
         indent = ' '.repeat(kid.props.width + 1)
       if (kid.type === 'Box' && kid.props?.width === 2 && grand[0]?.type === 'Text') {
         const text = `${indent}${(grand[0].children ?? []).join('')} `
-        if (MARK_RE.test(text)) out.push({ text, props: { color: grand[0].props?.color } })
+        // The table's header has an empty cell of a mark's width: it is not a mark.
+        if (MARK_RE.test(text) && text.trim() !== '')
+          out.push({ text, props: { color: grand[0].props?.color } })
       }
       const c = kid.props?.props as Cell | undefined
-      if (kid.type === 'Client' && kid.props?.module === 'src/cellClient.tsx' && c?.width === 2)
+      if (
+        kid.type === 'Client' &&
+        kid.props?.module === 'src/cellClient.tsx' &&
+        c?.width === 2 &&
+        (c.spin === true || c.text !== '')
+      )
         out.push({
           text: c.spin === true ? '◌ ' : `${indent}${c.text} `,
           props: { color: c.color },
@@ -1313,9 +1353,13 @@ test('an agent row and its title show how long the agent worked', async ($, on) 
   await clock.advance(10_000)
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
-    expect(await paneText(ui)).toContain(' 1:05')
+    // The table's time has no clock; the title of the agent has it before the time.
+    expect(await paneText(ui)).toContain('1:05')
+    expect(await paneText(ui)).not.toContain('◷ 1:05')
     await ui.press({ key: 'agent:a1' })
-    expect(await paneText(ui)).toContain(' 1:05')
+    expect(await paneText(ui)).toContain('◷ 1:05')
+    // A dot parts the runs from the time (and the model from the runs, when it is known).
+    expect(JSON.stringify(await ui.find({ key: 'meta:sep:time' }))).toContain('·')
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
@@ -1339,15 +1383,91 @@ test("the dashboard shows the session cost and each model's cost, time and runs"
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
     const text = await paneText(ui)
-    expect(text).toContain('total $1.50')
+    expect(text).toContain('total ≈$1.50')
     expect(text).toContain('opus-5-5')
     expect(text).toContain('haiku-4-5')
     // USAGE is 10 in, 5 out, 80 read and 10 written: under a cent at either price.
-    expect(text).toContain('≈$0.00')
-    expect(text).toContain('◷ 1:05')
+    expect(text).toContain('≈0.00')
+    // The time column has no clock icon, in its header or in its cells.
+    expect(JSON.stringify(await ui.find({ key: 'dash:head:time' }))).not.toContain('◷')
+    expect(JSON.stringify(await ui.find({ key: 'dash:time:haiku-4-5' }))).toContain('1:05')
+    expect(JSON.stringify(await ui.find({ key: 'dash:time:haiku-4-5' }))).not.toContain('◷')
+    expect(JSON.stringify(await ui.find({ key: 'head:time' }))).not.toContain('◷')
+    expect(JSON.stringify(await ui.find({ key: 'time:a1' }))).not.toContain('◷')
+    // The ledger cost the rows do not hold, with no time and no runs of its own.
+    expect(text).toContain('side requests')
+    expect(text).toContain('≈1.50')
+    // The columns name their unit; the share of the total has its own column.
+    expect(text).toContain('cost($)')
+    expect(text).toContain('cost(%)')
+    expect(JSON.stringify(await ui.find({ key: 'dash:pct:side requests' }))).toContain('100%')
+    // The header of the agents table is built as a row is: its columns sit above the cells.
+    expect(text).toContain('agents')
+    expect((await ui.find({ key: 'head:namebox' }))?.props.width).toBe(
+      (await ui.find({ key: 'name:a1' }))?.props.width,
+    )
+    expect(JSON.stringify(await ui.find({ key: 'dash:time:side requests' }))).not.toContain('◷')
+    // The main loop is not a run of an agent: its row names it and shows no count.
+    expect(JSON.stringify(await ui.find({ key: 'dash:runs:opus-5-5' }))).toContain('main')
+    expect(JSON.stringify(await ui.find({ key: 'dash:runs:haiku-4-5' }))).toMatch(/[ "]1"/)
     await ui.unmount()
   }
 })
+
+// The API runs the advisor inside a step: the step's usage leaves its tokens out, so the
+// dashboard shows its calls and its time, and its cost stays in the side requests row.
+test('the dashboard counts the advisor calls of a step under the model of the settings', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, () => ({ advisorModel: 'opus' }))
+  paneEngine(on)
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
+    yield* [] as never[]
+    return {
+      ...stepResult(USAGE),
+      turnId: e.turnId,
+      index: e.index,
+      serverToolUses: [
+        { id: 's1', name: 'advisor', input: {}, startedAt: 1000, endedAt: 66_000 },
+        { id: 's2', name: 'web_search', input: {}, startedAt: 1000, endedAt: 2000 },
+      ],
+    }
+  } as never)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5' } as never)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).toContain('advisor·opus')
+    expect(JSON.stringify(await ui.find({ key: 'dash:time:advisor·opus' }))).toContain('1:05')
+    expect(JSON.stringify(await ui.find({ key: 'dash:runs:advisor·opus' }))).toMatch(/[ "]1"/)
+    await ui.unmount()
+  }
+})
+
+// A cache write costs by its lifetime: the main loop's is the configured one, a subagent's 5m.
+test(
+  'a step is priced by the cache lifetime of its loop',
+  { options: { cacheTtl: '1h' } },
+  async ($, on) => {
+    mock.clock(on, { now: 1000 })
+    mock.store(on, {})
+    engine(on)
+    paneEngine(on)
+    const WRITE = { ...USAGE, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0 }
+    on('turn.step', stepHook({ ...WRITE, cache_creation_input_tokens: 1e6 }) as never)
+    await runStep($, { ...STEP, model: 'claude-opus-5-5' } as never)
+    await spawn($)
+    await runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+    await measure($, 10.5)
+    const ui = await mountPane($, 'terminal')
+    const text = await paneText(ui)
+    // Opus 5.5 at 2 x $4 for 1h, Sonnet 5.5 at 1.25 x $2 for 5m: nothing left for `other`.
+    expect(text).toContain('≈8.00')
+    expect(text).toContain('≈2.50')
+    expect(text).not.toContain('other')
+    await ui.unmount()
+  },
+)
 
 // A click on a pane that does not hold the keys only moves the focus: it reaches the plugin as
 // `ui.focus`, not as a press. The plugin runs the button's action then.
@@ -1386,4 +1506,113 @@ test('a click that gives the pane the focus also presses the button', async ($, 
   await click('back')
   expect(await focused.find({ key: 'back' })).toBeDefined()
   await focused.unmount()
+})
+
+// The engine measures the ledger late, so the cost of the advisor is read at the end of the
+// turn: the growth of the ledger cost that no step holds, since the turn started.
+test('the dashboard takes the ledger growth over an advisor turn as the cost of the advisor', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  let ledger = 0
+  engine(
+    on,
+    undefined,
+    undefined,
+    undefined,
+    () => ({ advisorModel: 'opus' }),
+    undefined,
+    () => ({
+      cost: { usd: ledger },
+    }),
+  )
+  paneEngine(on)
+  let uses: object[] = []
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
+    yield* [] as never[]
+    return { ...stepResult(USAGE), turnId: e.turnId, index: e.index, serverToolUses: uses }
+  } as never)
+  // A side request of an earlier turn: it stays in the side requests row.
+  await $.turn.start({ text: 'a', turnId: 't1' })
+  await runStep($, { ...STEP, model: 'claude-opus-5-5' } as never)
+  ledger = 1
+  await $.turn.complete({ turnId: 't1', ...DONE })
+
+  await $.turn.start({ text: 'b', turnId: 't2' })
+  uses = [{ id: 's1', name: 'advisor', input: {}, startedAt: 1000, endedAt: 2000 }]
+  await runStep($, { ...STEP, turnId: 't2', model: 'claude-opus-5-5' } as never)
+  // A measure inside the turn settles nothing: the ledger is behind the steps.
+  await measure($, 1.2)
+  const open = await mountPane($, 'terminal')
+  expect(JSON.stringify(await open.find({ key: 'dash:cost:advisor·opus' }))).toContain('—')
+  await open.unmount()
+  await clock.advance(1000)
+  ledger = 1.63
+  await $.turn.complete({ turnId: 't2', ...DONE })
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(JSON.stringify(await ui.find({ key: 'dash:cost:advisor·opus' }))).toContain('≈0.63')
+    expect(JSON.stringify(await ui.find({ key: 'dash:cost:side requests' }))).toContain('≈1.00')
+    await ui.unmount()
+  }
+})
+
+// The ledger can hold a step before the step's hook has counted it. A measure at that moment
+// must not settle: the step's cost would be taken as the advisor's.
+test('a measure while a step is in flight does not settle the cost of the advisor', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, () => ({ advisorModel: 'opus' }))
+  paneEngine(on)
+  const BIG = { ...USAGE, input_tokens: 1e6, model: 'claude-haiku-4-5' }
+  let reply: { usage: typeof USAGE; uses: object[]; ledger?: number } = { usage: USAGE, uses: [] }
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
+    yield* [] as never[]
+    // The ledger moves first.
+    if (reply.ledger !== undefined) await measure($, reply.ledger)
+    return {
+      ...stepResult(reply.usage),
+      turnId: e.turnId,
+      index: e.index,
+      serverToolUses: reply.uses,
+    }
+  } as never)
+  await $.turn.start({ text: 'a', turnId: 't1' })
+  reply = {
+    usage: USAGE,
+    uses: [{ id: 's1', name: 'advisor', input: {}, startedAt: 1000, endedAt: 2000 }],
+  }
+  await runStep($, { ...STEP, model: 'claude-opus-5-5' } as never)
+  // The turn ends and the ledger does not hold the advisor yet.
+  await $.turn.complete({ turnId: 't1', ...DONE })
+  // A background agent's step of about $1: the ledger has it, and the advisor, before its hook.
+  await spawn($)
+  reply = { usage: BIG, uses: [], ledger: 1.63 }
+  await runStep($, { ...STEP, model: 'claude-haiku-4-5', agentId: 'a1' } as never)
+  await measure($, 1.64)
+
+  const ui = await mountPane($, 'terminal')
+  expect(JSON.stringify(await ui.find({ key: 'dash:cost:advisor·opus' }))).toContain('≈0.64')
+  await ui.unmount()
+})
+
+test('an environment variable sets the cache lifetime before the mod option', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, { FORCE_PROMPT_CACHING_5M: '1' })
+  on('turn.step', stepHook(USAGE))
+  await runStep($, STEP)
+  // The option defaults to 1h.
+  expect(await settled($, clock)).toContain('◔ cache 5:00')
+})
+
+test('a session over its plan limit caches the main loop for 5m', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, undefined, () => ({
+    rateLimits: [{ kind: 'five_hour', percentUsed: 100 }],
+  }))
+  on('turn.step', stepHook(USAGE))
+  await runStep($, STEP)
+  expect(await settled($, clock)).toContain('◔ cache 5:00')
 })

@@ -15,6 +15,8 @@ export const emptySnapshot = (): Snapshot => ({
   bg: 0,
   byAgent: {},
   byModel: {},
+  costByModel: {},
+  advisor: { calls: 0, ms: 0, usd: 0, base: 0 },
 })
 
 export const storeKey = (sessionId: string): string => `session:${sessionId}`
@@ -30,6 +32,18 @@ const parseTotals = (raw: unknown): Totals => {
     output: num(t.output),
     cacheRead: num(t.cacheRead),
     cacheWrite: num(t.cacheWrite),
+  }
+}
+
+const parseAdvisor = (raw: unknown): Snapshot['advisor'] => {
+  const a = isRecord(raw) ? raw : {}
+  return {
+    calls: num(a.calls),
+    ms: num(a.ms),
+    usd: num(a.usd),
+    base: num(a.base),
+    ...(typeof a.model === 'string' ? { model: a.model } : {}),
+    ...(a.pending === true ? { pending: true } : {}),
   }
 }
 
@@ -71,6 +85,10 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
     byModel: Object.fromEntries(
       Object.entries(isRecord(r.byModel) ? r.byModel : {}).map(([m, t]) => [m, parseTotals(t)]),
     ),
+    costByModel: Object.fromEntries(
+      Object.entries(isRecord(r.costByModel) ? r.costByModel : {}).map(([m, c]) => [m, num(c)]),
+    ),
+    advisor: parseAdvisor(r.advisor),
     ...(typeof r.mainModel === 'string' ? { mainModel: r.mainModel } : {}),
   }
 }
@@ -82,7 +100,9 @@ export const isComplete = (s: Partial<Snapshot>): boolean =>
     (v) => typeof v === 'number' && Number.isFinite(v),
   ) &&
   isRecord(s.byAgent) &&
-  isRecord(s.byModel)
+  isRecord(s.byModel) &&
+  isRecord(s.costByModel) &&
+  [s.advisor?.calls, s.advisor?.ms, s.advisor?.usd, s.advisor?.base].every(Number.isFinite)
 
 // Recency index of stored sessions: the id first, duplicates removed, anything past `max`
 // is dropped so the store does not grow by a key per session forever.
