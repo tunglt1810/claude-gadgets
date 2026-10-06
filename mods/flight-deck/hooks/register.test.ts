@@ -974,7 +974,7 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   })
   await band.press({ key: 'agents' })
   expect(calls.opens).toBe(1)
-  expect(calls.title).toBe('Flight Deck')
+  expect(calls.title).toBe('🤖 Flight Deck')
   const ui = await mountPane($, 'terminal')
   await ui.press({ key: 'agent:a1' })
   expect(await paneText(ui)).not.toContain('Again.')
@@ -1173,7 +1173,7 @@ test('an agent row is colored by its status', async ($, on) => {
     // terminal's first bold Text is the title of the pane.
     const titleColor = async () =>
       (await ui.findAll({ type: 'Text' })).find(
-        (x) => x.props.bold === true && x.text !== 'Flight Deck',
+        (x) => x.props.bold === true && x.text !== '🤖 Flight Deck',
       )?.props.color ??
       (await ui.findAll({ type: 'Client' }))
         .map((c) => c.props.props as Cell)
@@ -1578,7 +1578,7 @@ test('the terminal pads the pane at the left and the right; a desktop has its ow
   const term = await mountPane($, 'terminal')
   expect(await term.drawn()).toMatchObject({ type: 'Box', props: { paddingX: 1 } })
   // The terminal draws no title of the pane: the pane's first row is the title there.
-  expect(await paneText(term)).toMatch(/^Flight Deck\n/)
+  expect(await paneText(term)).toMatch(/^🤖 Flight Deck\n\s*\n/)
   await term.unmount()
   const desk = await mountPane($, 'desktop')
   expect(await paneText(desk)).not.toContain('Flight Deck')

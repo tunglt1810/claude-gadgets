@@ -71,7 +71,9 @@ const initialAgents: Agents = { sessionId: null, entries: {} }
 const agents = atom({ plugin: 'flight-deck', key: 'agents' } as const, initialAgents)
 
 const PANE_ID = 'agents'
-const PANE_TITLE = 'Flight Deck'
+// The one drawn text with an emoji: the title row has no columns, so a double-width
+// character moves nothing.
+const PANE_TITLE = '🤖 Flight Deck'
 // The store key of the last wrap choice: one for the plugin, not one per session.
 const WRAP_KEY = 'wrap'
 const initialPane: PaneView = {
@@ -728,6 +730,8 @@ export const register: Register = (on, options) => {
     return (
       <ui.Box flexDirection="column" paddingX={pad}>
         <ui.Text bold>{PANE_TITLE}</ui.Text>
+        {/* An empty row parts the title from the body. */}
+        <ui.Text> </ui.Text>
         {body}
       </ui.Box>
     )
