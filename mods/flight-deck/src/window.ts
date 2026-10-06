@@ -1,3 +1,4 @@
+import type { Registry } from '../types'
 import { formatTokens } from './format'
 import { PALETTE } from './palette'
 
@@ -65,3 +66,13 @@ export const contextText = (c: Context, isFull: boolean): string =>
 // The text of a context in `room` cells: with its counts, the percentage alone, or none.
 export const contextFit = (c: Context, room: number): string | null =>
   [contextText(c, true), contextText(c, false)].find((t) => t.length <= room) ?? null
+
+export const ctxKey = (agentId: string): string => `ctx:${agentId}`
+
+// The tokens of each agent's context that run to a new count when they change, by name.
+export const contextTargets = (entries: Registry): Record<string, number> =>
+  Object.fromEntries(
+    Object.values(entries).flatMap((a) =>
+      a.context === undefined ? [] : [[ctxKey(a.id), a.context.tokens]],
+    ),
+  )

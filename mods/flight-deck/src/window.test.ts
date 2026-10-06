@@ -4,6 +4,7 @@ import {
   contextColor,
   contextFit,
   contextPct,
+  contextTargets,
   contextText,
   contextTokens,
   contextTone,
@@ -90,4 +91,14 @@ test('the text that fits a room: the whole one, the percentage alone, or none', 
   expect(contextFit(c, 7)).toBe('ctx 18%')
   expect(contextFit(c, 6)).toBeNull()
   expect(contextFit(c, -3)).toBeNull()
+})
+
+test('the context targets name each agent that has a context', () => {
+  const entry = { status: 'idle' as const, runs: 0, startedAt: 0, endedAt: null }
+  expect(
+    contextTargets({
+      a1: { ...entry, id: 'a1', context: { tokens: 100, window: 200_000 } },
+      a2: { ...entry, id: 'a2' },
+    }),
+  ).toEqual({ 'ctx:a1': 100 })
 })

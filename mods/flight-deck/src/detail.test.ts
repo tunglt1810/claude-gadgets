@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { AgentEntry, Cell } from '../types'
+import { cellText } from './cell'
 import { detailCells } from './detail'
 import { PALETTE } from './palette'
 
@@ -17,12 +18,17 @@ const full = agent({
   context: { tokens: 182_400, window: 1_000_000 },
 })
 // The row as the pane draws it: the cells with one cell between them.
-const row = (cells: Cell[]) => cells.map((c) => c.text).join(' ')
+const row = (cells: Cell[]) => cells.map((c) => cellText(c, 0, 0)).join(' ')
 
 test('the detail row names the model, the effort and the context length', () => {
   const cells = detailCells(full, 80)
   expect(row(cells)).toBe('sonnet-5-5 · high · ctx 182.4k/1M 18%')
-  expect(cells.at(-1)).toEqual({ text: 'ctx 182.4k/1M 18%', color: PALETTE.green })
+  // The context is a cell of its own kind: its tokens run to a new count when they change.
+  expect(cells.at(-1)).toEqual({
+    text: '',
+    ctx: { tokens: 182_400, window: 1_000_000, isFull: true },
+    color: PALETTE.green,
+  })
   expect(cells.slice(0, -1).every((c) => c.dim === true)).toBe(true)
 })
 

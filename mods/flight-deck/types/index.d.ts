@@ -143,6 +143,9 @@ export type Cell = {
   since?: number
   // A cost in US dollars, drawn after `text`. A changed cost runs to its new value.
   usd?: number
+  // A context length, drawn in place of `text`: `ctx 182.4k/1M 18%`, or `ctx 18%` when not
+  // `isFull`. Changed tokens run to their new count.
+  ctx?: { tokens: number; window: number; isFull: boolean }
   width?: number
   align?: 'right'
 }

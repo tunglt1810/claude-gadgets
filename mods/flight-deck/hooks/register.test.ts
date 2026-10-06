@@ -2025,3 +2025,54 @@ test('the agents button is at the right end of the band, after a part that takes
     expect(root.children[1]?.props.flexGrow).toBe(1)
   }
 })
+
+test('a changed context length runs to its new value', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  let usage = USAGE
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
+    yield* [] as never[]
+    return { ...stepResult(usage), turnId: e.turnId, index: e.index }
+  } as never)
+  await spawn($)
+  const step = () => runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+  await step()
+  await clock.advance(SETTLE_MS)
+  // 100 100 tokens of input, from 100.
+  usage = { ...USAGE, cache_read_input_tokens: 100_080 }
+  await step()
+  await clock.advance(100)
+
+  // The terminal draws the count on screen: between the old one and the new one.
+  const term = await mountPane($, 'terminal')
+  const mid = await paneText(term)
+  expect(mid).toContain('ctx ')
+  expect(mid).not.toContain('ctx 100/1M')
+  expect(mid).not.toContain('ctx 100.1k/1M')
+  await clock.advance(SETTLE_MS)
+  expect(await paneText(term)).toContain('ctx 100.1k/1M 10%')
+  // The transcript screen runs the same way.
+  await term.press({ key: 'agent:a1' })
+  usage = { ...USAGE, cache_read_input_tokens: 300_080 }
+  await step()
+  await clock.advance(100)
+  const midScreen = await paneText(term)
+  expect(midScreen).not.toContain('ctx 100.1k/1M')
+  expect(midScreen).not.toContain('ctx 300.1k/1M')
+  await clock.advance(SETTLE_MS)
+  expect(await paneText(term)).toContain('ctx 300.1k/1M 30%')
+  await term.press({ key: 'back' })
+  await term.unmount()
+
+  // A desktop cell holds the new count and runs to it with its own timer.
+  const desk = await mountPane($, 'desktop')
+  const cells = (await desk.findAll({ type: 'Client' })).map((c) => c.props.props as Cell)
+  expect(cells).toContainEqual({
+    text: '',
+    ctx: { tokens: 300_100, window: 1_000_000, isFull: true },
+    color: '#a9dc76',
+  })
+  await desk.unmount()
+})

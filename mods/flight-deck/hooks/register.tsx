@@ -46,7 +46,7 @@ import {
   snapShown,
 } from '../src/tween'
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
-import { contextTokens, contextWindow } from '../src/window'
+import { contextTargets, contextTokens, contextWindow } from '../src/window'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
 import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
 
@@ -87,7 +87,8 @@ const initialPane: PaneView = {
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
 const initialData: PaneData = { sessionId: null, entries: {}, stats: null, dashboard: null }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
-// The dashboard's costs as the terminal draws them: a changed cost runs to its new value.
+// The dashboard's costs and the context lengths as the terminal draws them: a changed number
+// runs to its new value.
 const initialPaneShown: NamedShown = { sessionId: null, tweens: {} }
 const paneShown = atom({ plugin: 'flight-deck', key: 'paneShown' } as const, initialPaneShown)
 const spin = atom({ plugin: 'flight-deck', key: 'spin' } as const, 0)
@@ -183,8 +184,12 @@ async function syncPane($: Api): Promise<void> {
   )
   const cur = await read($, shownData)
   if (JSON.stringify(cur) !== JSON.stringify(next)) await update($, shownData, () => next)
-  if (next.dashboard === null) return
-  const target = usdTargets(next.dashboard)
+  // The numbers that run to a new value: the costs of the dashboard and the tokens of each
+  // context on the screen.
+  const target = {
+    ...(next.dashboard === null ? {} : usdTargets(next.dashboard)),
+    ...contextTargets(next.entries),
+  }
   const at = await $.clock.now()
   const tweens = await read($, paneShown)
   if (JSON.stringify(tweens) === JSON.stringify(retargetNamed(tweens, id, target, at))) return

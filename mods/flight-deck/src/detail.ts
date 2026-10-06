@@ -1,7 +1,8 @@
 import type { AgentEntry, Cell } from '../types'
+import { cellText } from './cell'
 import { cut } from './clip'
 import { shortModel } from './dashboard'
-import { contextColor, contextText } from './window'
+import { contextColor } from './window'
 
 const SEP = '·'
 
@@ -16,11 +17,15 @@ export const detailCells = (a: AgentEntry, room: number): Cell[] => {
     const parts: Cell[] = [
       ...(model === undefined ? [] : [{ text: model, dim: true }]),
       ...(a.effort === undefined || !hasEffort ? [] : [{ text: a.effort, dim: true }]),
-      ...(ctx === undefined ? [] : [{ text: contextText(ctx, isFull), color: contextColor(ctx) }]),
+      // A cell of its own kind: its tokens run to a new count when they change.
+      ...(ctx === undefined
+        ? []
+        : [{ text: '', ctx: { ...ctx, isFull }, color: contextColor(ctx) }]),
     ]
     return parts.flatMap((p, i) => (i === 0 ? [p] : [{ text: SEP, dim: true }, p]))
   }
-  const width = (cells: Cell[]) => cells.reduce((n, c) => n + c.text.length, 0) + cells.length - 1
+  const width = (cells: Cell[]) =>
+    cells.reduce((n, c) => n + cellText(c, 0, 0).length, 0) + cells.length - 1
   const model = a.model === undefined ? undefined : shortModel(a.model)
   const wide = build(model, true, true)
   if (width(wide) <= room) return wide

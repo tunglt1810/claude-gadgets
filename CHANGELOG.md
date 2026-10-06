@@ -19,6 +19,7 @@ Tested on Claude Code 2.1.291.
 - Transcript screen: the row below the title shows the context length of the agent.
 - The context length has a color for its percentage: green below 50, yellow from 50, red from 80.
 - The context window of a model follows the resolver of Claude Code 2.1.291: 1M for Opus 4.7 and later, Sonnet 5 and later, Fable and Mythos, and for an id with `[1m]`. 200k for all other models, and for each model when `CLAUDE_CODE_DISABLE_1M_CONTEXT` is set.
+- A changed context length runs to its new value, in the detail row and on the transcript screen. A desktop cell runs with its own timer.
 - Terminal: an empty row is between the pane title and the pane body.
 
 #### Changed

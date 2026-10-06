@@ -93,7 +93,17 @@ The mod cannot see these inputs of the engine. For them, the window can be incor
 
 Not known: whether the `model` of a `turn.step` event keeps the `[1m]` suffix. The stored data of 28 agents has only three ids, and none has a suffix: `claude-haiku-4-5-20251001`, `claude-sonnet-5-5`, `claude-opus-5-5`. The table gives the correct window for these three ids.
 
-### 4.4 Color
+### 4.4 Animation
+
+Changed context tokens run to their new count, as a cost of the dashboard does. The detail row and the transcript screen show the count that is on the screen, with its percentage.
+
+- A context cell is a `Cell` with `ctx: { tokens, window, isFull }`. `cellText` draws it.
+- The terminal draws each frame. The named tweens of the pane hold `ctx:<agentId>` beside the costs.
+- On a desktop, the cell runs with its own timer, so the pane is not drawn again.
+- The first count of an agent shows at once.
+- The color and the fit of the row use the new count, not the count on the screen.
+
+### 4.5 Color
 
 | Context percentage | Tone | Color |
 |---|---|---|
@@ -126,7 +136,7 @@ The detail row starts below the first character of the name. It has these parts,
 
 1. The model id without the `claude-` prefix and the date (`shortModel`). Dim.
 2. The effort. Dim. Absent when the entry has no effort.
-3. `ctx <tokens>/<window> <pct>%`. The color of section 4.4. `formatTokens` gives the two numbers.
+3. `ctx <tokens>/<window> <pct>%`. The color of section 4.5. `formatTokens` gives the two numbers.
 
 Rules:
 
@@ -153,7 +163,7 @@ The row below the title gets a last part:
 claude-sonnet-5-5 high · 2 runs · ◷ 0:01:12 · ctx 182.4k/1M 18%
 ```
 
-- The part is `ctx <tokens>/<window> <pct>%` with the color of section 4.4.
+- The part is `ctx <tokens>/<window> <pct>%` with the color of section 4.5.
 - An entry with no context has no such part and no separator before it.
 - When the row has no room for the part, the mod removes `<tokens>/<window>`. When `ctx <pct>%` does not fit, the row has no context part.
 

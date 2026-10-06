@@ -20,7 +20,7 @@ import { inputCode, toolSummary } from './summary'
 import { agentTable, recency, runsLabel } from './table'
 import { lastItems } from './transcript'
 import { treeRows } from './tree'
-import { contextColor, contextFit } from './window'
+import { contextColor, contextFit, contextText, ctxKey } from './window'
 
 type Props = {
   ui: Elements[keyof Elements]
@@ -30,8 +30,9 @@ type Props = {
   stats: Snapshot | null
   // The session's cost and a row per model, above the agents table.
   dashboard: Dashboard | null
-  // The dashboard's costs as they are on screen, by name, where the pane is drawn on each
-  // frame (the terminal). Absent on a desktop: a cell runs to its new cost by itself.
+  // The dashboard's costs and the tokens of each context as they are on screen, by name, where
+  // the pane is drawn on each frame (the terminal). Absent on a desktop: a cell runs to its
+  // new number by itself.
   shownUsd?: Record<string, number>
   // The spinner's tick count: a running mark turns with it. Null where the pane must not be
   // drawn again on each frame (a desktop): each cell is a `Client` with its own timer then.
@@ -152,6 +153,12 @@ export const AgentPane = ({
         </Text>
       </Box>
     )
+
+  // A context cell with the tokens that are on screen, where the pane draws each frame.
+  const shownCtx = (agentId: string, c: Cell): Cell => {
+    const tokens = shownUsd?.[ctxKey(agentId)]
+    return c.ctx === undefined || tokens === undefined ? c : { ...c, ctx: { ...c.ctx, tokens } }
+  }
 
   if (viewed === null) {
     const head = (key: string, text: string, width: number, align?: 'right') =>
@@ -322,7 +329,7 @@ export const AgentPane = ({
                   {cell(`detail:mark:${agent.id}`, { text: '', width: MARK_WIDTH })}
                   <Box key={`detail:expand:${agent.id}`} width={EXPAND_WIDTH} flexShrink={0} />
                   {detailCells(agent, columns - inset).map((c, i) =>
-                    cell(`detail:${agent.id}:${i}`, c),
+                    cell(`detail:${agent.id}:${i}`, shownCtx(agent.id, c)),
                   )}
                 </Box>
               )}
@@ -451,7 +458,14 @@ export const AgentPane = ({
           {ctxText !== null && cell('meta:sep:ctx', { text: SEP, dim: true })}
           {ctxText !== null &&
             agent.context !== undefined &&
-            cell('meta:ctx', { text: ctxText, color: contextColor(agent.context) })}
+            cell(
+              'meta:ctx',
+              shownCtx(agent.id, {
+                text: '',
+                ctx: { ...agent.context, isFull: ctxText === contextText(agent.context, true) },
+                color: contextColor(agent.context),
+              }),
+            )}
         </Box>
       )}
       {stats !== null && (
