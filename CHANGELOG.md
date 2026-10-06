@@ -15,7 +15,7 @@ Tested on Claude Code 2.1.291.
 
 #### Added
 
-- Agents table: each row has an expand button (`▸`, `▾`). It shows or hides a detail row with the model, the effort and the context length of the agent: `sonnet-5-5 · high · ctx 182.4k/1M 18%`.
+- Agents table: each row has an expand button (`▾`, `▸`). The detail row is open at first. The button hides or shows a detail row with the model, the effort and the context length of the agent: `sonnet-5-5 · high · ctx 182.4k/1M 18%`.
 - Transcript screen: the row below the title shows the context length of the agent.
 - The context length has a color for its percentage: green below 50, yellow from 50, red from 80.
 - The context window of a model follows the resolver of Claude Code 2.1.291: 1M for Opus 4.7 and later, Sonnet 5 and later, Fable and Mythos, and for an id with `[1m]`. 200k for all other models, and for each model when `CLAUDE_CODE_DISABLE_1M_CONTEXT` is set.

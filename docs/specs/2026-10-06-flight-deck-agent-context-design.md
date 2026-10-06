@@ -115,7 +115,7 @@ A model with a window of 1000000 compacts at approximately 967000 tokens. Thus t
   ⣿  ▸ Explore · child              1   0:00:09
 ```
 
-- The expand button is between the mark and the name. Its label is `▸` (closed) or `▾` (open). Its key is `expand:<agentId>`.
+- The expand button is between the mark and the name. Its label is `▾` (open, the state at first) or `▸` (closed). Its key is `expand:<agentId>`.
 - The width of the expand button does not change. The name column is narrower by that width and one gap.
 - The name button does not change. It opens the transcript of the agent.
 - The header row has an empty cell above the expand buttons. Thus the `agents` header starts above the names, and a desktop aligns the header with the rows.
@@ -138,12 +138,12 @@ Rules:
 
 ### 5.3 State
 
-`PaneView` gets `expandedAgents: string[]`. It holds the ids of the agents whose detail row is open.
+The detail row of each agent is open at first. `PaneView` gets `collapsedAgents: string[]`. It holds the ids of the agents whose detail row is closed.
 
 - `PaneAction` gets `{ kind: 'expand'; agentId: string }`. The action adds the id, or removes it when it is there.
 - `focusAction` in `src/action.ts` gives this action for the element `expand:<agentId>`. A desktop click on a pane that does not hold the keys raises only `ui.focus`.
 - The state stays when the person opens a transcript and goes back.
-- The store does not hold the state. A pane state with no `expandedAgents` (a hot reload) reads as an empty list.
+- The store does not hold the state. A pane state with no `collapsedAgents` (a hot reload) reads as an empty list: each row is open.
 
 ## 6. Transcript screen
 

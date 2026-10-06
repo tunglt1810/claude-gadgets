@@ -1845,8 +1845,8 @@ test('the transcript screen shows the context length of the agent', async ($, on
 
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
-    // The agents table shows no context length while each detail row is closed.
-    expect(await paneText(ui)).not.toContain('ctx ')
+    // The detail row of each agent is open at first: the table shows the context length.
+    expect(await paneText(ui)).toContain('ctx 100/1M 0%')
     await ui.press({ key: 'agent:a1' })
     expect(await paneText(ui)).toContain('ctx 100/1M 0%')
     await ui.press({ key: 'back' })
@@ -1884,7 +1884,7 @@ test('an agent with no step shows no context part', async ($, on) => {
   await ui.unmount()
 })
 
-test('the expand button shows and hides the detail row of an agent', async ($, on) => {
+test('the detail row of an agent is open at first and the expand button hides and shows it', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
@@ -1896,30 +1896,32 @@ test('the expand button shows and hides the detail row of an agent', async ($, o
 
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
-    expect(String((await ui.find({ key: 'expand:a1' }))?.props.label)).toBe('▸')
-    expect(await paneText(ui)).not.toContain('ctx ')
-
-    await ui.press({ key: 'expand:a1' })
     expect(String((await ui.find({ key: 'expand:a1' }))?.props.label)).toBe('▾')
     const open = await paneText(ui)
     expect(open).toContain('high')
     expect(open).toContain('ctx 100/1M 0%')
-    // The other row stays closed.
-    expect(open).not.toContain('no step yet')
+    expect(open).toContain('no step yet')
 
-    await ui.press({ key: 'expand:a2' })
-    expect(await paneText(ui)).toContain('no step yet')
+    await ui.press({ key: 'expand:a1' })
+    expect(String((await ui.find({ key: 'expand:a1' }))?.props.label)).toBe('▸')
+    const closed = await paneText(ui)
+    expect(closed).not.toContain('ctx ')
+    // The other row stays open.
+    expect(closed).toContain('no step yet')
 
-    // The rows stay open across a transcript.
+    // A closed row stays closed across a transcript.
     await ui.press({ key: 'agent:a1' })
     await ui.press({ key: 'back' })
-    expect(await paneText(ui)).toContain('no step yet')
+    expect(await paneText(ui)).not.toContain('ctx 100/1M 0%')
+
+    await ui.press({ key: 'expand:a2' })
+    expect(await paneText(ui)).not.toContain('no step yet')
 
     await ui.press({ key: 'expand:a1' })
     await ui.press({ key: 'expand:a2' })
-    const closed = await paneText(ui)
-    expect(closed).not.toContain('ctx ')
-    expect(closed).not.toContain('no step yet')
+    const again = await paneText(ui)
+    expect(again).toContain('ctx 100/1M 0%')
+    expect(again).toContain('no step yet')
     await ui.unmount()
   }
 })
@@ -1939,7 +1941,7 @@ test('the name button still opens the transcript beside the expand button', asyn
   }
 })
 
-test('a click that gives the pane the focus also opens the detail row', async ($, on) => {
+test('a click that gives the pane the focus also closes the detail row', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
@@ -1957,9 +1959,9 @@ test('a click that gives the pane the focus also opens the detail row', async ($
     } as never)
   // Another plugin's focus move does not press.
   await click('plugin')
-  expect(await paneText(ui)).not.toContain('no step yet')
-  await click('person')
   expect(await paneText(ui)).toContain('no step yet')
+  await click('person')
+  expect(await paneText(ui)).not.toContain('no step yet')
   await ui.unmount()
 })
 
@@ -1995,13 +1997,11 @@ test('the detail row is built as an agent row is: the same boxes before its text
   await spawn($)
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
-    await ui.press({ key: 'expand:a1' })
     // A desktop sizes a box and a padding in different units: only the same parts line up.
     expect((await ui.find({ key: 'detail:a1' }))?.props.paddingLeft).toBeUndefined()
     expect((await ui.find({ key: 'detail:expand:a1' }))?.props.width).toBe(
       (await ui.find({ key: 'expandbox:a1' }))?.props.width,
     )
-    await ui.press({ key: 'expand:a1' })
     await ui.unmount()
   }
 })

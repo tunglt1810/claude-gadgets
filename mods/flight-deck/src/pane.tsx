@@ -269,7 +269,9 @@ export const AgentPane = ({
         {rows.map(({ agent, depth }) => {
           const recent = recency(agent, now)
           const tone: Tone = recent === 'old' ? { dim: true } : { color: RECENCY_TONE[recent] }
-          const isOpen = (view.expandedAgents ?? []).includes(agent.id)
+          // A detail row is open until its button closes it. State of an older shape (a hot
+          // reload) has no list: each row is open then.
+          const isOpen = !(view.collapsedAgents ?? []).includes(agent.id)
           // The name gives its first cells to the expand button and a gap.
           const nameWidth = Math.max(1, t.name - depth * 2 - EXPAND_WIDTH - 1)
           // The detail row starts below the name's first character: the cells before it.

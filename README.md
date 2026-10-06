@@ -33,7 +33,7 @@ bun run check      # biome + tsc + claude plugin validate + claude plugin test
 - Press `◆ agents N` on the band, or run `/agent-log`, to open the pane. Do the same to close it.
 - The pane lists the subagents as a tree. A child agent is below its parent.
 - Press an agent to see its transcript. Press a tool call to see its input and its result.
-- Each agent row has an expand button. It shows the model, the effort and the context length of the agent (`ctx 182.4k/1M 18%`). The color is green below 50%, yellow from 50% and red from 80%.
+- Each agent row has a detail row, open at first, and an expand button that hides or shows it. The detail row shows the model, the effort and the context length of the agent (`ctx 182.4k/1M 18%`). The color is green below 50%, yellow from 50% and red from 80%.
 - The transcript screen shows the same context length below the title.
 - The pane shows an agent after it completes, after a new message starts it again, and after `--resume`.
 

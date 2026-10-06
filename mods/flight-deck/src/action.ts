@@ -19,7 +19,7 @@ export const focusAction = (element: string, transcript: Transcript | null): Pan
   return agentId === undefined ? null : { kind: 'open', agentId }
 }
 
-// A list of open ids with `id` added, or removed when it is there. A pane state of an older
+// A list of ids with `id` added, or removed when it is there. A pane state of an older
 // shape (a hot reload) has no list.
 export const toggled = (list: readonly string[] | undefined, id: string): string[] =>
   (list ?? []).includes(id) ? (list ?? []).filter((x) => x !== id) : [...(list ?? []), id]

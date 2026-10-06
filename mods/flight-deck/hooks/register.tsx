@@ -81,7 +81,7 @@ const initialPane: PaneView = {
   isWrapped: true,
   agentId: null,
   expanded: [],
-  expandedAgents: [],
+  collapsedAgents: [],
   transcript: null,
 }
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
@@ -162,7 +162,7 @@ async function loadAgents($: Api, id: string): Promise<void> {
     ...c,
     agentId: null,
     expanded: [],
-    expandedAgents: [],
+    collapsedAgents: [],
     transcript: null,
   }))
   await syncPane($)
@@ -267,7 +267,7 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'expand') {
     await update($, pane, (c) => ({
       ...c,
-      expandedAgents: toggled(c.expandedAgents, action.agentId),
+      collapsedAgents: toggled(c.collapsedAgents, action.agentId),
     }))
     return
   }
