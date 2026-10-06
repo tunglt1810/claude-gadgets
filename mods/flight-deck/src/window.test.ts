@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import { PALETTE } from './palette'
 import {
   contextColor,
+  contextFit,
   contextPct,
   contextText,
   contextTokens,
@@ -80,4 +81,13 @@ test('the text names the tokens, the window and the percentage', () => {
   expect(contextText({ tokens: 182_400, window: 1_000_000 }, true)).toBe('ctx 182.4k/1M 18%')
   expect(contextText({ tokens: 100, window: 200_000 }, true)).toBe('ctx 100/200k 0%')
   expect(contextText({ tokens: 182_400, window: 1_000_000 }, false)).toBe('ctx 18%')
+})
+
+test('the text that fits a room: the whole one, the percentage alone, or none', () => {
+  const c = { tokens: 182_400, window: 1_000_000 }
+  expect(contextFit(c, 17)).toBe('ctx 182.4k/1M 18%')
+  expect(contextFit(c, 16)).toBe('ctx 18%')
+  expect(contextFit(c, 7)).toBe('ctx 18%')
+  expect(contextFit(c, 6)).toBeNull()
+  expect(contextFit(c, -3)).toBeNull()
 })

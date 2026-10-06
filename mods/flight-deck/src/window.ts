@@ -61,3 +61,7 @@ export const contextText = (c: Context, isFull: boolean): string =>
   isFull
     ? `ctx ${formatTokens(c.tokens)}/${windowLabel(c.window)} ${contextPct(c)}%`
     : `ctx ${contextPct(c)}%`
+
+// The text of a context in `room` cells: with its counts, the percentage alone, or none.
+export const contextFit = (c: Context, room: number): string | null =>
+  [contextText(c, true), contextText(c, false)].find((t) => t.length <= room) ?? null

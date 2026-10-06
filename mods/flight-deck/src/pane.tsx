@@ -20,7 +20,7 @@ import { inputCode, toolSummary } from './summary'
 import { agentTable, recency, runsLabel } from './table'
 import { lastItems } from './transcript'
 import { treeRows } from './tree'
-import { contextColor, contextText } from './window'
+import { contextColor, contextFit } from './window'
 
 type Props = {
   ui: Elements[keyof Elements]
@@ -272,7 +272,7 @@ export const AgentPane = ({
           const isOpen = (view.expandedAgents ?? []).includes(agent.id)
           // The name gives its first cells to the expand button and a gap.
           const nameWidth = Math.max(1, t.name - depth * 2 - EXPAND_WIDTH - 1)
-          // The detail row starts below the name's first character.
+          // The detail row starts below the name's first character: the cells before it.
           const inset = depth * 2 + MARK_WIDTH + 1 + EXPAND_WIDTH + 1
           return (
             <Box key={`agentrow:${agent.id}`} flexDirection="column">
@@ -311,13 +311,14 @@ export const AgentPane = ({
                 {cell(`time:${agent.id}`, timeCell(agent, now, 'right', tone, ''))}
               </Box>
               {isOpen && (
-                <Box
-                  key={`detail:${agent.id}`}
-                  flexDirection="row"
-                  alignItems="center"
-                  gap={1}
-                  paddingLeft={inset}
-                >
+                // Built as the agent's row is, an indent, a mark and an expand box: a desktop
+                // sizes a box and a padding in different units, so only the same parts line up.
+                <Box key={`detail:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
+                  {depth > 0 && (
+                    <Box key={`detail:indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />
+                  )}
+                  {cell(`detail:mark:${agent.id}`, { text: '', width: MARK_WIDTH })}
+                  <Box key={`detail:expand:${agent.id}`} width={EXPAND_WIDTH} flexShrink={0} />
                   {detailCells(agent, columns - inset).map((c, i) =>
                     cell(`detail:${agent.id}:${i}`, c),
                   )}
@@ -394,6 +395,19 @@ export const AgentPane = ({
 
   const agent = entries[viewed]
   const titleWidth = columns - MARK_WIDTH - 1
+  // The context takes what the row below the title has left: its padding, then each cell
+  // before the context with the gap after it, then the dot and its gap.
+  const metaLabel = modelLabel(agent)
+  const metaUsed =
+    MARK_WIDTH +
+    1 +
+    (metaLabel === undefined ? 0 : metaLabel.length + 1 + SEP.length + 1) +
+    (agent === undefined ? 0 : runsLabel(agent.runs).length + 1) +
+    (SEP.length + 1) +
+    (TIME_WIDTH + 1) +
+    (SEP.length + 1)
+  const ctxText =
+    agent?.context === undefined ? null : contextFit(agent.context, columns - metaUsed)
   return (
     <Box flexDirection="column">
       {/* The toolbar: real buttons (`[ label ]` on the terminal, native ones on desktop), so
@@ -432,12 +446,10 @@ export const AgentPane = ({
           {cell('meta:runs', { text: runsLabel(agent.runs), dim: true })}
           {cell('meta:sep:time', { text: SEP, dim: true })}
           {cell('meta:time', timeCell(agent, now))}
-          {agent.context !== undefined && cell('meta:sep:ctx', { text: SEP, dim: true })}
-          {agent.context !== undefined &&
-            cell('meta:ctx', {
-              text: contextText(agent.context, true),
-              color: contextColor(agent.context),
-            })}
+          {ctxText !== null && cell('meta:sep:ctx', { text: SEP, dim: true })}
+          {ctxText !== null &&
+            agent.context !== undefined &&
+            cell('meta:ctx', { text: ctxText, color: contextColor(agent.context) })}
         </Box>
       )}
       {stats !== null && (

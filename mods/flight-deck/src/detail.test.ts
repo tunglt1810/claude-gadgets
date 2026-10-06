@@ -45,10 +45,22 @@ test('a narrow row drops the counts first, then cuts the model', () => {
   expect(narrow).toContain('high')
 })
 
-test('a row with no room stays one row of a positive width', () => {
-  for (const room of [10, 1, 0, -5]) {
-    const cells = detailCells(full, room)
-    expect(cells.length).toBeGreaterThan(0)
-    expect(cells.every((c) => c.text.length > 0)).toBe(true)
-  }
+const width = (cells: Cell[]) => row(cells).length
+
+test('a row is never wider than its room, down to the percentage alone', () => {
+  for (let room = 7; room <= 40; room++)
+    expect(width(detailCells(full, room))).toBeLessThanOrEqual(room)
+  expect(row(detailCells(full, 17))).toBe('high · ctx 18%')
+  expect(row(detailCells(full, 10))).toBe('ctx 18%')
+})
+
+test('a row with no context cuts the model to its room', () => {
+  const noCtx = agent({ model: 'claude-sonnet-5-5', effort: 'high' })
+  expect(row(detailCells(noCtx, 80))).toBe('sonnet-5-5 · high')
+  for (let room = 1; room <= 20; room++)
+    expect(width(detailCells(noCtx, room))).toBeLessThanOrEqual(room)
+})
+
+test('a row with no room at all still draws one cell', () => {
+  for (const room of [0, -5]) expect(detailCells(full, room)).toHaveLength(1)
 })

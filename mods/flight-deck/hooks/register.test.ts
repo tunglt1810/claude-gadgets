@@ -790,7 +790,7 @@ const paneEngine = (on: Parameters<typeof mock.store>[0], messages: () => unknow
   return calls
 }
 
-const mountPane = ($: Engine, surface: Surface, isFocused = true) =>
+const mountPane = ($: Engine, surface: Surface, isFocused = true, bodyColumns = 80) =>
   $.ui.mount({
     plugin: 'flight-deck',
     surface,
@@ -799,7 +799,7 @@ const mountPane = ($: Engine, surface: Surface, isFocused = true) =>
     props: {
       title: 'Agents',
       isFocused,
-      bodyColumns: 80,
+      bodyColumns,
       placement: 'dock',
       scroll: { offset: 0, bodyRows: 40 },
       view: {},
@@ -1960,4 +1960,47 @@ test('a click that gives the pane the focus also opens the detail row', async ($
   await click('person')
   expect(await paneText(ui)).toContain('no step yet')
   await ui.unmount()
+})
+
+test('a narrow transcript screen drops the counts of the context, then the context', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-haiku-4-5-20251001', agentId: 'a1' } as never)
+  // The row below the title: the model, the runs and the time take 51 cells of the 58 or 46
+  // that the terminal's pane has inside its padding.
+  const text = async (columns: number) => {
+    const ui = await mountPane($, 'terminal', true, columns)
+    if ((await ui.find({ key: 'back' })) === undefined) await ui.press({ key: 'agent:a1' })
+    const out = await paneText(ui)
+    await ui.unmount()
+    return out
+  }
+  expect(await text(80)).toContain('ctx 100/200k 0%')
+  const narrow = await text(62)
+  expect(narrow).toContain('ctx 0%')
+  expect(narrow).not.toContain('100/200k')
+  expect(await text(50)).not.toContain('ctx ')
+})
+
+test('the detail row is built as an agent row is: the same boxes before its text', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'expand:a1' })
+    // A desktop sizes a box and a padding in different units: only the same parts line up.
+    expect((await ui.find({ key: 'detail:a1' }))?.props.paddingLeft).toBeUndefined()
+    expect((await ui.find({ key: 'detail:expand:a1' }))?.props.width).toBe(
+      (await ui.find({ key: 'expandbox:a1' }))?.props.width,
+    )
+    await ui.press({ key: 'expand:a1' })
+    await ui.unmount()
+  }
 })

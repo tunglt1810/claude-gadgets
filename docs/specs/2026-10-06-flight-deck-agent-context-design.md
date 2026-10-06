@@ -130,7 +130,8 @@ The detail row starts below the first character of the name. It has these parts,
 
 Rules:
 
-- The row is one row. When it is wider than the pane, the mod removes `<tokens>/<window>` first. Then it cuts the model.
+- The row is one row. When it is wider than the pane, the mod removes `<tokens>/<window>` first. Then it cuts the model, removes the model, and removes the effort. The least that a row with a context shows is `ctx <pct>%`.
+- The row has the same cells before its text as an agent row has: the indent, the mark width and the expand width. Thus a desktop aligns the two rows.
 - An entry with no context has no third part.
 - An entry with no model and no context shows `no step yet`, dim.
 - On a desktop, each part is a `Client` cell, as the other cells of the table are.
@@ -154,6 +155,7 @@ claude-sonnet-5-5 high · 2 runs · ◷ 0:01:12 · ctx 182.4k/1M 18%
 
 - The part is `ctx <tokens>/<window> <pct>%` with the color of section 4.4.
 - An entry with no context has no such part and no separator before it.
+- When the row has no room for the part, the mod removes `<tokens>/<window>`. When `ctx <pct>%` does not fit, the row has no context part.
 
 ## 7. Pane title
 
