@@ -146,7 +146,7 @@ Rules:
 - An entry with no model and no context shows `no step yet`, dim.
 - The model and the effort are one button, with the key `detail:<agentId>`. Its label ends with ` ·` when a context comes after it. A press opens the transcript, as a press on the name does.
 - The context length is a cell after the button, because a Button has no color.
-- The button is necessary for the layout. A desktop draws the label of a button after a margin, and its font is not fixed-width. Thus separate cells start at a different position from the name, and they have empty room between them.
+- The button is necessary for the layout. A desktop draws the label of a button after a margin, and the characters of its font have different widths. Thus separate cells start at a different position from the name, and they have empty room between them.
 - The two surfaces draw the row from the same parts.
 
 ### 5.3 State
