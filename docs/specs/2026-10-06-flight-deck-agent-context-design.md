@@ -214,7 +214,7 @@ The band does not scroll with the pane. Thus it shows what the header of the tra
 ```
 
 - The context length is the first group. Its color is that of section 4.5. It does not run to a new value: the numbers of an agent view are not animated.
-- A narrow band removes the context length after the tokens and before nothing else of the agent view.
+- A narrow band removes the context length last, after the tokens. It does not remove the countdown.
 - The name of the agent is in the place of the word `agent`. It takes only the room that the band has left, and no part is removed for it.
 - A name with fewer than 8 cells of room is not shown. The mark then says `agent`.
 
