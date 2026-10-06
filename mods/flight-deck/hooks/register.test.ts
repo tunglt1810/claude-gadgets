@@ -528,7 +528,7 @@ test('edits add their changed lines to the diff; failed and denied calls do not'
   answer = { deny: 'no' }
   await $.tool.call({ tool: 'Edit', file_path: 'a', old_string: 'b', new_string: 'c' })
 
-  expect(await settled($, clock)).toMatch(/± diff \+4 -1$/)
+  expect(await settled($, clock)).toContain('± diff +4 -1 ')
 })
 
 test('cost and diff survive a session id round trip', async ($, on) => {
@@ -546,12 +546,12 @@ test('cost and diff survive a session id round trip', async ($, on) => {
   id = 'S2'
   const other = await settled($, clock)
   expect(other).toContain('$ cost 0.00')
-  expect(other).toMatch(/± diff \+0 -0$/)
+  expect(other).toContain('± diff +0 -0 ')
 
   id = 'S1'
   const back = await settled($, clock)
   expect(back).toContain('$ cost 2.50')
-  expect(back).toMatch(/± diff \+1 -2$/)
+  expect(back).toContain('± diff +1 -2 ')
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -622,7 +622,7 @@ test('started subagents are counted; a refused spawn is not', async ($, on) => {
   isRefused = true
   await spawn($)
 
-  expect(await settled($, clock)).toContain('▸ agents 2 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 2$/)
 })
 
 test('background tasks are counted: a tool call sent to the background, not an Agent call', async ($, on) => {
@@ -695,6 +695,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(sub).toContain('◆ agent m │ ↑ in 200 ')
       expect(sub).toContain('↓ out 10 ')
       expect(sub).toContain('⌘ calls 1 ')
+      // An agent's band has no agents button: the diff is its last part.
       expect(sub).toMatch(/± diff \+1 -1$/)
       // The agent's own cache: its step was sent 10s after the main one.
       expect(sub).toContain('◔ 5:00')
@@ -702,7 +703,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
       const main = await bandText($, surface)
       expect(main).toContain('↑ in 400 ')
-      expect(main).toContain('▸ agents 3 ')
+      expect(main).toMatch(/▸ agents 3$/)
       expect(main).toContain('◔ 4:50')
     },
   )
@@ -719,11 +720,11 @@ test('spawn counts and per-agent data survive a session id round trip', async ($
   await runStep($, { ...STEP, agentId: 'a1' })
   await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true })
   id = 'S2'
-  expect(await settled($, clock)).toContain('▸ agents 0 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 0$/)
 
   id = 'S1'
   const back = await settled($, clock)
-  expect(back).toContain('▸ agents 1 ')
+  expect(back).toMatch(/▸ agents 1$/)
   expect(back).toContain('◇ bg 1 ')
   expect(await bandText($, 'terminal', 'a1')).toContain('◆ agent m │ ↑ in 100 ')
 })
@@ -1771,11 +1772,11 @@ test('an agent that was not spawned is counted at its first step, once', async (
   on('turn.step', stepHook(USAGE))
   await runStep($, { ...STEP, agentId: 'skill1' })
   await runStep($, { ...STEP, index: 1, agentId: 'skill1' })
-  expect(await settled($, clock)).toContain('▸ agents 1 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 1$/)
   // A spawned agent is counted at its spawn, and not again at its steps.
   await spawn($)
   await runStep($, { ...STEP, agentId: 'a1' })
-  expect(await settled($, clock)).toContain('▸ agents 2 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 2$/)
 })
 
 test('a spawn that arrives after the first step of its agent does not count it again', async ($, on) => {
@@ -1785,7 +1786,7 @@ test('a spawn that arrives after the first step of its agent does not count it a
   on('turn.step', stepHook(USAGE))
   await runStep($, { ...STEP, agentId: 'a1' })
   await spawn($)
-  expect(await settled($, clock)).toContain('▸ agents 1 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 1$/)
 })
 
 // A skill that runs in a subagent, typed as `/skill`, raises no turn.start and no turn.complete
@@ -2002,5 +2003,25 @@ test('the detail row is built as an agent row is: the same boxes before its text
     )
     await ui.press({ key: 'expand:a1' })
     await ui.unmount()
+  }
+})
+
+test('the agents button is at the right end of the band, after a part that takes the free room', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({
+      plugin: 'flight-deck',
+      surface,
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
+    })
+    const root = (await ui.drawn()) as {
+      children: { type: string; props: { flexGrow?: number } }[]
+    }
+    await ui.unmount()
+    expect(root.children.map((c) => c.type)).toEqual(['Text', 'Box', 'Button'])
+    expect(root.children[1]?.props.flexGrow).toBe(1)
   }
 })

@@ -216,12 +216,12 @@ The `side requests` row is the ledger cost that no model row and no advisor cost
 The band is one row above the prompt (`AbovePrompt`). Each metric is `icon label value`. A `│` separates the groups. The countdown beside the cache percentage has no label. In a narrow band with no percentage, it is `◔ cache 3:42`.
 
 ```
-↑ in 12.5k  ↓ out 3.1k │ ◈ cache 89%  ◔ 3:42 ━━━━━━━━━━ │ ⌘ calls 14  [ ▸ agents 2 ]  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30
+↑ in 12.5k  ↓ out 3.1k │ ◈ cache 89%  ◔ 3:42 ━━━━━━━━━━ │ ⌘ calls 14  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30        [ ▸ agents 2 ]
 ```
 
 - No emoji. Each drawn character has a width of one cell.
 - The band fits `e.props.bodyColumns`. On a narrow width it drops parts in this order: bar, bg, diff, hit, calls, work, cost, out, in, agents.
-- The `agents` part is a button. It opens and closes the pane. Its mark is `▸` for a closed pane and `▾` for an open pane.
+- The `agents` part is a button at the right end of the row, after the free room of the row. It opens and closes the pane. Its mark is `▸` for a closed pane and `▾` for an open pane.
 - Cache hit: green from 70 percent, yellow from 40 percent, red below 40 percent.
 - Countdown: `lastStepAt + lifetime - now`. Green above 60 s, yellow from 15 s to 60 s, red below 15 s with a pulse, dim when expired.
 - The bar after the countdown has 10 cells. An expired cache has no bar.

@@ -178,7 +178,7 @@ Before:
 After:
 
 ```
-↑ in 12.5k  ↓ out 3.1k │ ◈ cache 1%  ◔ 3:42 ━━━━━━━━━━ │ ⌘ calls 14  ▸ agents 2  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30
+↑ in 12.5k  ↓ out 3.1k │ ◈ cache 1%  ◔ 3:42 ━━━━━━━━━━ │ ⌘ calls 14  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30        [ ▸ agents 2 ]
 ```
 
 - The label of the percentage is `cache`, not `hit`. Its color does not change.
@@ -187,7 +187,9 @@ After:
 - The sequence in which a narrow band removes its parts does not change.
 - The band of an agent view has the same groups.
 - The stats row of the transcript screen shows `◈ cache 90%`. It has no countdown.
-- The diff is the last part of the band, and the `agents` button is after the countdown.
+- The `agents` button is the last part of the band, at the right end of the row. It is in no group: a gap of two cells or more is before it, and no `│`.
+- The band gives the free room of the row to the gap before the button.
+- The band of an agent view has no `agents` button. The diff is its last part.
 
 ## 9. Redraw
 
@@ -204,7 +206,7 @@ Write each test before its code. The test must fail first.
 | `src/window.test.ts` | Each branch of `contextWindow`. The three known ids. The limits 49, 50, 79 and 80 of `contextTone`. `contextPct` at 0 tokens and above the window. |
 | `src/registry.test.ts` | `tuned` writes the context. A call with no context keeps the old value. `parseRegistry` reads a good value and ignores a bad one. |
 | `src/action.test.ts` | `focusAction` gives `expand` for `expand:<id>`. |
-| `src/layout.test.ts` | The cache group is the second group: the percentage, then the countdown with no label. A band with no percentage shows `◔ cache 3:42`. |
+| `src/layout.test.ts` | The `agents` button is the last part, after a gap. The cache group is the second group: the percentage, then the countdown with no label. A band with no percentage shows `◔ cache 3:42`. |
 | `hooks/register.test.ts` | On `terminal` and `desktop`: a step of an agent, then a press of the expand button, shows the detail row. A second press hides it. The transcript screen shows the context part. The terminal pane shows the title, then an empty row. |
 
 `bun run check` must pass.

@@ -55,10 +55,11 @@ const LABEL = {
 } as const
 
 // The percentage of the prompt tokens that the cache gave, and the time the cache has left.
+// The agents button is in no group: it is the last part of the band, at its right end.
 const GROUPS: readonly (readonly Part[])[] = [
   ['in', 'out'],
   ['hit', 'cache'],
-  ['tools', 'agents', 'bg', 'work'],
+  ['tools', 'bg', 'work'],
   ['cost', 'diff'],
 ]
 
@@ -186,6 +187,8 @@ export const bandSegments = ({
         if (part === 'cache' && !expired && !dropped.has('bar')) segs.push(...parts.bar)
       })
     }
+    // The band draws the free room of the row before the button: a gap parts them, not a `│`.
+    if (!dropped.has('agents')) segs.push({ text: '  ' }, ...parts.agents)
     return segs
   }
 

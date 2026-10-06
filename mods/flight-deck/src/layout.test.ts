@@ -50,8 +50,8 @@ test('metrics are grouped: tokens | cache | activity | spend', () => {
   expect(text(146).split(' │ ')).toEqual([
     '↑ in 12.5k  ↓ out 3.1k',
     expect.stringMatching(/^◈ cache 1% {2}◔ 3:42 ━{10}$/),
-    '⌘ calls 14  ▸ agents 2  ◇ bg 1  ◷ work 12:05',
-    '$ cost 0.42  ± diff +120 -30',
+    '⌘ calls 14  ◇ bg 1  ◷ work 12:05',
+    '$ cost 0.42  ± diff +120 -30  ▸ agents 2',
   ])
 })
 
@@ -60,8 +60,8 @@ test('a band with no room for the percentage gives the countdown its label', () 
   expect(text(99).split(' │ ')).toEqual([
     '↑ in 12.5k  ↓ out 3.1k',
     '◔ cache 3:42',
-    '⌘ calls 14  ▸ agents 2  ◷ work 12:05',
-    '$ cost 0.42',
+    '⌘ calls 14  ◷ work 12:05',
+    '$ cost 0.42  ▸ agents 2',
   ])
 })
 
@@ -191,8 +191,8 @@ test('an agent view is marked and leaves out the session-only metrics', () => {
 test('agents is the last part the band drops', () => {
   // Wide enough for the agents button and the cache countdown only. The button is drawn
   // as `[ label ]`: its four cells of chrome count toward the width.
-  const fit = '◔ cache 3:42 │ [ ▸ agents 2 ]'.length
-  expect(text(fit)).toBe('◔ cache 3:42 │ ▸ agents 2')
+  const fit = '◔ cache 3:42  [ ▸ agents 2 ]'.length
+  expect(text(fit)).toBe('◔ cache 3:42  ▸ agents 2')
   expect(text(fit - 1)).toBe('◔ cache 3:42')
 })
 
@@ -243,4 +243,12 @@ test('an agent view names the model and the effort after its mark', () => {
     .map((s) => s.text)
     .join('')
   expect(t.startsWith('◆ agent claude-sonnet-5-5 high │ ↑ in 12.5k')).toBe(true)
+})
+
+test('the agents button is the last part of the band, after a gap and no separator', () => {
+  for (const cols of [146, 110, 60, 30]) {
+    const all = segs(cols)
+    expect(all.at(-1)?.isButton).toBe(true)
+    expect(all.at(-2)?.text).toBe('  ')
+  }
 })

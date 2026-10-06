@@ -18,8 +18,9 @@ type Props = {
   onToggle: () => void
 }
 
-// A single inline row. With the agents button the row is a Box of three parts (text, button,
-// text); without it, one Text with nested Texts, which cannot grow an extra row.
+// A single inline row. With the agents button the row is a Box of three parts: the text, a
+// part that takes the free room, and the button at the right end. Without the button it is
+// one Text with nested Texts, which cannot grow an extra row.
 // `bandSegments` already fits the text to `columns`. The agents button is a primary Button, so it reads as a
 // control: `[ label ]` in the accent color on the terminal, a native button on desktop.
 // `bandSegments` puts the open or closed mark in its label.
@@ -63,8 +64,8 @@ export const Band = ({
   return (
     <Box flexDirection="row">
       {run(segments.slice(0, at), 'before')}
+      <Box key="room" flexGrow={1} />
       <Button key="agents" variant="primary" label={button.text} onPress={onToggle} />
-      {run(segments.slice(at + 1), 'after')}
     </Box>
   )
 }
