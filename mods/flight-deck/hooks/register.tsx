@@ -93,6 +93,24 @@ const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, init
 const initialPaneShown: NamedShown = { sessionId: null, tweens: {} }
 const paneShown = atom({ plugin: 'flight-deck', key: 'paneShown' } as const, initialPaneShown)
 const spin = atom({ plugin: 'flight-deck', key: 'spin' } as const, 0)
+// The engine raises `ui.scroll` before it moves a window, and gives the pane its new offset
+// after. The bar of a scrolled transcript is drawn at the offset of the event, so it is at
+// its new row when the window gets there, not one drawing later.
+const paneScroll = atom(
+  { plugin: 'flight-deck', key: 'paneScroll' } as const,
+  null as { offset: number; seen: number } | null,
+)
+// The offset the pane was last drawn with. Kept here, not in state: a render hook does not
+// write state.
+let drawnOffset = 0
+// Whether the pane was last drawn on the terminal. A desktop scrolls by the pixel and the
+// engine gives an offset in rows, so a bar there moves with the text between two rows: only
+// the terminal has the bar, and only its scroll waits.
+let isPaneOnTerminal = false
+// Ends the wait of a scroll for the pane's next drawing.
+let onPaneDrawn: (() => void) | null = null
+// The longest that a scroll waits for that drawing.
+const SCROLL_WAIT_MS = 40
 // Null until an event read the settings: the mod option stands in for them.
 const ttlsAtom = atom({ plugin: 'flight-deck', key: 'ttls' } as const, null as Ttls | null)
 
@@ -686,6 +704,26 @@ export const register: Register = (on, options) => {
     return res
   })
 
+  on('ui.scroll', async ($, e, next) => {
+    const isTranscript =
+      isPaneOnTerminal &&
+      e.component === 'Pane' &&
+      e.requestId === PANE_ID &&
+      (await read($, pane)).agentId !== null
+    if (isTranscript && e.offset !== drawnOffset) {
+      // The engine moves the window when this hook returns, and draws the pane again later.
+      // So the pane is drawn first, with the bar at its new row: the window then gets there
+      // with the bar in place. The wait ends by itself when no drawing comes.
+      const drawn = new Promise<void>((resolve) => {
+        onPaneDrawn = resolve
+      })
+      await update($, paneScroll, () => ({ offset: e.offset, seen: drawnOffset }))
+      await Promise.race([drawn, new Promise<void>((r) => setTimeout(r, SCROLL_WAIT_MS))])
+      onPaneDrawn = null
+    }
+    return next(e)
+  })
+
   on('command.run', { command: 'agent-log' }, async ($) => ({
     text: (await togglePane($)) ? 'Agents pane opened.' : 'Agents pane closed.',
   }))
@@ -712,6 +750,18 @@ export const register: Register = (on, options) => {
     // side, and the title as the first row.
     const ui = $.ui.resolve(e)
     const pad = e.surface === 'terminal' ? 1 : 0
+    // The rows above the pane body on the terminal: the title and the empty row below it.
+    const above = e.surface === 'terminal' ? 2 : 0
+    // The offset of a scroll event is newer than the pane's own until the engine gives the
+    // pane another offset: that one is then the newest (the window can move with no event).
+    const asked = await read($, paneScroll)
+    const offset =
+      asked !== null && asked.seen === e.props.scroll.offset ? asked.offset : e.props.scroll.offset
+    drawnOffset = e.props.scroll.offset
+    isPaneOnTerminal = e.surface === 'terminal'
+    // After this hook returns its drawing: a scroll that waits for it goes on.
+    const drawn = onPaneDrawn
+    if (drawn !== null) setTimeout(drawn, 0)
     const body = (
       <AgentPane
         ui={ui}
@@ -725,6 +775,10 @@ export const register: Register = (on, options) => {
         spin={e.surface === 'terminal' ? await read($, spin) : null}
         now={now}
         columns={e.props.bodyColumns - pad * 2}
+        scrollTop={e.surface === 'terminal' ? Math.max(0, offset - above) : 0}
+        {...(offset === e.props.scroll.offset || e.surface !== 'terminal'
+          ? {}
+          : { scrollFrom: Math.max(0, e.props.scroll.offset - above) })}
         onOpen={(agentId) => act($, { kind: 'open', agentId })}
         onExpand={(agentId) => act($, { kind: 'expand', agentId })}
         onBack={() => act($, { kind: 'back' })}

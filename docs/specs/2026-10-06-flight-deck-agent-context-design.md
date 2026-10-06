@@ -24,7 +24,7 @@ In scope:
 Out of scope:
 
 - A context length of the main loop in the band above the prompt.
-- A header of the transcript screen that stays in view when the pane scrolls. The engine scrolls the pane as one tree. The band of the agent view is the header that stays in view.
+- A bar that stays in view on a desktop when the transcript scrolls. See section 6.1.
 - The context length of the main loop. The status line of the engine shows it.
 - A window that the mod cannot see. See section 4.3.
 
@@ -170,6 +170,30 @@ claude-sonnet-5-5 high · 2 runs · ◷ 0:01:12 · ctx 182.4k/1M 18%
 - The part is `ctx <tokens>/<window> <pct>%` with the color of section 4.5.
 - An entry with no context has no such part and no separator before it.
 - When the row has no room for the part, the mod removes `<tokens>/<window>`. When `ctx <pct>%` does not fit, the row has no context part.
+
+### 6.1 Bar of a scrolled transcript (terminal)
+
+The engine scrolls the pane as one tree, so the header of the transcript screen goes out of view. On the terminal, a bar stays at the first row that the window shows:
+
+```
+[ ← agents ] ⣿ Explore · find the window api        ctx 182.4k/1M 18%
+```
+
+- The bar is a `Box` with `position: "absolute"`, a background color and `top` equal to the scroll offset of the pane. It lies over one row of the transcript.
+- The bar has the back button (key `sticky:back`), the mark and the name of the agent, and the context length.
+- With the window at the top, the pane draws no bar: the header is in view.
+- The agents table has no bar.
+
+The engine raises `ui.scroll` before it moves the window, and it gives the pane its new offset after the move. Thus the mod does these steps for each scroll of the transcript:
+
+1. The `ui.scroll` hook stores the offset of the event.
+2. The pane draws two bars: one at the row that the window shows, and one at the row of the event.
+3. The hook waits for that drawing, for 40 ms at most. Then it lets the engine move the window.
+4. The engine gives the pane the new offset. The pane draws one bar.
+
+If the engine moves the window with no event, the offset of the pane is the newer one, and the pane uses it.
+
+A desktop has no bar. A desktop scrolls by the pixel, and the engine gives an offset in rows. A bar there moves with the text between two rows. On a desktop, the band of the agent view names the agent and shows its context length (section 8.1).
 
 ## 7. Pane title
 

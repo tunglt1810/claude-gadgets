@@ -182,6 +182,9 @@ declare module 'claude-code' {
       pane: PaneView
       paneData: PaneData
       paneShown: NamedShown
+      // Where the pane's window is about to be: the offset of the latest scroll, and the
+      // offset the pane was drawn with when the scroll was asked for.
+      paneScroll: { offset: number; seen: number } | null
       spin: number
       ttls: { main: '5m' | '1h'; agent: '5m' | '1h' } | null
     }

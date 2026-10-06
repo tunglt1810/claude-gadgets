@@ -11,6 +11,9 @@ const transcript = {
 test('focusAction reads the action of each pane button key', () => {
   expect(focusAction('back', null)).toEqual({ kind: 'back' })
   expect(focusAction('wrap', null)).toEqual({ kind: 'wrap' })
+  // The back button of the bar that stays in view while the transcript scrolls.
+  expect(focusAction('sticky:back', null)).toEqual({ kind: 'back' })
+  expect(focusAction('stickyfrom:back', null)).toEqual({ kind: 'back' })
   expect(focusAction('agent:a9', null)).toEqual({ kind: 'open', agentId: 'a9' })
   expect(focusAction('expand:a9', null)).toEqual({ kind: 'expand', agentId: 'a9' })
   // The detail row of an agent is a button as its name is, so the two start at one place.

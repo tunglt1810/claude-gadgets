@@ -2,6 +2,8 @@
 export const PALETTE = {
   fg: '#fcfcfa',
   dim: '#727072',
+  // The background of a bar that lies over other rows.
+  strip: '#403e41',
   red: '#ff6188',
   orange: '#fc9867',
   yellow: '#ffd866',

@@ -22,6 +22,7 @@ Tested on Claude Code 2.1.291.
 - A press on the model and the effort of a detail row opens the transcript, as a press on the name does.
 - A changed context length runs to its new value, in the detail row and on the transcript screen. A desktop cell runs with its own timer.
 - Band of an agent view: it names the agent and shows its context length, `◆ Explore · find x claude-sonnet-5-5 high │ ctx 182.4k/1M 18% │ ...`. The band stays in view when the header of the transcript scrolls out of view.
+- Terminal: a scrolled transcript keeps a bar at its top, with the back button, the agent and its context length. A desktop has no such bar, because it scrolls by the pixel.
 - Terminal: an empty row is between the pane title and the pane body.
 
 #### Changed

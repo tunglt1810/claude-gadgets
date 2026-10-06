@@ -10,6 +10,8 @@ export const focusAction = (element: string, transcript: Transcript | null): Pan
     element.slice(element.indexOf(':') + 1),
   ]
   if (id === '' || !element.includes(':')) return null
+  // The back button of the bar that stays in view while a transcript scrolls.
+  if (element === 'sticky:back' || element === 'stickyfrom:back') return { kind: 'back' }
   // An agent's name, and the button of its detail row.
   if (kind === 'agent' || kind === 'detail') return { kind: 'open', agentId: id }
   if (kind === 'expand') return { kind: 'expand', agentId: id }

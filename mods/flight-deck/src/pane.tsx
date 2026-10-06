@@ -40,6 +40,11 @@ type Props = {
   // The time the working times are read at.
   now: number
   columns: number
+  // The rows of this tree that the pane's window has scrolled past: 0 at the top.
+  scrollTop: number
+  // While a scroll is on its way: the row that the window still shows. `scrollTop` is then
+  // the row it goes to.
+  scrollFrom?: number
   onOpen: (agentId: string) => void
   onExpand: (agentId: string) => void
   onBack: () => void
@@ -59,6 +64,11 @@ const EXPAND_WIDTH = 2
 // The color of an agent's mark by its status.
 const TONE = { running: PALETTE.green, idle: PALETTE.dim, stopped: PALETTE.red } as const
 const OPEN_CHILD = ' [open]'
+const BACK = '← agents'
+// The terminal draws a button as `[ label ]`.
+const BUTTON_CHROME = 4
+// The least room that the bar of a scrolled transcript keeps for the agent's name.
+const MIN_STICKY_NAME = 8
 // A tool call by its outcome: its mark and the color of the mark. A finished call is dim at
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const
@@ -119,6 +129,8 @@ export const AgentPane = ({
   spin,
   now,
   columns,
+  scrollTop,
+  scrollFrom,
   onOpen,
   onExpand,
   onBack,
@@ -435,12 +447,53 @@ export const AgentPane = ({
     (SEP.length + 1)
   const ctxText =
     agent?.context === undefined ? null : contextFit(agent.context, columns - metaUsed)
+  // The engine scrolls the pane as one tree, so the header goes out of view. A bar out of the
+  // flow, at the first row that the window shows, keeps the back button, the agent and its
+  // context in view. It has a background: it lies over a row of the transcript.
+  const stickyRoom = columns - (BACK.length + BUTTON_CHROME + 1) - (MARK_WIDTH + 1)
+  const stickyCtx =
+    agent?.context === undefined
+      ? null
+      : contextFit(agent.context, stickyRoom - MIN_STICKY_NAME - 1)
+  const stickyName = Math.max(1, stickyRoom - (stickyCtx === null ? 0 : stickyCtx.length + 1))
+  const sticky = (key: string, top: number) => (
+    <Box
+      key={key}
+      position="absolute"
+      top={top}
+      left={0}
+      width={columns}
+      flexDirection="row"
+      alignItems="center"
+      gap={1}
+      backgroundColor={PALETTE.strip}
+    >
+      <Button key={`${key}:back`} label={BACK} onPress={onBack} />
+      {agent !== undefined && cell(`${key}:mark`, agentMark(agent))}
+      {cell(`${key}:title`, {
+        text: cut(agent === undefined ? viewed : name(agent), stickyName),
+        bold: true,
+        color: agent?.status === 'running' ? TONE.running : PALETTE.fg,
+        width: stickyName,
+      })}
+      {stickyCtx !== null &&
+        agent?.context !== undefined &&
+        cell(
+          `${key}:ctx`,
+          shownCtx(agent.id, {
+            text: '',
+            ctx: { ...agent.context, isFull: stickyCtx === contextText(agent.context, true) },
+            color: contextColor(agent.context),
+          }),
+        )}
+    </Box>
+  )
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" position="relative">
       {/* The toolbar: real buttons (`[ label ]` on the terminal, native ones on desktop), so
           they read as controls beside the transcript's plain rows. */}
       <Box flexDirection="row" gap={1}>
-        <Button key="back" label="← agents" onPress={onBack} />
+        <Button key="back" label={BACK} onPress={onBack} />
         <Button
           key="wrap"
           {...(isWrapped ? { variant: 'primary' as const } : {})}
@@ -500,6 +553,13 @@ export const AgentPane = ({
         {'─'.repeat(Math.max(0, columns))}
       </Text>
       {body()}
+      {scrollTop > 0 && sticky('sticky', scrollTop)}
+      {/* The engine moves the window after this drawing: until then the row it shows has a bar
+          too, so no drawing is without a bar at its top. */}
+      {scrollFrom !== undefined &&
+        scrollFrom > 0 &&
+        scrollFrom !== scrollTop &&
+        sticky('stickyfrom', scrollFrom)}
     </Box>
   )
 }

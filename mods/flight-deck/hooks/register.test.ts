@@ -794,7 +794,13 @@ const paneEngine = (on: Parameters<typeof mock.store>[0], messages: () => unknow
   return calls
 }
 
-const mountPane = ($: Engine, surface: Surface, isFocused = true, bodyColumns = 80) =>
+const mountPane = (
+  $: Engine,
+  surface: Surface,
+  isFocused = true,
+  bodyColumns = 80,
+  scrollOffset = 0,
+) =>
   $.ui.mount({
     plugin: 'flight-deck',
     surface,
@@ -805,7 +811,7 @@ const mountPane = ($: Engine, surface: Surface, isFocused = true, bodyColumns = 
       isFocused,
       bodyColumns,
       placement: 'dock',
-      scroll: { offset: 0, bodyRows: 40 },
+      scroll: { offset: scrollOffset, bodyRows: 40 },
       view: {},
     } as never,
   })
@@ -2111,4 +2117,130 @@ test('the text of a detail row is one button, as the name above it is, on each s
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
+})
+
+test('a scrolled transcript keeps a bar with the back button, the agent and its context in view', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+
+  // At the top the header itself is in view: no bar.
+  const rest = await mountPane($, 'terminal')
+  await rest.press({ key: 'agent:a1' })
+  expect(await rest.find({ key: 'sticky' })).toBeUndefined()
+  await rest.unmount()
+
+  const ui = await mountPane($, 'terminal', true, 80, 12)
+  const bar = await ui.find({ key: 'sticky' })
+  // The bar is out of the flow, at the first row that the window shows. The terminal draws
+  // its title and an empty row above the pane body: two rows less.
+  expect(bar?.props).toMatchObject({ position: 'absolute', top: 10, width: 78 })
+  expect(bar?.props.backgroundColor).toBeDefined()
+  const text = await paneText(ui)
+  expect(text).toContain('← agents')
+  expect(text).toContain('agent · a1')
+  expect(text).toContain('ctx 100/1M 0%')
+  await ui.press({ key: 'sticky:back' })
+  expect(await ui.find({ key: 'agent:a1' })).toBeDefined()
+  // The agents table has no bar.
+  expect(await ui.find({ key: 'sticky' })).toBeUndefined()
+  await ui.press({ key: 'agent:a1' })
+  await ui.unmount()
+
+  // A desktop scrolls by the pixel and the engine gives an offset in rows: a bar would move
+  // with the text between two rows. A desktop has no bar.
+  const desk = await mountPane($, 'desktop', true, 80, 12)
+  expect(await desk.find({ key: 'back' })).toBeDefined()
+  expect(await desk.find({ key: 'sticky' })).toBeUndefined()
+  await desk.unmount()
+})
+
+test('the bar of a scrolled transcript moves to the new row before the window moves', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('ui.scroll', () => ({}) as never)
+  await spawn($)
+  const first = await mountPane($, 'terminal')
+  await first.press({ key: 'agent:a1' })
+  await first.unmount()
+
+  // The tops are two rows less than the offsets: the terminal's title and its empty row.
+  const ui = await mountPane($, 'terminal', true, 80, 12)
+  const top = async (pane: typeof ui) => (await pane.find({ key: 'sticky' }))?.props.top
+  expect(await top(ui)).toBe(10)
+  const scroll = (requestId: string, offset: number) =>
+    $.ui.scroll({
+      component: 'Pane',
+      requestId,
+      offset,
+      by: offset - 12,
+      bodyRows: 40,
+      contentRows: 200,
+      origin: { kind: 'person' },
+    } as never)
+  // The engine raises the event before it moves the window: the pane still has the old offset.
+  await scroll('agents', 20)
+  expect(await top(ui)).toBe(18)
+  // Until the window is there, a second bar stays at the row the window still shows: a
+  // drawing with the window at either row has a bar at its top.
+  const from = await ui.find({ key: 'stickyfrom' })
+  expect(from?.props).toMatchObject({ position: 'absolute', top: 10 })
+  await ui.press({ key: 'stickyfrom:back' })
+  expect(await ui.find({ key: 'agent:a1' })).toBeDefined()
+  await ui.press({ key: 'agent:a1' })
+  // The scroll of another pane changes nothing.
+  await scroll('other', 50)
+  expect(await top(ui)).toBe(18)
+  await ui.unmount()
+
+  // An offset of the engine that is newer than the event wins: the window moved with no event.
+  const moved = await mountPane($, 'terminal', true, 80, 30)
+  expect(await top(moved)).toBe(28)
+  // The window is at its row: one bar.
+  expect(await moved.find({ key: 'stickyfrom' })).toBeUndefined()
+  await moved.unmount()
+
+  // A scroll of a desktop pane draws no bar.
+  const desk = await mountPane($, 'desktop', true, 80, 12)
+  await scroll('agents', 20)
+  expect(await desk.find({ key: 'sticky' })).toBeUndefined()
+  expect(await desk.find({ key: 'stickyfrom' })).toBeUndefined()
+  await desk.unmount()
+})
+
+test('a scroll of the transcript waits for the pane to draw the bar at its new row', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  // What the pane has drawn when the engine moves the window.
+  let ui: Awaited<ReturnType<typeof mountPane>> | null = null
+  let topAtMove: unknown = 'not moved'
+  on('ui.scroll', async () => {
+    topAtMove = (await ui?.find({ key: 'sticky' }))?.props.top
+    return {} as never
+  })
+  await spawn($)
+  const first = await mountPane($, 'terminal')
+  await first.press({ key: 'agent:a1' })
+  await first.unmount()
+  ui = await mountPane($, 'terminal', true, 80, 12)
+  await $.ui.scroll({
+    component: 'Pane',
+    requestId: 'agents',
+    offset: 13,
+    by: 1,
+    bodyRows: 40,
+    contentRows: 200,
+    origin: { kind: 'person' },
+  } as never)
+  // Two rows less on the terminal: its title and the empty row.
+  expect(topAtMove).toBe(11)
+  await ui.unmount()
 })
