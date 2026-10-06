@@ -10,10 +10,19 @@ export const focusAction = (element: string, transcript: Transcript | null): Pan
     element.slice(element.indexOf(':') + 1),
   ]
   if (id === '' || !element.includes(':')) return null
-  if (kind === 'agent') return { kind: 'open', agentId: id }
+  // The back button of the bar that stays in view while a transcript scrolls.
+  if (element === 'sticky:back' || element === 'stickyfrom:back') return { kind: 'back' }
+  // An agent's name, and the button of its detail row.
+  if (kind === 'agent' || kind === 'detail') return { kind: 'open', agentId: id }
+  if (kind === 'expand') return { kind: 'expand', agentId: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }
   if (kind !== 'child' || transcript === null || !('items' in transcript)) return null
   const item = transcript.items.find((it) => it.kind === 'tool' && it.id === id)
   const agentId = item?.kind === 'tool' ? item.agentId : undefined
   return agentId === undefined ? null : { kind: 'open', agentId }
 }
+
+// A list of ids with `id` added, or removed when it is there. A pane state of an older
+// shape (a hot reload) has no list.
+export const toggled = (list: readonly string[] | undefined, id: string): string[] =>
+  (list ?? []).includes(id) ? (list ?? []).filter((x) => x !== id) : [...(list ?? []), id]

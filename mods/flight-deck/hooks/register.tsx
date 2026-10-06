@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
-import { focusAction } from '../src/action'
+import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { ttlMs } from '../src/countdown'
@@ -11,6 +11,7 @@ import { paneData } from '../src/paneData'
 import { costOf } from '../src/price'
 import {
   agentsKey,
+  agentTitle,
   completed,
   ended,
   merged,
@@ -33,7 +34,7 @@ import {
 } from '../src/snapshot'
 import { SPIN_MS } from '../src/spinner'
 import { transcriptItems } from '../src/transcript'
-import { cacheTtls, isOverLimit, type Ttl } from '../src/ttl'
+import { cacheTtls, isOn, isOverLimit, type Ttl } from '../src/ttl'
 import {
   countsOf,
   isNamedSettled,
@@ -46,6 +47,7 @@ import {
   snapShown,
 } from '../src/tween'
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
+import { contextTargets, contextTokens, contextWindow } from '../src/window'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
 import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
 
@@ -70,7 +72,9 @@ const initialAgents: Agents = { sessionId: null, entries: {} }
 const agents = atom({ plugin: 'flight-deck', key: 'agents' } as const, initialAgents)
 
 const PANE_ID = 'agents'
-const PANE_TITLE = 'Flight Deck'
+// The one drawn text with an emoji: the title row has no columns, so a double-width
+// character moves nothing.
+const PANE_TITLE = '🤖 Flight Deck'
 // The store key of the last wrap choice: one for the plugin, not one per session.
 const WRAP_KEY = 'wrap'
 const initialPane: PaneView = {
@@ -78,15 +82,35 @@ const initialPane: PaneView = {
   isWrapped: true,
   agentId: null,
   expanded: [],
+  collapsedAgents: [],
   transcript: null,
 }
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
 const initialData: PaneData = { sessionId: null, entries: {}, stats: null, dashboard: null }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
-// The dashboard's costs as the terminal draws them: a changed cost runs to its new value.
+// The dashboard's costs and the context lengths as the terminal draws them: a changed number
+// runs to its new value.
 const initialPaneShown: NamedShown = { sessionId: null, tweens: {} }
 const paneShown = atom({ plugin: 'flight-deck', key: 'paneShown' } as const, initialPaneShown)
 const spin = atom({ plugin: 'flight-deck', key: 'spin' } as const, 0)
+// The engine raises `ui.scroll` before it moves a window, and gives the pane its new offset
+// after. The bar of a scrolled transcript is drawn at the offset of the event, so it is at
+// its new row when the window gets there, not one drawing later.
+const paneScroll = atom(
+  { plugin: 'flight-deck', key: 'paneScroll' } as const,
+  null as { offset: number; seen: number } | null,
+)
+// The offset the pane was last drawn with. Kept here, not in state: a render hook does not
+// write state.
+let drawnOffset = 0
+// Whether the pane was last drawn on the terminal. A desktop scrolls by the pixel and the
+// engine gives an offset in rows, so a bar there moves with the text between two rows: only
+// the terminal has the bar, and only its scroll waits.
+let isPaneOnTerminal = false
+// Ends the wait of a scroll for the pane's next drawing.
+let onPaneDrawn: (() => void) | null = null
+// The longest that a scroll waits for that drawing.
+const SCROLL_WAIT_MS = 40
 // Null until an event read the settings: the mod option stands in for them.
 const ttlsAtom = atom({ plugin: 'flight-deck', key: 'ttls' } as const, null as Ttls | null)
 
@@ -154,7 +178,13 @@ async function loadAgents($: Api, id: string): Promise<void> {
     await $.clock.now(),
   )
   await update($, agents, (c) => (c.sessionId === id ? c : { sessionId: id, entries }))
-  await update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
+  await update($, pane, (c) => ({
+    ...c,
+    agentId: null,
+    expanded: [],
+    collapsedAgents: [],
+    transcript: null,
+  }))
   await syncPane($)
 }
 
@@ -173,8 +203,12 @@ async function syncPane($: Api): Promise<void> {
   )
   const cur = await read($, shownData)
   if (JSON.stringify(cur) !== JSON.stringify(next)) await update($, shownData, () => next)
-  if (next.dashboard === null) return
-  const target = usdTargets(next.dashboard)
+  // The numbers that run to a new value: the costs of the dashboard and the tokens of each
+  // context on the screen.
+  const target = {
+    ...(next.dashboard === null ? {} : usdTargets(next.dashboard)),
+    ...contextTargets(next.entries),
+  }
   const at = await $.clock.now()
   const tweens = await read($, paneShown)
   if (JSON.stringify(tweens) === JSON.stringify(retargetNamed(tweens, id, target, at))) return
@@ -253,6 +287,13 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'wrap') {
     const next = await update($, pane, (c) => ({ ...c, isWrapped: !c.isWrapped }))
     return $.store.set(WRAP_KEY, next.isWrapped)
+  }
+  if (action.kind === 'expand') {
+    await update($, pane, (c) => ({
+      ...c,
+      collapsedAgents: toggled(c.collapsedAgents, action.agentId),
+    }))
+    return
   }
   await update($, pane, (c) => {
     const id = action.toolUseId
@@ -478,10 +519,25 @@ export const register: Register = (on, options) => {
       await save($, id, nextMeter)
       const agentId = e.agentId
       const effort = e.effort === undefined ? undefined : String(e.effort)
-      if (agentId !== undefined)
-        await trackAgent($, id, (r, t) => tuned(ran(r, agentId, t), agentId, e.model, effort))
-      // The dashboard's numbers changed.
-      else await syncPane($)
+      if (agentId !== undefined) {
+        // A step with no usage tells nothing of the window: the entry keeps its context.
+        const context =
+          res.usage === null
+            ? undefined
+            : {
+                tokens: contextTokens(res.usage),
+                window: contextWindow(
+                  e.model,
+                  isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')),
+                ),
+              }
+        await trackAgent($, id, (r, t) =>
+          tuned(ran(r, agentId, t), agentId, e.model, effort, context),
+        )
+      } else {
+        // The dashboard's numbers changed.
+        await syncPane($)
+      }
       startTimer($, ttls)
       return res
     } finally {
@@ -648,6 +704,26 @@ export const register: Register = (on, options) => {
     return res
   })
 
+  on('ui.scroll', async ($, e, next) => {
+    const isTranscript =
+      isPaneOnTerminal &&
+      e.component === 'Pane' &&
+      e.requestId === PANE_ID &&
+      (await read($, pane)).agentId !== null
+    if (isTranscript && e.offset !== drawnOffset) {
+      // The engine moves the window when this hook returns, and draws the pane again later.
+      // So the pane is drawn first, with the bar at its new row: the window then gets there
+      // with the bar in place. The wait ends by itself when no drawing comes.
+      const drawn = new Promise<void>((resolve) => {
+        onPaneDrawn = resolve
+      })
+      await update($, paneScroll, () => ({ offset: e.offset, seen: drawnOffset }))
+      await Promise.race([drawn, new Promise<void>((r) => setTimeout(r, SCROLL_WAIT_MS))])
+      onPaneDrawn = null
+    }
+    return next(e)
+  })
+
   on('command.run', { command: 'agent-log' }, async ($) => ({
     text: (await togglePane($)) ? 'Agents pane opened.' : 'Agents pane closed.',
   }))
@@ -674,6 +750,18 @@ export const register: Register = (on, options) => {
     // side, and the title as the first row.
     const ui = $.ui.resolve(e)
     const pad = e.surface === 'terminal' ? 1 : 0
+    // The rows above the pane body on the terminal: the title and the empty row below it.
+    const above = e.surface === 'terminal' ? 2 : 0
+    // The offset of a scroll event is newer than the pane's own until the engine gives the
+    // pane another offset: that one is then the newest (the window can move with no event).
+    const asked = await read($, paneScroll)
+    const offset =
+      asked !== null && asked.seen === e.props.scroll.offset ? asked.offset : e.props.scroll.offset
+    drawnOffset = e.props.scroll.offset
+    isPaneOnTerminal = e.surface === 'terminal'
+    // After this hook returns its drawing: a scroll that waits for it goes on.
+    const drawn = onPaneDrawn
+    if (drawn !== null) setTimeout(drawn, 0)
     const body = (
       <AgentPane
         ui={ui}
@@ -687,7 +775,12 @@ export const register: Register = (on, options) => {
         spin={e.surface === 'terminal' ? await read($, spin) : null}
         now={now}
         columns={e.props.bodyColumns - pad * 2}
+        scrollTop={e.surface === 'terminal' ? Math.max(0, offset - above) : 0}
+        {...(offset === e.props.scroll.offset || e.surface !== 'terminal'
+          ? {}
+          : { scrollFrom: Math.max(0, e.props.scroll.offset - above) })}
         onOpen={(agentId) => act($, { kind: 'open', agentId })}
+        onExpand={(agentId) => act($, { kind: 'expand', agentId })}
         onBack={() => act($, { kind: 'back' })}
         onWrap={() => act($, { kind: 'wrap' })}
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
@@ -697,6 +790,8 @@ export const register: Register = (on, options) => {
     return (
       <ui.Box flexDirection="column" paddingX={pad}>
         <ui.Text bold>{PANE_TITLE}</ui.Text>
+        {/* An empty row parts the title from the body. */}
+        <ui.Text> </ui.Text>
         {body}
       </ui.Box>
     )
@@ -712,7 +807,8 @@ export const register: Register = (on, options) => {
     const viewed = e.props.view.agentId
     const snap = viewed === undefined ? session : agentView(session, viewed)
     const reg = viewed === undefined ? null : await read($, agents)
-    const model = modelLabel(viewed === undefined ? undefined : reg?.entries[viewed])
+    const agent = viewed === undefined ? undefined : reg?.entries[viewed]
+    const model = modelLabel(agent)
     const ttls = (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl)
     return (
       <Band
@@ -725,6 +821,10 @@ export const register: Register = (on, options) => {
         }
         isAgentView={viewed !== undefined}
         {...(model === undefined ? {} : { model })}
+        // The band stays in view when the header of the transcript scrolls away: it names the
+        // agent and shows its context length.
+        {...(agent === undefined ? {} : { name: agentTitle(agent) })}
+        {...(agent?.context === undefined ? {} : { context: agent.context })}
         busySince={session.busySince}
         now={now}
         ttl={viewed === undefined ? ttls.main : ttls.agent}

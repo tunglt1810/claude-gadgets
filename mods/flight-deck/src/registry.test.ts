@@ -158,3 +158,27 @@ test('tune keeps the latest model and effort of an agent', () => {
     tuned(r, 'a1', 'm', '8000'),
   )
 })
+
+test('tune writes the context and a step with no usage keeps it', () => {
+  const ctx = { tokens: 100, window: 1_000_000 }
+  let r = tuned(spawned({}, 'a1', 100, {}), 'a1', 'claude-sonnet-5-5', 'high', ctx)
+  expect(r.a1?.context).toEqual(ctx)
+  r = tuned(r, 'a1', 'claude-sonnet-5-5', 'high')
+  expect(r.a1?.context).toEqual(ctx)
+  expect(parseRegistry(JSON.parse(JSON.stringify(r)))).toEqual(r)
+})
+
+test('parseRegistry loads an entry with no context and ignores a bad one', () => {
+  const old = tuned(spawned({}, 'a1', 100, {}), 'a1', 'm', undefined)
+  expect(parseRegistry(JSON.parse(JSON.stringify(old))).a1?.context).toBeUndefined()
+  for (const bad of [
+    { tokens: 'x', window: 1 },
+    { tokens: 1 },
+    5,
+    null,
+    { tokens: 1, window: null },
+  ]) {
+    const raw = { a1: { ...old.a1, context: bad } }
+    expect(parseRegistry(raw).a1).toEqual(old.a1)
+  }
+})

@@ -46,6 +46,10 @@ export const ran = (r: Registry, id: string, at: number): Registry => ({
   [id]: { ...(r[id] ?? blank(id, at)), status: 'running' },
 })
 
+// An agent as the pane and the band name it: its type, then what it does.
+export const agentTitle = (a: AgentEntry): string =>
+  [a.type ?? 'agent', a.description ?? a.name ?? a.id].join(' · ')
+
 // How long an agent worked: from its spawn to `now` while it runs, to its end once it ended.
 export const workedMs = (a: AgentEntry, now: number): number =>
   Math.max(0, (a.status === 'running' ? now : (a.endedAt ?? now)) - a.startedAt)
@@ -56,16 +60,26 @@ export const completed = (r: Registry, id: string, at: number): Registry => {
 }
 
 // The model and the effort of a known agent's latest step: a step without effort clears it.
+// `context` is absent for a step with no usage: the entry keeps the one it has.
 export const tuned = (
   r: Registry,
   id: string,
   model: string,
   effort: string | undefined,
+  context?: AgentEntry['context'],
 ): Registry => {
   const known = r[id]
   if (known === undefined) return r
   const { effort: _, ...a } = known
-  return { ...r, [id]: { ...a, model, ...(effort === undefined ? {} : { effort }) } }
+  return {
+    ...r,
+    [id]: {
+      ...a,
+      model,
+      ...(effort === undefined ? {} : { effort }),
+      ...(context === undefined ? {} : { context }),
+    },
+  }
 }
 
 // The model id and the effort of an agent's latest step: `claude-sonnet-5-5 high`.
@@ -145,6 +159,11 @@ export const parseRegistry = (raw: unknown): Registry => {
     const name = str(v.name)
     const model = str(v.model)
     const effort = str(v.effort)
+    const c = v.context
+    const context =
+      isRecord(c) && isNum(c.tokens) && isNum(c.window)
+        ? { tokens: c.tokens, window: c.window }
+        : undefined
     out[id] = {
       id,
       ...(parentId === undefined ? {} : { parentId }),
@@ -153,6 +172,7 @@ export const parseRegistry = (raw: unknown): Registry => {
       ...(name === undefined ? {} : { name }),
       ...(model === undefined ? {} : { model }),
       ...(effort === undefined ? {} : { effort }),
+      ...(context === undefined ? {} : { context }),
       status: v.status === 'running' || v.status === 'stopped' ? v.status : 'idle',
       runs: v.runs,
       startedAt: v.startedAt,

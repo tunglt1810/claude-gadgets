@@ -127,8 +127,8 @@ test(
     const text = await settled($, clock)
     expect(text).toContain('↑ in 200')
     expect(text).toContain('↓ out 10')
-    expect(text).toContain('◈ hit 80%')
-    expect(text).toContain('◔ cache 5:00')
+    expect(text).toContain('◈ cache 80%')
+    expect(text).toContain('◔ 5:00')
   },
 )
 
@@ -147,7 +147,7 @@ test(
 
     const text = await settled($, clock)
     expect(text).toContain('↑ in 200')
-    expect(text).toContain('◔ cache 4:50')
+    expect(text).toContain('◔ 4:50')
   },
 )
 
@@ -161,7 +161,7 @@ test('a step without usage changes nothing and never produces NaN', async ($, on
 
   const text = await settled($, clock)
   expect(text).toContain('↑ in 0')
-  expect(text).toContain('◔ cache --')
+  expect(text).toContain('◔ --')
   expect(text).not.toContain('NaN')
 })
 
@@ -275,9 +275,9 @@ test('the countdown changes tone and expires', { options: { cacheTtl: '5m' } }, 
 
   await runStep($, STEP)
   await clock.advance(250_000)
-  expect(await settled($, clock)).toContain('◔ cache 0:50')
+  expect(await settled($, clock)).toContain('◔ 0:50')
   await clock.advance(310_000)
-  expect(await settled($, clock)).toContain('◔ cache expired')
+  expect(await settled($, clock)).toContain('◔ expired')
 })
 
 test('the band draws on the desktop surface too', async ($, on) => {
@@ -297,7 +297,7 @@ test('a cache lifetime of 1h is honoured', { options: { cacheTtl: '1h' } }, asyn
 
   await runStep($, STEP)
 
-  expect(await settled($, clock)).toContain('◔ cache 60:00')
+  expect(await settled($, clock)).toContain('◔ 60:00')
 })
 
 test('a subagent turn.complete does not close the main ◷ interval', async ($, on) => {
@@ -342,7 +342,7 @@ test(
     const text = await settled($, clock)
     expect(text).toContain('⌘ calls 7')
     expect(text).toContain('◷ work 0:09')
-    expect(text).toContain('◔ cache 4:56')
+    expect(text).toContain('◔ 4:56')
   },
 )
 
@@ -361,7 +361,7 @@ test(
 
     await runStep($, STEP)
 
-    expect(await settled($, clock)).toContain('◔ cache 3:20')
+    expect(await settled($, clock)).toContain('◔ 3:20')
   },
 )
 
@@ -457,7 +457,7 @@ test(
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
     await clock.advance(10_000)
 
-    expect(await settled($, clock)).toContain('◔ cache 4:50')
+    expect(await settled($, clock)).toContain('◔ 4:50')
   },
 )
 
@@ -622,7 +622,7 @@ test('started subagents are counted; a refused spawn is not', async ($, on) => {
   isRefused = true
   await spawn($)
 
-  expect(await settled($, clock)).toContain('▸ agents 2 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 2$/)
 })
 
 test('background tasks are counted: a tool call sent to the background, not an Agent call', async ($, on) => {
@@ -692,18 +692,20 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await clock.advance(SETTLE_MS)
 
       const sub = await bandText($, surface, 'a1')
-      expect(sub).toContain('◆ agent m │ ↑ in 200 ')
+      // The band names the agent and shows its context length before its tokens.
+      expect(sub).toMatch(/◆ agent · a\d m │ ctx 100\/200k 0% │ ↑ in 200 /)
       expect(sub).toContain('↓ out 10 ')
       expect(sub).toContain('⌘ calls 1 ')
-      expect(sub).toContain('± diff +1 -1 ')
+      // An agent's band has no agents button: the diff is its last part.
+      expect(sub).toMatch(/± diff \+1 -1$/)
       // The agent's own cache: its step was sent 10s after the main one.
-      expect(sub).toContain('◔ cache 5:00')
+      expect(sub).toContain('◔ 5:00')
       expect(sub).not.toContain('$ cost')
 
       const main = await bandText($, surface)
       expect(main).toContain('↑ in 400 ')
-      expect(main).toContain('▸ agents 3 ')
-      expect(main).toContain('◔ cache 4:50')
+      expect(main).toMatch(/▸ agents 3$/)
+      expect(main).toContain('◔ 4:50')
     },
   )
 }
@@ -719,13 +721,15 @@ test('spawn counts and per-agent data survive a session id round trip', async ($
   await runStep($, { ...STEP, agentId: 'a1' })
   await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true })
   id = 'S2'
-  expect(await settled($, clock)).toContain('▸ agents 0 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 0$/)
 
   id = 'S1'
   const back = await settled($, clock)
-  expect(back).toContain('▸ agents 1 ')
+  expect(back).toMatch(/▸ agents 1$/)
   expect(back).toContain('◇ bg 1 ')
-  expect(await bandText($, 'terminal', 'a1')).toContain('◆ agent m │ ↑ in 100 ')
+  expect(await bandText($, 'terminal', 'a1')).toContain(
+    '◆ agent · a1 m │ ctx 100/200k 0% │ ↑ in 100 ',
+  )
 })
 
 test("the tick keeps running while a subagent's cache is live, after the main one lapsed", async ($, on) => {
@@ -739,10 +743,10 @@ test("the tick keeps running while a subagent's cache is live, after the main on
   await runStep($, { ...STEP, agentId: 'a1' })
   // The main cache lapses here; the subagent's has 200s more.
   await clock.advance(110_000)
-  expect(await bandText($, 'terminal', 'a1')).toContain('◔ cache 3:10')
+  expect(await bandText($, 'terminal', 'a1')).toContain('◔ 3:10')
 
   await clock.advance(60_000)
-  expect(await bandText($, 'terminal', 'a1')).toContain('◔ cache 2:10')
+  expect(await bandText($, 'terminal', 'a1')).toContain('◔ 2:10')
 })
 
 // One agent's messages as the engine returns them: a prompt, a tool call, the handback.
@@ -790,7 +794,13 @@ const paneEngine = (on: Parameters<typeof mock.store>[0], messages: () => unknow
   return calls
 }
 
-const mountPane = ($: Engine, surface: Surface, isFocused = true) =>
+const mountPane = (
+  $: Engine,
+  surface: Surface,
+  isFocused = true,
+  bodyColumns = 80,
+  scrollOffset = 0,
+) =>
   $.ui.mount({
     plugin: 'flight-deck',
     surface,
@@ -799,9 +809,9 @@ const mountPane = ($: Engine, surface: Surface, isFocused = true) =>
     props: {
       title: 'Agents',
       isFocused,
-      bodyColumns: 80,
+      bodyColumns,
       placement: 'dock',
-      scroll: { offset: 0, bodyRows: 40 },
+      scroll: { offset: scrollOffset, bodyRows: 40 },
       view: {},
     } as never,
   })
@@ -921,7 +931,8 @@ test('a child agent is listed below its parent', async ($, on) => {
   await spawn($, 'a1')
 
   const ui = await mountPane($, 'terminal')
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(2)
+  // Each agent has three buttons: the expand button, the name and the text of its detail row.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(6)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -973,7 +984,7 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   })
   await band.press({ key: 'agents' })
   expect(calls.opens).toBe(1)
-  expect(calls.title).toBe('Flight Deck')
+  expect(calls.title).toBe('🤖 Flight Deck')
   const ui = await mountPane($, 'terminal')
   await ui.press({ key: 'agent:a1' })
   expect(await paneText(ui)).not.toContain('Again.')
@@ -1172,7 +1183,7 @@ test('an agent row is colored by its status', async ($, on) => {
     // terminal's first bold Text is the title of the pane.
     const titleColor = async () =>
       (await ui.findAll({ type: 'Text' })).find(
-        (x) => x.props.bold === true && x.text !== 'Flight Deck',
+        (x) => x.props.bold === true && x.text !== '🤖 Flight Deck',
       )?.props.color ??
       (await ui.findAll({ type: 'Client' }))
         .map((c) => c.props.props as Cell)
@@ -1355,7 +1366,9 @@ test('an agent shows its model and effort, and its numbers under the title', asy
     await ui.press({ key: 'back' })
     await ui.unmount()
     // The band of the agent's view names the model and the effort too.
-    expect(await bandText($, surface, 'a1')).toContain('◆ agent claude-sonnet-5-5 high │')
+    expect(await bandText($, surface, 'a1')).toContain(
+      '◆ agent · a1 claude-sonnet-5-5 high │ ctx 100/1M 0% │',
+    )
   }
 })
 
@@ -1577,7 +1590,7 @@ test('the terminal pads the pane at the left and the right; a desktop has its ow
   const term = await mountPane($, 'terminal')
   expect(await term.drawn()).toMatchObject({ type: 'Box', props: { paddingX: 1 } })
   // The terminal draws no title of the pane: the pane's first row is the title there.
-  expect(await paneText(term)).toMatch(/^Flight Deck\n/)
+  expect(await paneText(term)).toMatch(/^🤖 Flight Deck\n\s*\n/)
   await term.unmount()
   const desk = await mountPane($, 'desktop')
   expect(await paneText(desk)).not.toContain('Flight Deck')
@@ -1748,7 +1761,7 @@ test('an environment variable sets the cache lifetime before the mod option', as
   on('turn.step', stepHook(USAGE))
   await runStep($, STEP)
   // The option defaults to 1h.
-  expect(await settled($, clock)).toContain('◔ cache 5:00')
+  expect(await settled($, clock)).toContain('◔ 5:00')
 })
 
 test('a session over its plan limit caches the main loop for 5m', async ($, on) => {
@@ -1759,7 +1772,7 @@ test('a session over its plan limit caches the main loop for 5m', async ($, on) 
   }))
   on('turn.step', stepHook(USAGE))
   await runStep($, STEP)
-  expect(await settled($, clock)).toContain('◔ cache 5:00')
+  expect(await settled($, clock)).toContain('◔ 5:00')
 })
 
 // A skill that runs in a subagent raises no `agent.spawn`: its steps are the first sign of it.
@@ -1770,11 +1783,11 @@ test('an agent that was not spawned is counted at its first step, once', async (
   on('turn.step', stepHook(USAGE))
   await runStep($, { ...STEP, agentId: 'skill1' })
   await runStep($, { ...STEP, index: 1, agentId: 'skill1' })
-  expect(await settled($, clock)).toContain('▸ agents 1 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 1$/)
   // A spawned agent is counted at its spawn, and not again at its steps.
   await spawn($)
   await runStep($, { ...STEP, agentId: 'a1' })
-  expect(await settled($, clock)).toContain('▸ agents 2 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 2$/)
 })
 
 test('a spawn that arrives after the first step of its agent does not count it again', async ($, on) => {
@@ -1784,7 +1797,7 @@ test('a spawn that arrives after the first step of its agent does not count it a
   on('turn.step', stepHook(USAGE))
   await runStep($, { ...STEP, agentId: 'a1' })
   await spawn($)
-  expect(await settled($, clock)).toContain('▸ agents 1 ')
+  expect(await settled($, clock)).toMatch(/▸ agents 1$/)
 })
 
 // A skill that runs in a subagent, typed as `/skill`, raises no turn.start and no turn.complete
@@ -1828,4 +1841,406 @@ test('a killed notification ends the working time of the agent', async ($, on) =
   await notify($, 'a1', 'killed')
   await clock.advance(5000)
   expect(await settled($, clock)).toContain('◷ work 0:03')
+})
+
+test('the transcript screen shows the context length of the agent', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-haiku-4-5-20251001', agentId: 'a2' } as never)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    // The detail row of each agent is open at first: the table shows the context length.
+    expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+    await ui.press({ key: 'agent:a1' })
+    expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'agent:a2' })
+    expect(await paneText(ui)).toContain('ctx 100/200k 0%')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the 1M disable variable gives a window of 200k', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, { CLAUDE_CODE_DISABLE_1M_CONTEXT: '1' })
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).toContain('ctx 100/200k 0%')
+  await ui.unmount()
+})
+
+test('an agent with no step shows no context part', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).not.toContain('ctx ')
+  expect(await ui.find({ key: 'meta:sep:ctx' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the detail row of an agent is open at first and the expand button hides and shows it', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', effort: 'high', agentId: 'a1' } as never)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(String((await ui.find({ key: 'expand:a1' }))?.props.label)).toBe('▾')
+    const open = await paneText(ui)
+    expect(open).toContain('high')
+    expect(open).toContain('ctx 100/1M 0%')
+    expect(open).toContain('no step yet')
+
+    await ui.press({ key: 'expand:a1' })
+    expect(String((await ui.find({ key: 'expand:a1' }))?.props.label)).toBe('▸')
+    const closed = await paneText(ui)
+    expect(closed).not.toContain('ctx ')
+    // The other row stays open.
+    expect(closed).toContain('no step yet')
+
+    // A closed row stays closed across a transcript.
+    await ui.press({ key: 'agent:a1' })
+    await ui.press({ key: 'back' })
+    expect(await paneText(ui)).not.toContain('ctx 100/1M 0%')
+
+    await ui.press({ key: 'expand:a2' })
+    expect(await paneText(ui)).not.toContain('no step yet')
+
+    await ui.press({ key: 'expand:a1' })
+    await ui.press({ key: 'expand:a2' })
+    const again = await paneText(ui)
+    expect(again).toContain('ctx 100/1M 0%')
+    expect(again).toContain('no step yet')
+    await ui.unmount()
+  }
+})
+
+test('the name button still opens the transcript beside the expand button', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'agent:a1' })
+    expect(await ui.find({ key: 'back' })).toBeDefined()
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a click that gives the pane the focus also closes the detail row', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('ui.focus', async () => ({ value: {} }) as never)
+  await spawn($)
+  const ui = await mountPane($, 'desktop', false)
+  const click = (kind: 'person' | 'plugin') =>
+    $.ui.focus({
+      component: 'Pane',
+      requestId: 'agents',
+      plugin: 'flight-deck',
+      element: 'expand:a1',
+      origin: kind === 'person' ? { kind } : { kind, name: 'other' },
+    } as never)
+  // Another plugin's focus move does not press.
+  await click('plugin')
+  expect(await paneText(ui)).toContain('no step yet')
+  await click('person')
+  expect(await paneText(ui)).not.toContain('no step yet')
+  await ui.unmount()
+})
+
+test('a narrow transcript screen drops the counts of the context, then the context', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-haiku-4-5-20251001', agentId: 'a1' } as never)
+  // The row below the title: the model, the runs and the time take 51 cells of the 58 or 46
+  // that the terminal's pane has inside its padding.
+  const text = async (columns: number) => {
+    const ui = await mountPane($, 'terminal', true, columns)
+    if ((await ui.find({ key: 'back' })) === undefined) await ui.press({ key: 'agent:a1' })
+    const out = await paneText(ui)
+    await ui.unmount()
+    return out
+  }
+  expect(await text(80)).toContain('ctx 100/200k 0%')
+  const narrow = await text(62)
+  expect(narrow).toContain('ctx 0%')
+  expect(narrow).not.toContain('100/200k')
+  expect(await text(50)).not.toContain('ctx ')
+})
+
+test('the detail row is built as an agent row is: the same boxes before its text', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    // A desktop sizes a box and a padding in different units: only the same parts line up.
+    expect((await ui.find({ key: 'detailrow:a1' }))?.props.paddingLeft).toBeUndefined()
+    expect((await ui.find({ key: 'detail:expand:a1' }))?.props.width).toBe(
+      (await ui.find({ key: 'expandbox:a1' }))?.props.width,
+    )
+    await ui.unmount()
+  }
+})
+
+test('the agents button is at the right end of the band, after a part that takes the free room', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({
+      plugin: 'flight-deck',
+      surface,
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
+    })
+    const root = (await ui.drawn()) as {
+      children: { type: string; props: { flexGrow?: number } }[]
+    }
+    await ui.unmount()
+    expect(root.children.map((c) => c.type)).toEqual(['Text', 'Box', 'Button'])
+    expect(root.children[1]?.props.flexGrow).toBe(1)
+  }
+})
+
+test('a changed context length runs to its new value', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  let usage = USAGE
+  on('turn.step', async function* (_$: unknown, e: { turnId: string; index: number }) {
+    yield* [] as never[]
+    return { ...stepResult(usage), turnId: e.turnId, index: e.index }
+  } as never)
+  await spawn($)
+  const step = () => runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+  await step()
+  await clock.advance(SETTLE_MS)
+  // 100 100 tokens of input, from 100.
+  usage = { ...USAGE, cache_read_input_tokens: 100_080 }
+  await step()
+  await clock.advance(100)
+
+  // The terminal draws the count on screen: between the old one and the new one.
+  const term = await mountPane($, 'terminal')
+  const mid = await paneText(term)
+  expect(mid).toContain('ctx ')
+  expect(mid).not.toContain('ctx 100/1M')
+  expect(mid).not.toContain('ctx 100.1k/1M')
+  await clock.advance(SETTLE_MS)
+  expect(await paneText(term)).toContain('ctx 100.1k/1M 10%')
+  // The transcript screen runs the same way.
+  await term.press({ key: 'agent:a1' })
+  usage = { ...USAGE, cache_read_input_tokens: 300_080 }
+  await step()
+  await clock.advance(100)
+  const midScreen = await paneText(term)
+  expect(midScreen).not.toContain('ctx 100.1k/1M')
+  expect(midScreen).not.toContain('ctx 300.1k/1M')
+  await clock.advance(SETTLE_MS)
+  expect(await paneText(term)).toContain('ctx 300.1k/1M 30%')
+  await term.press({ key: 'back' })
+  await term.unmount()
+
+  // A desktop cell holds the new count and runs to it with its own timer.
+  const desk = await mountPane($, 'desktop')
+  const cells = (await desk.findAll({ type: 'Client' })).map((c) => c.props.props as Cell)
+  expect(cells).toContainEqual({
+    text: '',
+    ctx: { tokens: 300_100, window: 1_000_000, isFull: true },
+    color: '#a9dc76',
+  })
+  await desk.unmount()
+})
+
+test('the text of a detail row is one button, as the name above it is, on each surface', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', effort: 'high', agentId: 'a1' } as never)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    // A desktop draws a button's label after a margin of its own, and its font is not
+    // fixed-width: one button starts where the name starts and has no room between its parts.
+    const lead = await ui.find({ key: 'detail:a1' })
+    expect(lead?.type).toBe('Button')
+    expect(String(lead?.props.label)).toBe('sonnet-5-5 · high ·')
+    // The context length keeps its color: it is a cell after the button, not a button.
+    expect((await ui.find({ key: 'detail:ctx:a1' }))?.type).not.toBe('Button')
+    expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+    // With no context the button has no dot at its end.
+    expect(String((await ui.find({ key: 'detail:a2' }))?.props.label)).toBe('no step yet')
+    expect(await ui.find({ key: 'detail:ctx:a2' })).toBeUndefined()
+    // A press opens the transcript, as a press on the name does.
+    await ui.press({ key: 'detail:a1' })
+    expect(await ui.find({ key: 'back' })).toBeDefined()
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a scrolled transcript keeps a bar with the back button, the agent and its context in view', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+
+  // At the top the header itself is in view: no bar.
+  const rest = await mountPane($, 'terminal')
+  await rest.press({ key: 'agent:a1' })
+  expect(await rest.find({ key: 'sticky' })).toBeUndefined()
+  await rest.unmount()
+
+  const ui = await mountPane($, 'terminal', true, 80, 12)
+  const bar = await ui.find({ key: 'sticky' })
+  // The bar is out of the flow, at the first row that the window shows. The terminal draws
+  // its title and an empty row above the pane body: two rows less.
+  expect(bar?.props).toMatchObject({ position: 'absolute', top: 10, width: 78 })
+  expect(bar?.props.backgroundColor).toBeDefined()
+  const text = await paneText(ui)
+  expect(text).toContain('← agents')
+  expect(text).toContain('agent · a1')
+  expect(text).toContain('ctx 100/1M 0%')
+  await ui.press({ key: 'sticky:back' })
+  expect(await ui.find({ key: 'agent:a1' })).toBeDefined()
+  // The agents table has no bar.
+  expect(await ui.find({ key: 'sticky' })).toBeUndefined()
+  await ui.press({ key: 'agent:a1' })
+  await ui.unmount()
+
+  // A desktop scrolls by the pixel and the engine gives an offset in rows: a bar would move
+  // with the text between two rows. A desktop has no bar.
+  const desk = await mountPane($, 'desktop', true, 80, 12)
+  expect(await desk.find({ key: 'back' })).toBeDefined()
+  expect(await desk.find({ key: 'sticky' })).toBeUndefined()
+  await desk.unmount()
+})
+
+test('the bar of a scrolled transcript moves to the new row before the window moves', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('ui.scroll', () => ({}) as never)
+  await spawn($)
+  const first = await mountPane($, 'terminal')
+  await first.press({ key: 'agent:a1' })
+  await first.unmount()
+
+  // The tops are two rows less than the offsets: the terminal's title and its empty row.
+  const ui = await mountPane($, 'terminal', true, 80, 12)
+  const top = async (pane: typeof ui) => (await pane.find({ key: 'sticky' }))?.props.top
+  expect(await top(ui)).toBe(10)
+  const scroll = (requestId: string, offset: number) =>
+    $.ui.scroll({
+      component: 'Pane',
+      requestId,
+      offset,
+      by: offset - 12,
+      bodyRows: 40,
+      contentRows: 200,
+      origin: { kind: 'person' },
+    } as never)
+  // The engine raises the event before it moves the window: the pane still has the old offset.
+  await scroll('agents', 20)
+  expect(await top(ui)).toBe(18)
+  // Until the window is there, a second bar stays at the row the window still shows: a
+  // drawing with the window at either row has a bar at its top.
+  const from = await ui.find({ key: 'stickyfrom' })
+  expect(from?.props).toMatchObject({ position: 'absolute', top: 10 })
+  await ui.press({ key: 'stickyfrom:back' })
+  expect(await ui.find({ key: 'agent:a1' })).toBeDefined()
+  await ui.press({ key: 'agent:a1' })
+  // The scroll of another pane changes nothing.
+  await scroll('other', 50)
+  expect(await top(ui)).toBe(18)
+  await ui.unmount()
+
+  // An offset of the engine that is newer than the event wins: the window moved with no event.
+  const moved = await mountPane($, 'terminal', true, 80, 30)
+  expect(await top(moved)).toBe(28)
+  // The window is at its row: one bar.
+  expect(await moved.find({ key: 'stickyfrom' })).toBeUndefined()
+  await moved.unmount()
+
+  // A scroll of a desktop pane draws no bar.
+  const desk = await mountPane($, 'desktop', true, 80, 12)
+  await scroll('agents', 20)
+  expect(await desk.find({ key: 'sticky' })).toBeUndefined()
+  expect(await desk.find({ key: 'stickyfrom' })).toBeUndefined()
+  await desk.unmount()
+})
+
+test('a scroll of the transcript waits for the pane to draw the bar at its new row', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  // What the pane has drawn when the engine moves the window.
+  let ui: Awaited<ReturnType<typeof mountPane>> | null = null
+  let topAtMove: unknown = 'not moved'
+  on('ui.scroll', async () => {
+    topAtMove = (await ui?.find({ key: 'sticky' }))?.props.top
+    return {} as never
+  })
+  await spawn($)
+  const first = await mountPane($, 'terminal')
+  await first.press({ key: 'agent:a1' })
+  await first.unmount()
+  ui = await mountPane($, 'terminal', true, 80, 12)
+  await $.ui.scroll({
+    component: 'Pane',
+    requestId: 'agents',
+    offset: 13,
+    by: 1,
+    bodyRows: 40,
+    contentRows: 200,
+    origin: { kind: 'person' },
+  } as never)
+  // Two rows less on the terminal: its title and the empty row.
+  expect(topAtMove).toBe(11)
+  await ui.unmount()
 })

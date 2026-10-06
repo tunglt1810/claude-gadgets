@@ -52,15 +52,17 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 
 ## UI
 
-- No emoji in drawn text: they are double width and misalign the row. Use single-width characters.
+- No emoji in drawn text: they are double width and misalign the row. Use single-width characters. The one exception is the pane title: its row has no columns.
 - Size a band to `e.props.bodyColumns` and keep it to one row; drop parts instead of wrapping.
 - `AbovePrompt` is raised on terminal and desktop only; `Pane` on every surface.
+- The engine scrolls a pane as one tree and has no sticky row. A row that stays in view is a `Box` with `position="absolute"` and `top` equal to `e.props.scroll.offset`. The engine moves the window when the `ui.scroll` hook returns and draws the pane later: store the event's offset, wait for the drawing, then call `next(e)`, or the row is gone for one frame. Terminal only: a desktop scrolls by the pixel and the offset is in rows.
 
 ### Desktop (each of these failed live once)
 
 - A Button handle lives for one drawing: a redraw during a click drops the click. `ui.render` reads only the data it draws, and that data is written only when its JSON changes.
 - Animate in a `Client` module with its own timer (`surface.every`), never by redrawing the pane.
 - In a row next to a Button, draw every other cell as a `Client` too: a `Text` does not line up with a Button. Give each cell a fixed width.
+- Text that must start below a Button's label is a Button too: a desktop draws a label after a margin of its own. Put words that belong together in one label: the font is not fixed-width, so cells of a fixed width stand apart.
 - A click on a pane that does not hold the keys raises only `ui.focus`, not `ui.press`. Read the focus state before `next(e)`: landing the ring redraws the pane focused inside `next`.
 - Before a screen change, call `$.ui.focus({ requestId, key })` for a button on the new screen; the ring is lost when its button leaves the screen.
 - `$.ui.open` `rows`/`columns` are requests: desktop ignores them, and no API sets or reads the pane size.

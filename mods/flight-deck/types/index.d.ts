@@ -80,6 +80,8 @@ export type AgentEntry = {
   // The model and the effort of the agent's latest step.
   model?: string
   effort?: string
+  // The input side of the agent's latest step, and the window of the step's model.
+  context?: { tokens: number; window: number }
   status: 'running' | 'idle' | 'stopped'
   runs: number
   startedAt: number
@@ -111,18 +113,21 @@ export type Transcript =
   | { agentId: string; deny: string }
 
 // What the pane shows. `agentId` null is the agent tree; `expanded` holds the tool_use ids
-// of the open tool calls; `isWrapped` draws a transcript's long text on several rows.
+// of the open tool calls; `collapsedAgents` the ids of the agents whose detail row is closed (a row is open at first);
+// `isWrapped` draws a transcript's long text on several rows.
 export type PaneView = {
   isOpen: boolean
   isWrapped: boolean
   agentId: string | null
   expanded: string[]
+  collapsedAgents: string[]
   transcript: Transcript | null
 }
 
 // What a pane button does.
 export type PaneAction =
   | { kind: 'open'; agentId: string }
+  | { kind: 'expand'; agentId: string }
   | { kind: 'back' }
   | { kind: 'wrap' }
   | { kind: 'tool'; toolUseId: string }
@@ -138,6 +143,9 @@ export type Cell = {
   since?: number
   // A cost in US dollars, drawn after `text`. A changed cost runs to its new value.
   usd?: number
+  // A context length, drawn in place of `text`: `ctx 182.4k/1M 18%`, or `ctx 18%` when not
+  // `isFull`. Changed tokens run to their new count.
+  ctx?: { tokens: number; window: number; isFull: boolean }
   width?: number
   align?: 'right'
 }
@@ -174,6 +182,9 @@ declare module 'claude-code' {
       pane: PaneView
       paneData: PaneData
       paneShown: NamedShown
+      // Where the pane's window is about to be: the offset of the latest scroll, and the
+      // offset the pane was drawn with when the scroll was asked for.
+      paneScroll: { offset: number; seen: number } | null
       spin: number
       ttls: { main: '5m' | '1h'; agent: '5m' | '1h' } | null
     }

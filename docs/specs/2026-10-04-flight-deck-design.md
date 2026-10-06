@@ -213,18 +213,18 @@ The `side requests` row is the ledger cost that no model row and no advisor cost
 
 ## 10. Band
 
-The band is one row above the prompt (`AbovePrompt`). Each metric is `icon label value`. A `│` separates the groups.
+The band is one row above the prompt (`AbovePrompt`). Each metric is `icon label value`. A `│` separates the groups. The countdown beside the cache percentage has no label. In a narrow band with no percentage, it is `◔ cache 3:42`.
 
 ```
-↑ in 12.5k  ↓ out 3.1k  ◈ hit 89% │ ⌘ calls 14  [ ▸ agents 2 ]  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30 │ ◔ cache 3:42 ━━━━━━━━━━
+↑ in 12.5k  ↓ out 3.1k │ ◈ cache 89%  ◔ 3:42 │ ⌘ calls 14  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30        [ ▸ agents 2 ]
 ```
 
 - No emoji. Each drawn character has a width of one cell.
-- The band fits `e.props.bodyColumns`. On a narrow width it drops parts in this order: bar, bg, diff, hit, calls, work, cost, out, in, agents.
-- The `agents` part is a button. It opens and closes the pane. Its mark is `▸` for a closed pane and `▾` for an open pane.
+- The band fits `e.props.bodyColumns`. On a narrow width it drops parts in this order: bg, diff, hit, calls, work, cost, out, in, agents.
+- The `agents` part is a button at the right end of the row, after the free room of the row. It opens and closes the pane. Its mark is `▸` for a closed pane and `▾` for an open pane.
 - Cache hit: green from 70 percent, yellow from 40 percent, red below 40 percent.
 - Countdown: `lastStepAt + lifetime - now`. Green above 60 s, yellow from 15 s to 60 s, red below 15 s with a pulse, dim when expired.
-- The bar after the countdown has 10 cells. An expired cache has no bar.
+- The band draws no bar after the countdown.
 - The work clock is bold while an interval is open.
 - A one-second tick redraws the band while the cache is live or a turn is open.
 
@@ -247,7 +247,7 @@ When the transcript of an agent is in view (`e.props.view.agentId`), the band sh
 
 ## 11. Pane
 
-The pane opens from the `agents` button and from the `/agent-log` command. Its title is `Flight Deck`. The pane has two screens.
+The pane opens from the `agents` button and from the `/agent-log` command. Its title is `🤖 Flight Deck`. The pane has two screens.
 
 Section 11.7 gives the layout of the pane. That layout is the same on each surface. Section 11.8 gives how each surface draws it.
 
