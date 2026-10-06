@@ -23,7 +23,8 @@ In scope:
 
 Out of scope:
 
-- A context length in the band above the prompt.
+- A context length of the main loop in the band above the prompt.
+- A header of the transcript screen that stays in view when the pane scrolls. The engine scrolls the pane as one tree. The band of the agent view is the header that stays in view.
 - The context length of the main loop. The status line of the engine shows it.
 - A window that the mod cannot see. See section 4.3.
 
@@ -203,6 +204,19 @@ After:
 - The `agents` button is the last part of the band, at the right end of the row. It is in no group: a gap of two cells or more is before it, and no `│`.
 - The band gives the free room of the row to the gap before the button.
 - The band of an agent view has no `agents` button. The diff is its last part.
+
+### 8.1 Band of an agent view
+
+The band does not scroll with the pane. Thus it shows what the header of the transcript screen shows, when the person scrolls that header out of view.
+
+```
+◆ Explore · find the window api claude-sonnet-5-5 high │ ctx 182.4k/1M 18% │ ↑ in 12.5k  ↓ out 3.1k │ ◈ cache 1%  ◔ 3:42 │ ⌘ calls 14 │ ± diff +120 -30
+```
+
+- The context length is the first group. Its color is that of section 4.5. It does not run to a new value: the numbers of an agent view are not animated.
+- A narrow band removes the context length after the tokens and before nothing else of the agent view.
+- The name of the agent is in the place of the word `agent`. It takes only the room that the band has left, and no part is removed for it.
+- A name with fewer than 8 cells of room is not shown. The mark then says `agent`.
 
 ## 9. Redraw
 

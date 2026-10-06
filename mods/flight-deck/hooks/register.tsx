@@ -11,6 +11,7 @@ import { paneData } from '../src/paneData'
 import { costOf } from '../src/price'
 import {
   agentsKey,
+  agentTitle,
   completed,
   ended,
   merged,
@@ -752,7 +753,8 @@ export const register: Register = (on, options) => {
     const viewed = e.props.view.agentId
     const snap = viewed === undefined ? session : agentView(session, viewed)
     const reg = viewed === undefined ? null : await read($, agents)
-    const model = modelLabel(viewed === undefined ? undefined : reg?.entries[viewed])
+    const agent = viewed === undefined ? undefined : reg?.entries[viewed]
+    const model = modelLabel(agent)
     const ttls = (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl)
     return (
       <Band
@@ -765,6 +767,10 @@ export const register: Register = (on, options) => {
         }
         isAgentView={viewed !== undefined}
         {...(model === undefined ? {} : { model })}
+        // The band stays in view when the header of the transcript scrolls away: it names the
+        // agent and shows its context length.
+        {...(agent === undefined ? {} : { name: agentTitle(agent) })}
+        {...(agent?.context === undefined ? {} : { context: agent.context })}
         busySince={session.busySince}
         now={now}
         ttl={viewed === undefined ? ttls.main : ttls.agent}

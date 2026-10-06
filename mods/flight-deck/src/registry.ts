@@ -46,6 +46,10 @@ export const ran = (r: Registry, id: string, at: number): Registry => ({
   [id]: { ...(r[id] ?? blank(id, at)), status: 'running' },
 })
 
+// An agent as the pane and the band name it: its type, then what it does.
+export const agentTitle = (a: AgentEntry): string =>
+  [a.type ?? 'agent', a.description ?? a.name ?? a.id].join(' · ')
+
 // How long an agent worked: from its spawn to `now` while it runs, to its end once it ended.
 export const workedMs = (a: AgentEntry, now: number): number =>
   Math.max(0, (a.status === 'running' ? now : (a.endedAt ?? now)) - a.startedAt)

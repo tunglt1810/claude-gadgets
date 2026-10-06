@@ -1,9 +1,11 @@
+import { cut } from './clip'
 import { cacheHitTone, countdownTone, remainingMs, ttlMs } from './countdown'
 import { formatCountdown, formatDuration, formatTokens, formatUsd } from './format'
 import { PALETTE } from './palette'
 import type { Snapshot } from './snapshot'
 import { type Counts, countsOf } from './tween'
 import { cacheHitPct } from './usage'
+import { contextColor, contextText } from './window'
 import { workElapsed } from './work'
 
 export type Segment = {
@@ -29,6 +31,10 @@ type Input = {
   isPaneOpen?: boolean
   // In an agent view: the agent's model id and effort, drawn after the mark.
   model?: string
+  // In an agent view: the agent's name, in the room that the band has left, and the context
+  // length of its latest step. The band stays in view when the pane's header scrolls away.
+  name?: string
+  context?: { tokens: number; window: number }
 }
 
 const TONE = { ok: PALETTE.green, warn: PALETTE.yellow, danger: PALETTE.red } as const
@@ -56,6 +62,7 @@ const LABEL = {
 // The percentage of the prompt tokens that the cache gave, and the time the cache has left.
 // The agents button is in no group: it is the last part of the band, at its right end.
 const GROUPS: readonly (readonly Part[])[] = [
+  ['ctx'],
   ['in', 'out'],
   ['hit', 'cache'],
   ['tools', 'bg', 'work'],
@@ -63,13 +70,26 @@ const GROUPS: readonly (readonly Part[])[] = [
 ]
 
 // Metrics in the order they are dropped when the band is too narrow (first = dropped first).
-const DROP_ORDER = ['bg', 'diff', 'hit', 'tools', 'work', 'cost', 'out', 'in', 'agents'] as const
+const DROP_ORDER = [
+  'bg',
+  'diff',
+  'hit',
+  'tools',
+  'work',
+  'cost',
+  'out',
+  'in',
+  'ctx',
+  'agents',
+] as const
 type Part = (typeof DROP_ORDER)[number] | 'cache'
 // `timer` is the countdown with no label: it is drawn in place of `cache`, never dropped by name.
 type Parts = Record<Part | 'timer', Segment[]>
 
 const SESSION_ONLY = ['cost', 'work', 'agents', 'bg'] as const
-const AGENT_MARK: Segment = { text: '◆ agent', color: PALETTE.orange, bold: true }
+const AGENT = 'agent'
+// The least of a name that is worth its place: a shorter cut says less than `agent`.
+const MIN_NAME = 8
 
 // One agent's own numbers, as the band labels them: no cost (the engine counts it per
 // session only) and no countdown (a pane redrawn each second drops a click on a desktop).
@@ -108,6 +128,8 @@ export const bandSegments = ({
   isAgentView = false,
   isPaneOpen = false,
   model,
+  name,
+  context,
 }: Input): Segment[] => {
   const total = ttlMs(ttl)
   const rem = remainingMs(snap.lastStepAt, now, total)
@@ -127,6 +149,10 @@ export const bandSegments = ({
     in: [{ text: `${LABEL.in} ${formatTokens(c.in)}`, color: PALETTE.cyan }],
     out: [{ text: `${LABEL.out} ${formatTokens(c.out)}`, color: PALETTE.purple }],
     hit: [{ text: `${LABEL.hit} ${pct}%`, color: TONE[cacheHitTone(pct)] }],
+    ctx:
+      context === undefined
+        ? []
+        : [{ text: contextText(context, true), color: contextColor(context) }],
     tools: [{ text: `${LABEL.tools} ${c.tools}`, color: PALETTE.orange }],
     agents: [
       {
@@ -153,9 +179,10 @@ export const bandSegments = ({
     timer: countdown(LABEL.clock),
   })
 
-  const build = (parts: Parts, dropped: ReadonlySet<string>): Segment[] => {
+  const build = (parts: Parts, dropped: ReadonlySet<string>, title = AGENT): Segment[] => {
     const mark: Segment[] = model === undefined ? [] : [{ text: ` ${model}`, color: PALETTE.fg }]
-    const segs: Segment[] = isAgentView ? [AGENT_MARK, ...mark, SEP] : []
+    const head: Segment = { text: `◆ ${title}`, color: PALETTE.orange, bold: true }
+    const segs: Segment[] = isAgentView ? [head, ...mark, SEP] : []
     const start = segs.length
     for (const group of GROUPS) {
       const present = group.filter((part) => !dropped.has(part))
@@ -173,6 +200,7 @@ export const bandSegments = ({
   }
 
   const dropped = new Set<string>(isAgentView ? SESSION_ONLY : [])
+  if (context === undefined) dropped.add('ctx')
   const target = partsFor(countsOf(snap))
   let segs = build(target, dropped)
   for (const next of DROP_ORDER) {
@@ -180,5 +208,11 @@ export const bandSegments = ({
     dropped.add(next)
     segs = build(target, dropped)
   }
-  return shown === undefined ? segs : build(partsFor(shown), dropped)
+  // The name takes the place of `agent` in the room that is left: no part is dropped for it.
+  const room = AGENT.length + columns - width(segs)
+  const title =
+    !isAgentView || name === undefined || Math.min(name.length, room) < MIN_NAME
+      ? AGENT
+      : cut(name, room)
+  return build(shown === undefined ? target : partsFor(shown), dropped, title)
 }

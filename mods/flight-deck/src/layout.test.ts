@@ -252,3 +252,63 @@ test('the agents button is the last part of the band, after a gap and no separat
     expect(all.at(-2)?.text).toBe('  ')
   }
 })
+
+const agentBand = (columns: number, extra: object = {}) =>
+  bandSegments({
+    ...base,
+    columns,
+    isAgentView: true,
+    model: 'claude-sonnet-5-5 high',
+    name: 'Explore · find the window api',
+    context: { tokens: 182_400, window: 1_000_000 },
+    ...extra,
+  })
+
+test('an agent view names the agent and shows its context length first', () => {
+  const t = agentBand(200)
+    .map((s) => s.text)
+    .join('')
+  expect(t.split(' │ ').slice(0, 3)).toEqual([
+    '◆ Explore · find the window api claude-sonnet-5-5 high',
+    'ctx 182.4k/1M 18%',
+    '↑ in 12.5k  ↓ out 3.1k',
+  ])
+})
+
+test('the context length of an agent view has the color of its percentage', () => {
+  const ctx = (tokens: number) =>
+    agentBand(200, { context: { tokens, window: 200_000 } }).find((s) => s.text.startsWith('ctx '))
+  expect(ctx(10)?.color).toBe(PALETTE.green)
+  expect(ctx(100_000)?.color).toBe(PALETTE.yellow)
+  expect(ctx(170_000)?.color).toBe(PALETTE.red)
+})
+
+test('the name of an agent view takes only the room that the band has left', () => {
+  const row = (columns: number) =>
+    agentBand(columns)
+      .map((s) => s.text)
+      .join('')
+  // The name is cut, and no part is dropped for it.
+  const whole = row(200).length
+  const cut = row(whole - 10)
+  expect(cut.length).toBeLessThanOrEqual(whole - 10)
+  expect(cut).toContain('◆ Explore · find the… claude-sonnet-5-5 high')
+  expect(cut).toContain('± diff +120 -30')
+  // With no room for a name, the mark says `agent` as it does with no name.
+  const bare = row(whole - 'Explore · find the window api'.length + 'agent'.length)
+  expect(bare.startsWith('◆ agent claude-sonnet-5-5 high │ ctx 182.4k/1M 18% │')).toBe(true)
+  expect(bare).toContain('± diff +120 -30')
+})
+
+test('a narrow agent view keeps the context length after the tokens are dropped', () => {
+  const t = agentBand(70)
+    .map((s) => s.text)
+    .join('')
+  expect(t).toContain('ctx 182.4k/1M 18%')
+  expect(t).not.toContain('↓ out')
+  expect(t.length).toBeLessThanOrEqual(70)
+})
+
+test('the band of the session has no context length', () => {
+  expect(text(200)).not.toContain('ctx ')
+})

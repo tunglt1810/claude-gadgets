@@ -692,7 +692,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await clock.advance(SETTLE_MS)
 
       const sub = await bandText($, surface, 'a1')
-      expect(sub).toContain('◆ agent m │ ↑ in 200 ')
+      // The band names the agent and shows its context length before its tokens.
+      expect(sub).toMatch(/◆ agent · a\d m │ ctx 100\/200k 0% │ ↑ in 200 /)
       expect(sub).toContain('↓ out 10 ')
       expect(sub).toContain('⌘ calls 1 ')
       // An agent's band has no agents button: the diff is its last part.
@@ -726,7 +727,9 @@ test('spawn counts and per-agent data survive a session id round trip', async ($
   const back = await settled($, clock)
   expect(back).toMatch(/▸ agents 1$/)
   expect(back).toContain('◇ bg 1 ')
-  expect(await bandText($, 'terminal', 'a1')).toContain('◆ agent m │ ↑ in 100 ')
+  expect(await bandText($, 'terminal', 'a1')).toContain(
+    '◆ agent · a1 m │ ctx 100/200k 0% │ ↑ in 100 ',
+  )
 })
 
 test("the tick keeps running while a subagent's cache is live, after the main one lapsed", async ($, on) => {
@@ -1357,7 +1360,9 @@ test('an agent shows its model and effort, and its numbers under the title', asy
     await ui.press({ key: 'back' })
     await ui.unmount()
     // The band of the agent's view names the model and the effort too.
-    expect(await bandText($, surface, 'a1')).toContain('◆ agent claude-sonnet-5-5 high │')
+    expect(await bandText($, surface, 'a1')).toContain(
+      '◆ agent · a1 claude-sonnet-5-5 high │ ctx 100/1M 0% │',
+    )
   }
 })
 

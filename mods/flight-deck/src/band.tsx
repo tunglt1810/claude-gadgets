@@ -12,8 +12,10 @@ type Props = {
   ttl: '5m' | '1h'
   columns: number
   isAgentView?: boolean
-  // In an agent view: the agent's model id and effort.
+  // In an agent view: the agent's model id and effort, its name and its context length.
   model?: string
+  name?: string
+  context?: { tokens: number; window: number }
   isPaneOpen: boolean
   onToggle: () => void
 }
@@ -34,6 +36,8 @@ export const Band = ({
   columns,
   isAgentView,
   model,
+  name,
+  context,
   isPaneOpen,
   onToggle,
 }: Props) => {
@@ -48,6 +52,8 @@ export const Band = ({
     isAgentView,
     isPaneOpen,
     ...(model === undefined ? {} : { model }),
+    ...(name === undefined ? {} : { name }),
+    ...(context === undefined ? {} : { context }),
   })
   const run = (segs: Segment[], key: string) => (
     <Text key={key} wrap="truncate">

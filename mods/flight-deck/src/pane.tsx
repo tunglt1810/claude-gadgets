@@ -15,7 +15,7 @@ import { detailCells } from './detail'
 import { formatDuration } from './format'
 import { statSegments } from './layout'
 import { PALETTE } from './palette'
-import { modelLabel, workedMs } from './registry'
+import { agentTitle, modelLabel, workedMs } from './registry'
 import { inputCode, toolSummary } from './summary'
 import { agentTable, recency, runsLabel } from './table'
 import { lastItems } from './transcript'
@@ -80,8 +80,7 @@ const RUNS_WIDTH = 7
 // The tone of a cell: dim, or a color.
 type Tone = Pick<Cell, 'dim' | 'color'>
 
-const name = (a: AgentEntry): string =>
-  [a.type ?? 'agent', a.description ?? a.name ?? a.id].join(' · ')
+const name = agentTitle
 
 const agentMark = (a: AgentEntry): Cell =>
   a.status === 'running'

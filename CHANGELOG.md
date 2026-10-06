@@ -21,6 +21,7 @@ Tested on Claude Code 2.1.291.
 - The context window of a model follows the resolver of Claude Code 2.1.291: 1M for Opus 4.7 and later, Sonnet 5 and later, Fable and Mythos, and for an id with `[1m]`. 200k for all other models, and for each model when `CLAUDE_CODE_DISABLE_1M_CONTEXT` is set.
 - A press on the model and the effort of a detail row opens the transcript, as a press on the name does.
 - A changed context length runs to its new value, in the detail row and on the transcript screen. A desktop cell runs with its own timer.
+- Band of an agent view: it names the agent and shows its context length, `◆ Explore · find x claude-sonnet-5-5 high │ ctx 182.4k/1M 18% │ ...`. The band stays in view when the header of the transcript scrolls out of view.
 - Terminal: an empty row is between the pane title and the pane body.
 
 #### Changed
