@@ -11,9 +11,15 @@ export const focusAction = (element: string, transcript: Transcript | null): Pan
   ]
   if (id === '' || !element.includes(':')) return null
   if (kind === 'agent') return { kind: 'open', agentId: id }
+  if (kind === 'expand') return { kind: 'expand', agentId: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }
   if (kind !== 'child' || transcript === null || !('items' in transcript)) return null
   const item = transcript.items.find((it) => it.kind === 'tool' && it.id === id)
   const agentId = item?.kind === 'tool' ? item.agentId : undefined
   return agentId === undefined ? null : { kind: 'open', agentId }
 }
+
+// A list of open ids with `id` added, or removed when it is there. A pane state of an older
+// shape (a hot reload) has no list.
+export const toggled = (list: readonly string[] | undefined, id: string): string[] =>
+  (list ?? []).includes(id) ? (list ?? []).filter((x) => x !== id) : [...(list ?? []), id]

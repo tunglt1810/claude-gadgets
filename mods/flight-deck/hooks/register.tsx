@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
-import { focusAction } from '../src/action'
+import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { ttlMs } from '../src/countdown'
@@ -79,6 +79,7 @@ const initialPane: PaneView = {
   isWrapped: true,
   agentId: null,
   expanded: [],
+  expandedAgents: [],
   transcript: null,
 }
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
@@ -155,7 +156,13 @@ async function loadAgents($: Api, id: string): Promise<void> {
     await $.clock.now(),
   )
   await update($, agents, (c) => (c.sessionId === id ? c : { sessionId: id, entries }))
-  await update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
+  await update($, pane, (c) => ({
+    ...c,
+    agentId: null,
+    expanded: [],
+    expandedAgents: [],
+    transcript: null,
+  }))
   await syncPane($)
 }
 
@@ -254,6 +261,13 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'wrap') {
     const next = await update($, pane, (c) => ({ ...c, isWrapped: !c.isWrapped }))
     return $.store.set(WRAP_KEY, next.isWrapped)
+  }
+  if (action.kind === 'expand') {
+    await update($, pane, (c) => ({
+      ...c,
+      expandedAgents: toggled(c.expandedAgents, action.agentId),
+    }))
+    return
   }
   await update($, pane, (c) => {
     const id = action.toolUseId
@@ -704,6 +718,7 @@ export const register: Register = (on, options) => {
         now={now}
         columns={e.props.bodyColumns - pad * 2}
         onOpen={(agentId) => act($, { kind: 'open', agentId })}
+        onExpand={(agentId) => act($, { kind: 'expand', agentId })}
         onBack={() => act($, { kind: 'back' })}
         onWrap={() => act($, { kind: 'wrap' })}
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}

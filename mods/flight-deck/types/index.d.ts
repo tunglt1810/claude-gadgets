@@ -113,18 +113,21 @@ export type Transcript =
   | { agentId: string; deny: string }
 
 // What the pane shows. `agentId` null is the agent tree; `expanded` holds the tool_use ids
-// of the open tool calls; `isWrapped` draws a transcript's long text on several rows.
+// of the open tool calls; `expandedAgents` the ids of the agents whose detail row is open;
+// `isWrapped` draws a transcript's long text on several rows.
 export type PaneView = {
   isOpen: boolean
   isWrapped: boolean
   agentId: string | null
   expanded: string[]
+  expandedAgents: string[]
   transcript: Transcript | null
 }
 
 // What a pane button does.
 export type PaneAction =
   | { kind: 'open'; agentId: string }
+  | { kind: 'expand'; agentId: string }
   | { kind: 'back' }
   | { kind: 'wrap' }
   | { kind: 'tool'; toolUseId: string }

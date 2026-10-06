@@ -11,6 +11,7 @@ import type {
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
+import { detailCells } from './detail'
 import { formatDuration } from './format'
 import { statSegments } from './layout'
 import { PALETTE } from './palette'
@@ -39,6 +40,7 @@ type Props = {
   now: number
   columns: number
   onOpen: (agentId: string) => void
+  onExpand: (agentId: string) => void
   onBack: () => void
   onWrap: () => void
   onTool: (toolUseId: string) => void
@@ -51,6 +53,8 @@ const MAX_LINES = 40
 const END_MARK = { idle: '⣿', stopped: '⣿' } as const
 // The width of every mark: a glyph a desktop draws wider than one cell is not cut.
 const MARK_WIDTH = 2
+// The width of the expand button of an agent's row, as a mark's.
+const EXPAND_WIDTH = 2
 // The color of an agent's mark by its status.
 const TONE = { running: PALETTE.green, idle: PALETTE.dim, stopped: PALETTE.red } as const
 const OPEN_CHILD = ' [open]'
@@ -116,6 +120,7 @@ export const AgentPane = ({
   now,
   columns,
   onOpen,
+  onExpand,
   onBack,
   onWrap,
   onTool,
@@ -239,6 +244,8 @@ export const AgentPane = ({
       rows.map((r) => r.agent),
       columns,
     )
+    // The name column without the expand button and its gap, as a root agent's name is.
+    const headName = Math.max(1, t.name - EXPAND_WIDTH - 1)
     return (
       <Box flexDirection="column">
         {board()}
@@ -246,13 +253,14 @@ export const AgentPane = ({
           {/* Built as a row is, a mark and a box of the name's width: a desktop sizes a box
               and a cell in different units, so only the same parts line up. */}
           {head('head:mark', '', MARK_WIDTH)}
-          <Box key="head:namebox" width={t.name} flexShrink={0}>
+          <Box key="head:expand" width={EXPAND_WIDTH} flexShrink={0} />
+          <Box key="head:namebox" width={headName} flexShrink={0}>
             {/* A desktop draws a button's label after a margin of its own: the header is a
                 button there too (it does nothing), so it starts where the names start. */}
             {isClient ? (
               <Button key="head:name" plain dimColor label="agents" onPress={() => {}} />
             ) : (
-              head('head:name', 'agents', t.name)
+              head('head:name', 'agents', headName)
             )}
           </Box>
           {head('head:runs', 'runs', t.runs, 'right')}
@@ -261,28 +269,60 @@ export const AgentPane = ({
         {rows.map(({ agent, depth }) => {
           const recent = recency(agent, now)
           const tone: Tone = recent === 'old' ? { dim: true } : { color: RECENCY_TONE[recent] }
+          const isOpen = (view.expandedAgents ?? []).includes(agent.id)
+          // The name gives its first cells to the expand button and a gap.
+          const nameWidth = Math.max(1, t.name - depth * 2 - EXPAND_WIDTH - 1)
+          // The detail row starts below the name's first character.
+          const inset = depth * 2 + MARK_WIDTH + 1 + EXPAND_WIDTH + 1
           return (
-            // A Button takes no color: the status is the colored mark before it, and an ended
-            // agent's row is dim at rest. The runs and the time take the color of the recency.
-            <Box key={`row:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
-              {depth > 0 && <Box key={`indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />}
-              {cell(`mark:${agent.id}`, agentMark(agent))}
-              <Box key={`name:${agent.id}`} width={t.name - depth * 2} flexShrink={0}>
-                <Button
-                  key={`agent:${agent.id}`}
-                  plain
-                  {...(agent.status === 'running' ? {} : { dimColor: true })}
-                  label={cut(name(agent), t.name - depth * 2)}
-                  onPress={() => onOpen(agent.id)}
-                />
+            <Box key={`agentrow:${agent.id}`} flexDirection="column">
+              {/* A Button takes no color: the status is the colored mark before it, and an
+                  ended agent's row is dim at rest. The runs and the time take the color of
+                  the recency. */}
+              <Box key={`row:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
+                {depth > 0 && (
+                  <Box key={`indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />
+                )}
+                {cell(`mark:${agent.id}`, agentMark(agent))}
+                <Box key={`expandbox:${agent.id}`} width={EXPAND_WIDTH} flexShrink={0}>
+                  <Button
+                    key={`expand:${agent.id}`}
+                    plain
+                    dimColor
+                    label={isOpen ? '▾' : '▸'}
+                    onPress={() => onExpand(agent.id)}
+                  />
+                </Box>
+                <Box key={`name:${agent.id}`} width={nameWidth} flexShrink={0}>
+                  <Button
+                    key={`agent:${agent.id}`}
+                    plain
+                    {...(agent.status === 'running' ? {} : { dimColor: true })}
+                    label={cut(name(agent), nameWidth)}
+                    onPress={() => onOpen(agent.id)}
+                  />
+                </Box>
+                {cell(`runs:${agent.id}`, {
+                  text: String(agent.runs),
+                  ...tone,
+                  width: t.runs,
+                  align: 'right',
+                })}
+                {cell(`time:${agent.id}`, timeCell(agent, now, 'right', tone, ''))}
               </Box>
-              {cell(`runs:${agent.id}`, {
-                text: String(agent.runs),
-                ...tone,
-                width: t.runs,
-                align: 'right',
-              })}
-              {cell(`time:${agent.id}`, timeCell(agent, now, 'right', tone, ''))}
+              {isOpen && (
+                <Box
+                  key={`detail:${agent.id}`}
+                  flexDirection="row"
+                  alignItems="center"
+                  gap={1}
+                  paddingLeft={inset}
+                >
+                  {detailCells(agent, columns - inset).map((c, i) =>
+                    cell(`detail:${agent.id}:${i}`, c),
+                  )}
+                </Box>
+              )}
             </Box>
           )
         })}

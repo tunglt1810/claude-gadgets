@@ -921,7 +921,8 @@ test('a child agent is listed below its parent', async ($, on) => {
   await spawn($, 'a1')
 
   const ui = await mountPane($, 'terminal')
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(2)
+  // Each agent's row has two buttons: the expand button and the name.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(4)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -1879,5 +1880,84 @@ test('an agent with no step shows no context part', async ($, on) => {
   await ui.press({ key: 'agent:a1' })
   expect(await paneText(ui)).not.toContain('ctx ')
   expect(await ui.find({ key: 'meta:sep:ctx' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the expand button shows and hides the detail row of an agent', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', effort: 'high', agentId: 'a1' } as never)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(String((await ui.find({ key: 'expand:a1' }))?.props.label)).toBe('▸')
+    expect(await paneText(ui)).not.toContain('ctx ')
+
+    await ui.press({ key: 'expand:a1' })
+    expect(String((await ui.find({ key: 'expand:a1' }))?.props.label)).toBe('▾')
+    const open = await paneText(ui)
+    expect(open).toContain('high')
+    expect(open).toContain('ctx 100/1M 0%')
+    // The other row stays closed.
+    expect(open).not.toContain('no step yet')
+
+    await ui.press({ key: 'expand:a2' })
+    expect(await paneText(ui)).toContain('no step yet')
+
+    // The rows stay open across a transcript.
+    await ui.press({ key: 'agent:a1' })
+    await ui.press({ key: 'back' })
+    expect(await paneText(ui)).toContain('no step yet')
+
+    await ui.press({ key: 'expand:a1' })
+    await ui.press({ key: 'expand:a2' })
+    const closed = await paneText(ui)
+    expect(closed).not.toContain('ctx ')
+    expect(closed).not.toContain('no step yet')
+    await ui.unmount()
+  }
+})
+
+test('the name button still opens the transcript beside the expand button', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'agent:a1' })
+    expect(await ui.find({ key: 'back' })).toBeDefined()
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a click that gives the pane the focus also opens the detail row', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('ui.focus', async () => ({ value: {} }) as never)
+  await spawn($)
+  const ui = await mountPane($, 'desktop', false)
+  const click = (kind: 'person' | 'plugin') =>
+    $.ui.focus({
+      component: 'Pane',
+      requestId: 'agents',
+      plugin: 'flight-deck',
+      element: 'expand:a1',
+      origin: kind === 'person' ? { kind } : { kind, name: 'other' },
+    } as never)
+  // Another plugin's focus move does not press.
+  await click('plugin')
+  expect(await paneText(ui)).not.toContain('no step yet')
+  await click('person')
+  expect(await paneText(ui)).toContain('no step yet')
   await ui.unmount()
 })
