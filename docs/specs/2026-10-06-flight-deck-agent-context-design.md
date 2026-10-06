@@ -144,7 +144,10 @@ Rules:
 - The row has the same cells before its text as an agent row has: the indent, the mark width and the expand width. Thus a desktop aligns the two rows.
 - An entry with no context has no third part.
 - An entry with no model and no context shows `no step yet`, dim.
-- On a desktop, each part is a `Client` cell, as the other cells of the table are.
+- The model and the effort are one button, with the key `detail:<agentId>`. Its label ends with ` ·` when a context comes after it. A press opens the transcript, as a press on the name does.
+- The context length is a cell after the button, because a Button has no color.
+- The button is necessary for the layout. A desktop draws the label of a button after a margin, and its font is not fixed-width. Thus separate cells start at a different position from the name, and they have empty room between them.
+- The two surfaces draw the row from the same parts.
 
 ### 5.3 State
 

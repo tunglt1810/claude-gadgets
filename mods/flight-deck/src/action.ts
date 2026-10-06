@@ -10,7 +10,8 @@ export const focusAction = (element: string, transcript: Transcript | null): Pan
     element.slice(element.indexOf(':') + 1),
   ]
   if (id === '' || !element.includes(':')) return null
-  if (kind === 'agent') return { kind: 'open', agentId: id }
+  // An agent's name, and the button of its detail row.
+  if (kind === 'agent' || kind === 'detail') return { kind: 'open', agentId: id }
   if (kind === 'expand') return { kind: 'expand', agentId: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }
   if (kind !== 'child' || transcript === null || !('items' in transcript)) return null

@@ -922,8 +922,8 @@ test('a child agent is listed below its parent', async ($, on) => {
   await spawn($, 'a1')
 
   const ui = await mountPane($, 'terminal')
-  // Each agent's row has two buttons: the expand button and the name.
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(4)
+  // Each agent has three buttons: the expand button, the name and the text of its detail row.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(6)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -1998,7 +1998,7 @@ test('the detail row is built as an agent row is: the same boxes before its text
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
     // A desktop sizes a box and a padding in different units: only the same parts line up.
-    expect((await ui.find({ key: 'detail:a1' }))?.props.paddingLeft).toBeUndefined()
+    expect((await ui.find({ key: 'detailrow:a1' }))?.props.paddingLeft).toBeUndefined()
     expect((await ui.find({ key: 'detail:expand:a1' }))?.props.width).toBe(
       (await ui.find({ key: 'expandbox:a1' }))?.props.width,
     )
@@ -2075,4 +2075,35 @@ test('a changed context length runs to its new value', async ($, on) => {
     color: '#a9dc76',
   })
   await desk.unmount()
+})
+
+test('the text of a detail row is one button, as the name above it is, on each surface', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', effort: 'high', agentId: 'a1' } as never)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    // A desktop draws a button's label after a margin of its own, and its font is not
+    // fixed-width: one button starts where the name starts and has no room between its parts.
+    const lead = await ui.find({ key: 'detail:a1' })
+    expect(lead?.type).toBe('Button')
+    expect(String(lead?.props.label)).toBe('sonnet-5-5 · high ·')
+    // The context length keeps its color: it is a cell after the button, not a button.
+    expect((await ui.find({ key: 'detail:ctx:a1' }))?.type).not.toBe('Button')
+    expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+    // With no context the button has no dot at its end.
+    expect(String((await ui.find({ key: 'detail:a2' }))?.props.label)).toBe('no step yet')
+    expect(await ui.find({ key: 'detail:ctx:a2' })).toBeUndefined()
+    // A press opens the transcript, as a press on the name does.
+    await ui.press({ key: 'detail:a1' })
+    expect(await ui.find({ key: 'back' })).toBeDefined()
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
 })

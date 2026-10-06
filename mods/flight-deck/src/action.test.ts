@@ -13,6 +13,8 @@ test('focusAction reads the action of each pane button key', () => {
   expect(focusAction('wrap', null)).toEqual({ kind: 'wrap' })
   expect(focusAction('agent:a9', null)).toEqual({ kind: 'open', agentId: 'a9' })
   expect(focusAction('expand:a9', null)).toEqual({ kind: 'expand', agentId: 'a9' })
+  // The detail row of an agent is a button as its name is, so the two start at one place.
+  expect(focusAction('detail:a9', null)).toEqual({ kind: 'open', agentId: 'a9' })
   expect(focusAction('tool:t1', null)).toEqual({ kind: 'tool', toolUseId: 't1' })
   expect(focusAction('child:t1', transcript)).toEqual({ kind: 'open', agentId: 'a2' })
 })

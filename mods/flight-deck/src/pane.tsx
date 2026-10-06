@@ -283,6 +283,13 @@ export const AgentPane = ({
           const nameWidth = Math.max(1, t.name - depth * 2 - EXPAND_WIDTH - 1)
           // The detail row starts below the name's first character: the cells before it.
           const inset = depth * 2 + MARK_WIDTH + 1 + EXPAND_WIDTH + 1
+          const detail = isOpen ? detailCells(agent, columns - inset) : []
+          const ctx = detail.find((c) => c.ctx !== undefined)
+          // The cells before the context as one text; its last dot parts it from the context.
+          const lead = detail
+            .filter((c) => c.ctx === undefined)
+            .map((c) => c.text)
+            .join(' ')
           return (
             <Box key={`agentrow:${agent.id}`} flexDirection="column">
               {/* A Button takes no color: the status is the colored mark before it, and an
@@ -322,15 +329,27 @@ export const AgentPane = ({
               {isOpen && (
                 // Built as the agent's row is, an indent, a mark and an expand box: a desktop
                 // sizes a box and a padding in different units, so only the same parts line up.
-                <Box key={`detail:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
+                <Box key={`detailrow:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
                   {depth > 0 && (
                     <Box key={`detail:indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />
                   )}
                   {cell(`detail:mark:${agent.id}`, { text: '', width: MARK_WIDTH })}
                   <Box key={`detail:expand:${agent.id}`} width={EXPAND_WIDTH} flexShrink={0} />
-                  {detailCells(agent, columns - inset).map((c, i) =>
-                    cell(`detail:${agent.id}:${i}`, shownCtx(agent.id, c)),
+                  {/* The model and the effort are one button, as the name above them is: a
+                      desktop draws a button's label after a margin of its own, and its font is
+                      not fixed-width, so separate cells start at another place and stand
+                      apart. It has no box of a fixed width: the context comes right after it. */}
+                  {lead !== '' && (
+                    <Button
+                      key={`detail:${agent.id}`}
+                      plain
+                      dimColor
+                      label={lead}
+                      onPress={() => onOpen(agent.id)}
+                    />
                   )}
+                  {/* A Button takes no color: the context stays a cell. */}
+                  {ctx !== undefined && cell(`detail:ctx:${agent.id}`, shownCtx(agent.id, ctx))}
                 </Box>
               )}
             </Box>
