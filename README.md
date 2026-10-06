@@ -6,7 +6,7 @@ Mods (hot-reloadable plugins) for Claude Code. Each mod is a self-contained plug
 
 | Mod | What it does |
 | --- | --- |
-| `token-meter` | Band above the prompt: input/output/cache-hit tokens, tool calls, started subagents and background tasks, model working time, session cost, lines changed by file tools and a styled prompt-cache countdown. The totals include each subagent. When the transcript of a subagent is on the screen, the band shows the numbers of that subagent and of the agents below it. Data survives resume. |
+| `flight-deck` | Band above the prompt: input/output/cache-hit tokens, tool calls, started subagents and background tasks, model working time, session cost, lines changed by file tools and a styled prompt-cache countdown. The totals include each subagent. When the transcript of a subagent is on the screen, the band shows the numbers of that subagent and of the agents below it. Data survives resume. |
 
 ## Toolchain
 
@@ -21,14 +21,14 @@ bun run check      # biome + tsc + claude plugin validate + claude plugin test
 
 ## Loading a mod
 
-- CLI: `claude --plugin-dir mods/token-meter` (hot reloads on save).
+- CLI: `claude --plugin-dir mods/flight-deck` (hot reloads on save).
 - Claude Desktop (Code tab): set `CLAUDE_CODE_PLUGIN_DIRS` to the absolute mod path in the `env` block of `~/.claude/settings.json`.
 
-`token-meter` option `cacheTtl` is `5m` (default) or `1h`. Set `1h` when your session uses the 1-hour prompt cache.
+`flight-deck` option `cacheTtl` is `5m` (default) or `1h`. Set `1h` when your session uses the 1-hour prompt cache.
 
 ## Agents pane
 
-`token-meter` has a pane that shows the subagents of the session.
+`flight-deck` has a pane that shows the subagents of the session.
 
 - Press `◆ agents N` on the band, or run `/agent-log`, to open the pane. Do the same to close it.
 - The pane lists the subagents as a tree. A child agent is below its parent.
@@ -42,7 +42,7 @@ Limits:
 
 ## Adding a mod
 
-Run the `/new-mod <name>` skill, or copy `mods/token-meter` and trim it. Rules the engine enforces: the `types` contract is self-contained (no imports), helpers that take `$` are module-level function declarations, and plugin files link with static `import` only.
+Run the `/new-mod <name>` skill, or copy `mods/flight-deck` and trim it. Rules the engine enforces: the `types` contract is self-contained (no imports), helpers that take `$` are module-level function declarations, and plugin files link with static `import` only.
 
 ## Layout
 
@@ -57,11 +57,14 @@ docs/plans/   implementation plans
 ### Claude Code CLI
 
 - Main view
-![Claude Code CLI token meter preview](previews/preview-cli.png)
+![Claude Code CLI flight deck preview](previews/preview-cli.png)
 
 - Session view
 ![Agent view](previews/preview-cli-agent-view.png)
 
 ### Claude Desktop
 
-![Claude Desktop token meter preview](previews/preview-desktop.png)
+![Claude Desktop flight deck preview](previews/preview-desktop.png)
+## License
+
+[MIT](LICENSE)

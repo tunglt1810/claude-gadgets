@@ -28,6 +28,9 @@ export type Snapshot = {
   agents: number
   bg: number
   byAgent: Record<string, AgentUsage>
+  // The tokens of every loop by the model its steps named, and the main loop's model.
+  byModel: Record<string, Totals>
+  mainModel?: string
 }
 
 // What the band draws from: the snapshot plus runtime-only turn bookkeeping.
@@ -54,14 +57,18 @@ export type Counts = {
 export type Shown = { sessionId: string | null; tweens: Record<keyof Counts, Tween> }
 
 // One subagent of the session, as the pane lists it. `runs` counts completed runs: a
-// message to a completed agent starts it again under the same id.
+// message to a completed agent starts it again under the same id. `stopped` is a run that
+// ended with no answer: killed, failed or aborted.
 export type AgentEntry = {
   id: string
   parentId?: string
   type?: string
   description?: string
   name?: string
-  status: 'running' | 'idle'
+  // The model and the effort of the agent's latest step.
+  model?: string
+  effort?: string
+  status: 'running' | 'idle' | 'stopped'
   runs: number
   startedAt: number
   endedAt: number | null
@@ -101,14 +108,50 @@ export type PaneView = {
   transcript: Transcript | null
 }
 
+// What a pane button does.
+export type PaneAction =
+  | { kind: 'open'; agentId: string }
+  | { kind: 'back' }
+  | { kind: 'wrap' }
+  | { kind: 'tool'; toolUseId: string }
+
+// One cell of a pane row that is not a button: a text, a turning mark (`spin`), or a time that
+// counts up from `since` after the text. A right-aligned cell is padded to `width`.
+export type Cell = {
+  text: string
+  color?: string
+  dim?: boolean
+  bold?: boolean
+  spin?: boolean
+  since?: number
+  width?: number
+  align?: 'right'
+}
+
+// One model's row of the dashboard: its estimated cost (null with no price), the working
+// time and the runs of its agents. The main loop's model also takes the session's work time.
+export type ModelRow = { model: string; costUsd: number | null; workMs: number; runs: number }
+
+// The numbers above the agents table: the engine's session cost and a row per model.
+export type Dashboard = { costUsd: number; rows: ModelRow[] }
+
+// What the pane draws: the agents of the screen and the numbers of the viewed agent.
+export type PaneData = {
+  sessionId: string | null
+  entries: Registry
+  stats: Snapshot | null
+  dashboard: Dashboard | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    'token-meter': {
+    'flight-deck': {
       meter: Meter
       now: number
       shown: Shown
       agents: Agents
       pane: PaneView
+      paneData: PaneData
       spin: number
     }
   }

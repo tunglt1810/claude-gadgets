@@ -16,7 +16,7 @@ bun install --frozen-lockfile
 bun run check       # lint + typecheck + validate + test; must be green before "done"
 ```
 
-Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`.
+Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `CLAUDE_CODE_PLUGIN_DIRS` in the `env` block of `~/.claude/settings.json`; it does not hot reload: type `/reload-plugins --force` in the prompt after a change.
 
 ## Conventions
 
@@ -55,3 +55,13 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 - No emoji in drawn text: they are double width and misalign the row. Use single-width characters.
 - Size a band to `e.props.bodyColumns` and keep it to one row; drop parts instead of wrapping.
 - `AbovePrompt` is raised on terminal and desktop only; `Pane` on every surface.
+
+### Desktop (each of these failed live once)
+
+- A Button handle lives for one drawing: a redraw during a click drops the click. `ui.render` reads only the data it draws, and that data is written only when its JSON changes.
+- Animate in a `Client` module with its own timer (`surface.every`), never by redrawing the pane.
+- In a row next to a Button, draw every other cell as a `Client` too: a `Text` does not line up with a Button. Give each cell a fixed width.
+- A click on a pane that does not hold the keys raises only `ui.focus`, not `ui.press`. Read the focus state before `next(e)`: landing the ring redraws the pane focused inside `next`.
+- Before a screen change, call `$.ui.focus({ requestId, key })` for a button on the new screen; the ring is lost when its button leaves the screen.
+- `$.ui.open` `rows`/`columns` are requests: desktop ignores them, and no API sets or reads the pane size.
+- Debug with a log, not a guess: push events to a module array, write it to `$.store` in one call, and read `~/.claude/plugins/store/<name>_inline-*.json`.

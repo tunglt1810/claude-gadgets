@@ -1,4 +1,4 @@
-# token-meter Implementation Plan
+# flight-deck Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,13 +8,13 @@
 
 **Tech Stack:** TypeScript 7.0.2, Bun 1.x (install and scripts), Biome 2.5.15 (lint + format), plugin API `claude-code` (EARLY ACCESS), `claude plugin validate` / `claude plugin test`.
 
-**Spec:** `docs/specs/2026-10-04-token-meter-design.md` (its "Post-verification amendments" win over earlier sections).
+**Spec:** `docs/specs/2026-10-04-flight-deck-design.md` (its "Post-verification amendments" win over earlier sections).
 
 ## Global Constraints
 
 - Docs, code comments, identifiers, commit messages and user-visible strings are English.
 - Dependencies pinned to exact versions: `typescript@7.0.2`, `@biomejs/biome@2.5.15`; no ranges (`^`, `~`), `bunfig.toml` has `exact = true`, `bun.lock` committed, installs use `bun install --frozen-lockfile`. No other dependencies.
-- Mod lives in `mods/token-meter/`; plugin name `token-meter`.
+- Mod lives in `mods/flight-deck/`; plugin name `flight-deck`.
 - Every mod file is `.ts`/`.tsx`, an ES module, linked by static `import`; no dynamic `import()`.
 - The module has no DOM/Node; everything outside goes through `$`.
 - `ui.render` never writes state; state is written only from events or timers.
@@ -40,7 +40,7 @@
 
 ```
 package.json  bunfig.toml  bun.lock  biome.json  tsconfig.base.json  .gitignore
-mods/token-meter/
+mods/flight-deck/
 ├── .claude-plugin/plugin.json
 ├── hooks/hooks.json
 ├── hooks/register.tsx        # wires events, atoms, store, timer, ui.render
@@ -78,9 +78,9 @@ mods/token-meter/
   "scripts": {
     "lint": "biome check .",
     "fix": "biome check --write .",
-    "typecheck": "tsc -p mods/token-meter --noEmit",
-    "validate": "claude plugin validate mods/token-meter",
-    "test": "claude plugin test mods/token-meter",
+    "typecheck": "tsc -p mods/flight-deck --noEmit",
+    "validate": "claude plugin validate mods/flight-deck",
+    "test": "claude plugin test mods/flight-deck",
     "check": "bun run lint && bun run typecheck && bun run validate && bun run test"
   }
 }
@@ -124,11 +124,11 @@ Append to `.gitignore`: `mods/*/.claude-plugin/types/`, `node_modules/`.
 ### Task 1: Scaffold + pure logic (usage, format, countdown, work)
 
 **Files:**
-- Create: `mods/token-meter/.claude-plugin/plugin.json`, `hooks/hooks.json`, `hooks/register.tsx` (stub), `types/index.d.ts`, `tsconfig.json`
+- Create: `mods/flight-deck/.claude-plugin/plugin.json`, `hooks/hooks.json`, `hooks/register.tsx` (stub), `types/index.d.ts`, `tsconfig.json`
 - Create: `src/usage.ts`, `src/format.ts`, `src/countdown.ts`, `src/work.ts`
 - Test: `src/usage.test.ts`, `src/format.test.ts`, `src/countdown.test.ts`, `src/work.test.ts`
 
-**Interfaces (all paths under `mods/token-meter/`):**
+**Interfaces (all paths under `mods/flight-deck/`):**
 - Produces:
   - `type Totals = { input: number; output: number; cacheRead: number; cacheWrite: number }`; `emptyTotals(): Totals`
   - `addUsage(t: Totals, u: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | null): Totals`
@@ -143,12 +143,12 @@ Append to `.gitignore`: `mods/*/.claude-plugin/types/`, `node_modules/`.
   - `cacheHitTone(pct: number): 'ok' | 'warn' | 'danger'` (`>= 70` ok, `>= 40` warn, else danger)
   - `type Work = { workMs: number; active: number; busySince: number | null }`; `emptyWork()`; `startTurn(w, at)`; `endTurn(w, at)`; `workElapsed(w, now)`
 
-- [ ] **Step 1: Manifest and multi-file smoke test.** Create the files below and run `claude plugin validate mods/token-meter`. If the `userConfig` shape is rejected, fix it per the error and record the correct shape in the spec. If relative imports between plugin files are rejected, collapse `src/*.ts` into `register.tsx` plus one helpers file and update "File Structure".
+- [ ] **Step 1: Manifest and multi-file smoke test.** Create the files below and run `claude plugin validate mods/flight-deck`. If the `userConfig` shape is rejected, fix it per the error and record the correct shape in the spec. If relative imports between plugin files are rejected, collapse `src/*.ts` into `register.tsx` plus one helpers file and update "File Structure".
 
 `.claude-plugin/plugin.json`:
 ```json
 {
-  "name": "token-meter",
+  "name": "flight-deck",
   "version": "0.1.0",
   "description": "Band tracking session tokens, tool calls, model working time and cache countdown",
   "types": "./types/index.d.ts",
@@ -178,7 +178,7 @@ export const register: Register = (_on, _options) => {
 ```ts
 declare module 'claude-code' {
   interface PluginState {
-    'token-meter': Record<string, never>
+    'flight-deck': Record<string, never>
   }
 }
 export {}
@@ -498,7 +498,7 @@ import type { Snapshot } from '../src/snapshot'
 
 declare module 'claude-code' {
   interface PluginState {
-    'token-meter': {
+    'flight-deck': {
       meter: Snapshot & { sessionId: string | null; active: number; busySince: number | null }
       now: number
     }
@@ -529,10 +529,10 @@ type Api = /* the engine `$` type, taken from the generated types */ never
 type Meter = Snapshot & { sessionId: string | null; active: number; busySince: number | null }
 
 const meter = atom<Meter>(
-  { plugin: 'token-meter', key: 'meter' } as const,
+  { plugin: 'flight-deck', key: 'meter' } as const,
   { ...emptySnapshot(), sessionId: null, active: 0, busySince: null },
 )
-const nowAtom = atom({ plugin: 'token-meter', key: 'now' } as const, 0)
+const nowAtom = atom({ plugin: 'flight-deck', key: 'now' } as const, 0)
 
 export const register: Register = (on, _options) => {
   // Load by session id on every event: covers --resume, in-process resume and /clear
@@ -626,7 +626,7 @@ export const register: Register = (on, _options) => {
 
 Line: `↓{input} ↑{output} ⚡{pct}% · 🔧{tools} · ⏱{work} · ⏳{countdown} {bar}`. `↓` is uncached `input_tokens`, `⚡` is the cache-hit share, `⏱` is `formatDuration(workElapsed(...))` (blue, bold while a turn is running), and the bar is 10 cells `█`/`░` of `remaining / ttl`. One color table in `band.tsx`: `ok` green, `warn` yellow, `danger` red, `expired` dim + strikethrough; in `danger` the countdown alternates `bold`/`inverse` by `Math.floor(now / 1000) % 2`.
 
-- [ ] **Step 1: Failing UI tests.** With `mock.clock` and `ui.mount({ plugin: 'token-meter', surface, component: 'AbovePrompt', props: { hasSurvey: false } })`, looped over `['terminal', 'desktop'] as const`:
+- [ ] **Step 1: Failing UI tests.** With `mock.clock` and `ui.mount({ plugin: 'flight-deck', surface, component: 'AbovePrompt', props: { hasSurvey: false } })`, looped over `['terminal', 'desktop'] as const`:
   1. After one main `turn.step`, the band contains `↓10`, `↑5`, `⚡80%`, `🔧0`, `⏳5:00` (default 5m TTL).
   2. `clock.advance(250_000)` -> `0:50`, countdown `color` is `yellow`.
   3. `clock.advance(40_000)` more -> `0:10`, `color` is `red`.
@@ -731,12 +731,12 @@ Rename the `register` parameter `_options` to `options` and use it. Call `startT
 **Files:**
 - Create: `README.md`, `.claude/settings.json` (validate hook), `.claude/skills/new-mod/SKILL.md`
 
-- [ ] **Step 1: CLI.** Run `claude --plugin-dir mods/token-meter`, send a few prompts that call tools. Expected: band appears, numbers grow, the countdown runs and changes color, the work clock advances during a turn.
+- [ ] **Step 1: CLI.** Run `claude --plugin-dir mods/flight-deck`, send a few prompts that call tools. Expected: band appears, numbers grow, the countdown runs and changes color, the work clock advances during a turn.
 - [ ] **Step 2: Resume.** Exit, run `claude --resume`; totals, tools and work time must be kept. Record in the spec whether resume keeps the old session id; if the id changes and data is lost, take the target id from `session.end` (`e.resume.id`) in `ensureLoaded` and update the spec.
-- [ ] **Step 3: Desktop.** Ask the user first (it edits a file outside the repo), then add `CLAUDE_CODE_PLUGIN_DIRS` (absolute path to `mods/token-meter`) to the `env` block of `~/.claude/settings.json`, open the Code tab in Claude Desktop and check the band. If it does not show, record it as a risk in the spec.
+- [ ] **Step 3: Desktop.** Ask the user first (it edits a file outside the repo), then add `CLAUDE_CODE_PLUGIN_DIRS` (absolute path to `mods/flight-deck`) to the `env` block of `~/.claude/settings.json`, open the Code tab in Claude Desktop and check the band. If it does not show, record it as a risk in the spec.
 - [ ] **Step 4: README.md (English).** Repo layout, toolchain (`bun install --frozen-lockfile`, `bun run check`), how to load a mod (`--plugin-dir`, `CLAUDE_CODE_PLUGIN_DIRS`), how to add a mod, and the note that sessions using the 1-hour cache should set `cacheTtl=1h`.
 - [ ] **Step 5: Validate hook.** Via the `update-config` skill, add to the repo's `.claude/settings.json` a PostToolUse hook on Edit/Write for paths under `mods/<name>/` that runs `claude plugin validate mods/<name>`.
-- [ ] **Step 6: `new-mod` skill (last, copied from the working token-meter).** `.claude/skills/new-mod/SKILL.md`, user-only (`disable-model-invocation: true`), English: scaffolds `mods/<name>/` with manifest, `hooks.json`, minimal `register.tsx`, `types/`, `tsconfig.json` and one sample test, and adds the mod to the root scripts.
+- [ ] **Step 6: `new-mod` skill (last, copied from the working flight-deck).** `.claude/skills/new-mod/SKILL.md`, user-only (`disable-model-invocation: true`), English: scaffolds `mods/<name>/` with manifest, `hooks.json`, minimal `register.tsx`, `types/`, `tsconfig.json` and one sample test, and adds the mod to the root scripts.
 
 ---
 

@@ -27,6 +27,8 @@ type Input = {
   isAgentView?: boolean
   // The agents pane is open: the button carries a mark.
   isPaneOpen?: boolean
+  // In an agent view: the agent's model id and effort, drawn after the mark.
+  model?: string
 }
 
 const TONE = { ok: PALETTE.green, warn: PALETTE.yellow, danger: PALETTE.red } as const
@@ -73,7 +75,26 @@ const DROP_ORDER = [
 type Part = (typeof DROP_ORDER)[number] | 'cache'
 
 const SESSION_ONLY = ['cost', 'work', 'agents', 'bg'] as const
-const AGENT_MARK: Segment[] = [{ text: '◆ agent', color: PALETTE.orange, bold: true }, SEP]
+const AGENT_MARK: Segment = { text: '◆ agent', color: PALETTE.orange, bold: true }
+
+// One agent's own numbers, as the band labels them: no cost (the engine counts it per
+// session only) and no countdown (a pane redrawn each second drops a click on a desktop).
+export const statSegments = (snap: Snapshot): Segment[] => {
+  const pct = cacheHitPct(snap.totals)
+  const gap: Segment = { text: '  ' }
+  return [
+    { text: `${LABEL.in} ${formatTokens(countsOf(snap).in)}`, color: PALETTE.cyan },
+    gap,
+    { text: `${LABEL.out} ${formatTokens(snap.totals.output)}`, color: PALETTE.purple },
+    gap,
+    { text: `${LABEL.hit} ${pct}%`, color: TONE[cacheHitTone(pct)] },
+    gap,
+    { text: `${LABEL.tools} ${snap.tools}`, color: PALETTE.orange },
+    gap,
+    { text: `${LABEL.diff} +${snap.added}`, color: PALETTE.green },
+    { text: ` -${snap.removed}`, color: PALETTE.red },
+  ]
+}
 
 // The button is drawn as `[ label ]`: four cells of chrome around its text.
 const BUTTON_CHROME = 4
@@ -92,6 +113,7 @@ export const bandSegments = ({
   shown,
   isAgentView = false,
   isPaneOpen = false,
+  model,
 }: Input): Segment[] => {
   const total = ttlMs(ttl)
   const rem = remainingMs(snap.lastStepAt, now, total)
@@ -147,7 +169,8 @@ export const bandSegments = ({
   })
 
   const build = (parts: Record<Part, Segment[]>, dropped: ReadonlySet<string>): Segment[] => {
-    const segs: Segment[] = isAgentView ? [...AGENT_MARK] : []
+    const mark: Segment[] = model === undefined ? [] : [{ text: ` ${model}`, color: PALETTE.fg }]
+    const segs: Segment[] = isAgentView ? [AGENT_MARK, ...mark, SEP] : []
     const start = segs.length
     for (const group of GROUPS) {
       const present = group.filter((part) => !dropped.has(part))

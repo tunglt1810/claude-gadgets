@@ -1,6 +1,6 @@
 ---
 name: new-mod
-description: Scaffold a new Claude Code mod under mods/<name>/ from the working token-meter layout.
+description: Scaffold a new Claude Code mod under mods/<name>/ from the working flight-deck layout.
 disable-model-invocation: true
 ---
 
@@ -15,7 +15,7 @@ Scaffold `mods/<name>/` (argument: the kebab-case mod name). Do not touch other 
    - `types/index.d.ts`: self-contained contract (no imports): `export type ...` for state values plus `declare module 'claude-code' { interface PluginState { '<name>': { ... } } }`
    - `tsconfig.json`: `{ "extends": "../../tsconfig.base.json", "include": ["hooks", "src", "types", ".claude-plugin/types/claude-code/index.d.ts"] }`
    - one `src/<thing>.ts` with a matching `src/<thing>.test.ts` (tests import `test`, `expect`, `mock` from `claude-code/testing`)
-2. Add the mod to the root `package.json` scripts (`typecheck`, `validate`, `test`) next to token-meter.
+2. Add the mod to the root `package.json` scripts (`typecheck`, `validate`, `test`) next to flight-deck.
 3. Copy the engine typings to `mods/<name>/.claude-plugin/types/claude-code/index.d.ts` (see README) so `tsc` works.
 4. Run `bun run check` and report the result. Write a failing test first for every behavior you add.
 

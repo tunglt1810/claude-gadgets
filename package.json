@@ -1,6 +1,7 @@
 {
   "name": "claude-gadgets",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
@@ -9,9 +10,9 @@
   "scripts": {
     "lint": "biome check .",
     "fix": "biome check --write .",
-    "typecheck": "tsc -p mods/token-meter --noEmit",
-    "validate": "claude plugin validate mods/token-meter",
-    "test": "claude plugin test mods/token-meter",
+    "typecheck": "tsc -p mods/flight-deck --noEmit",
+    "validate": "claude plugin validate mods/flight-deck",
+    "test": "claude plugin test mods/flight-deck",
     "check": "bun run lint && bun run typecheck && bun run validate && bun run test"
   }
 }

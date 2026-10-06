@@ -33,6 +33,8 @@ test('parseSnapshot keeps valid data', () => {
     agents: 0,
     bg: 0,
     byAgent: {},
+    byModel: { 'claude-opus-5-5': { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 } },
+    mainModel: 'claude-opus-5-5',
   }
   expect(parseSnapshot(JSON.parse(JSON.stringify(s)))).toEqual(s)
 })

@@ -1,6 +1,6 @@
 {
-  "name": "token-meter",
-  "version": "0.1.0",
+  "name": "flight-deck",
+  "version": "0.2.0",
   "description": "Band tracking session tokens, tool calls, model working time and cache countdown, with a pane that shows each subagent's transcript",
   "types": "./types/index.d.ts",
   "userConfig": {
@@ -14,5 +14,6 @@
   },
   "author": {
     "name": "bez"
-  }
+  },
+  "license": "MIT"
 }

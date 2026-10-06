@@ -1,8 +1,8 @@
-# token-meter agent pane: design spec
+# flight-deck agent pane: design spec
 
 ## Goal
 
-Add a pane to the `token-meter` mod. The pane shows the subagents of the current session and the transcript of each subagent. The `agents` count on the band is the button that opens and closes the pane. One module runs on the CLI (`terminal`) and on Claude Desktop (`desktop`).
+Add a pane to the `flight-deck` mod. The pane shows the subagents of the current session and the transcript of each subagent. The `agents` count on the band is the button that opens and closes the pane. One module runs on the CLI (`terminal`) and on Claude Desktop (`desktop`).
 
 ## Problem
 
@@ -27,7 +27,7 @@ Out of scope:
 - Subagents of other sessions.
 - The agents of a workflow run, and a teammate that runs in its own terminal pane. The engine refuses to read these transcripts. The pane shows the refusal text.
 - A repair of the Desktop viewer.
-- A separate mod. The feature is part of `token-meter`.
+- A separate mod. The feature is part of `flight-deck`.
 
 ## Probe results
 
@@ -53,7 +53,7 @@ The mod makes an agent registry from events. It reads a transcript through `$.se
 
 ## Files
 
-New files in `mods/token-meter/src/`, each with a `*.test.ts` file:
+New files in `mods/flight-deck/src/`, each with a `*.test.ts` file:
 
 | File | Function |
 | --- | --- |
@@ -200,7 +200,7 @@ Unit tests (written before the code):
 - A change of session id loads the registry of the new session.
 - A `deny` result shows the refusal text.
 
-The existing tests of `token-meter` must continue to pass. `bun run check` must pass.
+The existing tests of `flight-deck` must continue to pass. `bun run check` must pass.
 
 ## Verification on live surfaces
 

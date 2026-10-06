@@ -12,6 +12,8 @@ type Props = {
   ttl: '5m' | '1h'
   columns: number
   isAgentView?: boolean
+  // In an agent view: the agent's model id and effort.
+  model?: string
   isPaneOpen: boolean
   onToggle: () => void
 }
@@ -30,6 +32,7 @@ export const Band = ({
   ttl,
   columns,
   isAgentView,
+  model,
   isPaneOpen,
   onToggle,
 }: Props) => {
@@ -43,6 +46,7 @@ export const Band = ({
     columns,
     isAgentView,
     isPaneOpen,
+    ...(model === undefined ? {} : { model }),
   })
   const run = (segs: Segment[], key: string) => (
     <Text key={key} wrap="truncate">

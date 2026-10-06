@@ -1,4 +1,4 @@
-# token-meter: design spec
+# flight-deck: design spec
 
 ## Goal
 A Claude Code mod (hot-reloadable plugin) that draws one band above the prompt tracking the current session. One module runs on the CLI (`terminal`) and Claude Desktop (Code tab, `desktop`).
@@ -21,7 +21,7 @@ A Claude Code mod (hot-reloadable plugin) that draws one band above the prompt t
 ```
 claude-gadgets/
 ├── package.json  bunfig.toml  bun.lock  biome.json  tsconfig.base.json
-├── mods/token-meter/
+├── mods/flight-deck/
 │   ├── .claude-plugin/plugin.json      # name, version, types, userConfig.cacheTtl
 │   ├── hooks/{hooks.json, register.tsx}
 │   ├── src/{usage,format,countdown,work,snapshot}.ts, band.tsx

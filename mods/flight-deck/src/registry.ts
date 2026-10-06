@@ -46,25 +46,86 @@ export const ran = (r: Registry, id: string, at: number): Registry => ({
   [id]: { ...(r[id] ?? blank(id, at)), status: 'running' },
 })
 
+// How long an agent worked: from its spawn to `now` while it runs, to its end once it ended.
+export const workedMs = (a: AgentEntry, now: number): number =>
+  Math.max(0, (a.status === 'running' ? now : (a.endedAt ?? now)) - a.startedAt)
+
 export const completed = (r: Registry, id: string, at: number): Registry => {
   const a = r[id] ?? blank(id, at)
   return { ...r, [id]: { ...a, status: 'idle', runs: a.runs + 1, endedAt: at } }
 }
 
+// The model and the effort of a known agent's latest step: a step without effort clears it.
+export const tuned = (
+  r: Registry,
+  id: string,
+  model: string,
+  effort: string | undefined,
+): Registry => {
+  const known = r[id]
+  if (known === undefined) return r
+  const { effort: _, ...a } = known
+  return { ...r, [id]: { ...a, model, ...(effort === undefined ? {} : { effort }) } }
+}
+
+// The model id and the effort of an agent's latest step: `claude-sonnet-5-5 high`.
+export const modelLabel = (a: AgentEntry | undefined): string | undefined =>
+  a?.model === undefined ? undefined : [a.model, a.effort].filter((x) => x !== undefined).join(' ')
+
+// A run that ended with no answer. It is not counted in `runs`.
+export const stopped = (r: Registry, id: string, at: number): Registry => ({
+  ...r,
+  [id]: { ...(r[id] ?? blank(id, at)), status: 'stopped', endedAt: at },
+})
+
+export type TaskStatus = 'completed' | 'failed' | 'killed'
+
+// A task notification of a known agent. `completed` does not count a run: the agent's
+// turn.complete counted it already. Another background task's notification changes nothing.
+export const ended = (r: Registry, id: string, status: TaskStatus, at: number): Registry => {
+  const a = r[id]
+  if (a === undefined) return r
+  if (status !== 'completed') return stopped(r, id, at)
+  return { ...r, [id]: { ...a, status: 'idle', endedAt: at } }
+}
+
+const TASK_STATUS = new Set<string>(['completed', 'failed', 'killed'])
+
+// The task id and the end status in the text of a task notification.
+export const taskNotice = (text: string): { id: string; status: TaskStatus } | null => {
+  const id = /<task-id>([^<]+)<\/task-id>/.exec(text)?.[1]
+  const status = /<status>([^<]+)<\/status>/.exec(text)?.[1]
+  if (id === undefined || status === undefined || !TASK_STATUS.has(status)) return null
+  return { id, status: status as TaskStatus }
+}
+
 const ACTIVE = new Set(['pending', 'running', 'waiting'])
+const DEAD = new Set(['failed', 'killed'])
 
 // The engine's list adds agents that raised no spawn (a forked skill) and fills absent
-// fields. It does not change the status of a known entry: the events own that.
+// fields. Of a known entry's status it changes only a running agent the list shows as
+// failed or killed: the events own the rest, and an absent entry tells nothing.
 export const merged = (r: Registry, list: readonly Listed[], at: number): Registry => {
   let out = r
   for (const l of list) {
     const known = out[l.id]
     const base: AgentEntry = known ?? {
       ...blank(l.id, at),
-      status: ACTIVE.has(l.status) ? 'running' : 'idle',
+      status: ACTIVE.has(l.status) ? 'running' : DEAD.has(l.status) ? 'stopped' : 'idle',
     }
     out = { ...out, [l.id]: fill(base, l) }
+    if (DEAD.has(l.status) && base.status === 'running') out = stopped(out, l.id, at)
   }
+  return out
+}
+
+// A stored registry loaded for a session: a running agent that this process does not list
+// ran in a process that ended.
+export const restored = (r: Registry, list: readonly Listed[], at: number): Registry => {
+  const live = new Set(list.map((l) => l.id))
+  let out = r
+  for (const a of Object.values(r))
+    if (a.status === 'running' && !live.has(a.id)) out = stopped(out, a.id, at)
   return out
 }
 
@@ -82,13 +143,17 @@ export const parseRegistry = (raw: unknown): Registry => {
     const type = str(v.type)
     const description = str(v.description)
     const name = str(v.name)
+    const model = str(v.model)
+    const effort = str(v.effort)
     out[id] = {
       id,
       ...(parentId === undefined ? {} : { parentId }),
       ...(type === undefined ? {} : { type }),
       ...(description === undefined ? {} : { description }),
       ...(name === undefined ? {} : { name }),
-      status: v.status === 'running' ? 'running' : 'idle',
+      ...(model === undefined ? {} : { model }),
+      ...(effort === undefined ? {} : { effort }),
+      status: v.status === 'running' || v.status === 'stopped' ? v.status : 'idle',
       runs: v.runs,
       startedAt: v.startedAt,
       endedAt: isNum(v.endedAt) ? v.endedAt : null,

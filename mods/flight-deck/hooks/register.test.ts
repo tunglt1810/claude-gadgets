@@ -1,4 +1,5 @@
 import { type Engine, expect, mock, test } from 'claude-code/testing'
+import type { Cell } from '../types'
 
 const USAGE = {
   input_tokens: 10,
@@ -42,7 +43,7 @@ const bandText = async (
   agentId?: string,
 ) => {
   const ui = await $.ui.mount({
-    plugin: 'token-meter',
+    plugin: 'flight-deck',
     surface,
     component: 'AbovePrompt',
     props: { hasSurvey: false, bodyColumns: 200, view: { agentId } } as never,
@@ -78,6 +79,7 @@ const engine = (
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('prompt.submit', (_$, e) => ({ text: e.text }))
   on('tool.call', () => toolResult() as never)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: [] }))
@@ -435,7 +437,7 @@ test('the band is one flex row: the segments around the agents button, not a col
   engine(on)
 
   const ui = await $.ui.mount({
-    plugin: 'token-meter',
+    plugin: 'flight-deck',
     surface: 'desktop',
     component: 'AbovePrompt',
     props: { hasSurvey: false, view: {} } as never,
@@ -641,7 +643,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await clock.advance(SETTLE_MS)
 
     const sub = await bandText($, surface, 'a1')
-    expect(sub).toContain('◆ agent │ ↑ in 200 ')
+    expect(sub).toContain('◆ agent m │ ↑ in 200 ')
     expect(sub).toContain('↓ out 10 ')
     expect(sub).toContain('⌘ calls 1 ')
     expect(sub).toContain('± diff +1 -1 ')
@@ -673,7 +675,7 @@ test('spawn counts and per-agent data survive a session id round trip', async ($
   const back = await settled($, clock)
   expect(back).toContain('▸ agents 1 ')
   expect(back).toContain('◇ bg 1 ')
-  expect(await bandText($, 'terminal', 'a1')).toContain('◆ agent │ ↑ in 100 ')
+  expect(await bandText($, 'terminal', 'a1')).toContain('◆ agent m │ ↑ in 100 ')
 })
 
 test("the tick keeps running while a subagent's cache is live, after the main one lapsed", async ($, on) => {
@@ -723,10 +725,11 @@ const SURFACES = ['terminal', 'desktop'] as const
 
 // The pane's answers beneath the plugin; `opens` and `closes` record what the plugin asked.
 const paneEngine = (on: Parameters<typeof mock.store>[0], messages: () => unknown = () => ROWS) => {
-  const calls = { opens: 0, closes: 0 }
+  const calls = { opens: 0, closes: 0, isOpenFocused: false }
   on('session.messages', () => ({ value: messages() }) as never)
-  on('ui.open', () => {
+  on('ui.open', (_$, e) => {
     calls.opens++
+    calls.isOpenFocused = e.focus === true
     return { value: { isPlaced: true } } as never
   })
   on('ui.close', () => {
@@ -736,15 +739,15 @@ const paneEngine = (on: Parameters<typeof mock.store>[0], messages: () => unknow
   return calls
 }
 
-const mountPane = ($: Engine, surface: Surface) =>
+const mountPane = ($: Engine, surface: Surface, isFocused = true) =>
   $.ui.mount({
-    plugin: 'token-meter',
+    plugin: 'flight-deck',
     surface,
     component: 'Pane',
     requestId: 'agents',
     props: {
       title: 'Agents',
-      isFocused: true,
+      isFocused,
       bodyColumns: 80,
       placement: 'dock',
       scroll: { offset: 0, bodyRows: 40 },
@@ -759,15 +762,46 @@ const paneText = async (ui: Awaited<ReturnType<typeof mountPane>>) => {
     ...(await ui.findAll({ type: 'Button' })).map((b) => String(b.props.label)),
     ...(await ui.findAll({ type: 'Markdown' })).map((m) => String(m.props.text)),
     ...(await ui.findAll({ type: 'Code' })).map((c) => String(c.props.source)),
+    // A desktop draws each cell of a row in a Client: its text is in its props.
+    ...(await ui.findAll({ type: 'Client' })).map((c) => String((c.props.props as Cell).text)),
   ]
   return all.join('\n')
 }
 
 // The status marks the pane draws, in order: a Text of indent, one mark glyph and a space.
 // (A Text's key is not addressable by `find`, so the marks are told by their shape.)
-const MARK_RE = /^ *[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏○✓✗] $/
-const marks = async (ui: Awaited<ReturnType<typeof mountPane>>) =>
-  (await ui.findAll({ type: 'Text' })).filter((t) => MARK_RE.test(t.text))
+const MARK_RE = /^ *[⣾⣽⣻⢿⡿⣟⣯⣷⣿✓✗] $/
+// A mark is a two-cell cell: a Text in a two-cell Box on the terminal, a Client on the desktop,
+// where a turning one reads as `◌ `. An empty Box before it in its row is the tree's indent.
+type Mark = { text: string; props: { color?: unknown } }
+type Node = { type?: string; props?: Record<string, unknown>; children?: unknown[] }
+const marks = async (ui: Awaited<ReturnType<typeof mountPane>>) => {
+  const out: Mark[] = []
+  const walk = (n: unknown): void => {
+    if (typeof n !== 'object' || n === null) return
+    const el = n as Node
+    const kids = (el.children ?? []) as Node[]
+    let indent = ''
+    for (const kid of kids) {
+      const grand = (kid.children ?? []) as Node[]
+      if (kid.type === 'Box' && grand.length === 0 && typeof kid.props?.width === 'number')
+        indent = ' '.repeat(kid.props.width + 1)
+      if (kid.type === 'Box' && kid.props?.width === 2 && grand[0]?.type === 'Text') {
+        const text = `${indent}${(grand[0].children ?? []).join('')} `
+        if (MARK_RE.test(text)) out.push({ text, props: { color: grand[0].props?.color } })
+      }
+      const c = kid.props?.props as Cell | undefined
+      if (kid.type === 'Client' && kid.props?.module === 'src/cellClient.tsx' && c?.width === 2)
+        out.push({
+          text: c.spin === true ? '◌ ' : `${indent}${c.text} `,
+          props: { color: c.color },
+        })
+    }
+    for (const k of kids) walk(k)
+  }
+  walk(await ui.drawn())
+  return out
+}
 
 const completeAgent = ($: Engine, agentId: string) => $.turn.complete({ ...DONE, agentId } as never)
 
@@ -793,9 +827,11 @@ test('the tree lists a spawned agent and a press shows its transcript', async ($
 
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
-    expect(await paneText(ui)).toContain('1 run')
+    // The runs column is a bare count; the transcript's title spells it out.
+    expect(await paneText(ui)).not.toContain('1 run')
     await ui.press({ key: 'agent:a1' })
     const text = await paneText(ui)
+    expect(text).toContain('1 run')
     expect(text).toContain('Count the lines.')
     expect(text).toContain('Bash wc -l README.md')
     expect(text).toContain('52 lines.')
@@ -822,7 +858,7 @@ test('a child agent is listed below its parent', async ($, on) => {
 
   const ui = await mountPane($, 'terminal')
   expect(await ui.findAll({ type: 'Button' })).toHaveLength(2)
-  expect((await marks(ui)).map((m) => m.text)).toEqual(['⠋ ', '  ⠋ '])
+  expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
 
@@ -866,7 +902,7 @@ test('a second run counts and the open transcript is read again', async ($, on) 
 
   // The pane is open (the band button) with a1 on the transcript screen.
   const band = await $.ui.mount({
-    plugin: 'token-meter',
+    plugin: 'flight-deck',
     surface: 'terminal',
     component: 'AbovePrompt',
     props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
@@ -894,16 +930,18 @@ test('the band button opens the pane and a second press closes it', async ($, on
   for (const surface of SURFACES) {
     const before = { ...calls }
     const band = await $.ui.mount({
-      plugin: 'token-meter',
+      plugin: 'flight-deck',
       surface,
       component: 'AbovePrompt',
       props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
     })
     await band.press({ key: 'agents' })
-    expect(calls).toEqual({ opens: before.opens + 1, closes: before.closes })
+    expect(calls).toMatchObject({ opens: before.opens + 1, closes: before.closes })
+    // The pane takes the keyboard: the first click in it presses, not focuses.
+    expect(calls.isOpenFocused).toBe(true)
     expect(String((await band.find({ key: 'agents' }))?.props.label)).toContain('▾')
     await band.press({ key: 'agents' })
-    expect(calls).toEqual({ opens: before.opens + 1, closes: before.closes + 1 })
+    expect(calls).toMatchObject({ opens: before.opens + 1, closes: before.closes + 1 })
     await band.unmount()
   }
 })
@@ -917,7 +955,7 @@ test('the command toggles the pane', async ($, on) => {
   const second = await $.command.run({ command: 'agent-log' } as never)
   expect(first).toMatchObject({ text: 'Agents pane opened.' })
   expect(second).toMatchObject({ text: 'Agents pane closed.' })
-  expect(calls).toEqual({ opens: 1, closes: 1 })
+  expect(calls).toMatchObject({ opens: 1, closes: 1 })
 })
 
 test('the registry is kept per session id and comes back with the id', async ($, on) => {
@@ -956,7 +994,7 @@ test('an event of another agent does not replace the open transcript', async ($,
   await spawn($)
   await spawn($)
   const band = await $.ui.mount({
-    plugin: 'token-meter',
+    plugin: 'flight-deck',
     surface: 'terminal',
     component: 'AbovePrompt',
     props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
@@ -985,22 +1023,37 @@ test('the wrap toggle switches the transcript between cut rows and wrapped text'
     const ui = await mountPane($, surface)
     await ui.press({ key: 'agent:a1' })
     await ui.press({ key: 'tool:t1' })
+    // Wrapped by default.
+    expect(String((await ui.find({ key: 'wrap' }))?.props.label)).toContain('on')
+    expect(await paneText(ui)).toContain('END')
+    for (const code of await ui.findAll({ type: 'Code' })) expect(code.props.wrap).toBe('wrap')
+
+    await ui.press({ key: 'wrap' })
     expect(String((await ui.find({ key: 'wrap' }))?.props.label)).toContain('off')
     expect(await paneText(ui)).not.toContain('END')
     for (const code of await ui.findAll({ type: 'Code' }))
       expect(code.props.wrap).toBe('truncate-end')
 
-    await ui.press({ key: 'wrap' })
-    expect(String((await ui.find({ key: 'wrap' }))?.props.label)).toContain('on')
-    expect(await paneText(ui)).toContain('END')
-    for (const code of await ui.findAll({ type: 'Code' })) expect(code.props.wrap).toBe('wrap')
-
-    // Back to the cut rows, so the next surface starts from the same state.
+    // Back to the wrapped rows, so the next surface starts from the same state.
     await ui.press({ key: 'wrap' })
     await ui.press({ key: 'tool:t1' })
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
+})
+
+// The wrap choice is the plugin's, not a session's: opening the pane reads the last one stored.
+test('opening the pane restores the last wrap choice', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, { wrap: false })
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  await $.command.run({ command: 'agent-log' } as never)
+  const ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'agent:a1' })
+  expect(String((await ui.find({ key: 'wrap' }))?.props.label)).toContain('off')
+  await ui.unmount()
 })
 
 test('a running agent spins while the pane is open and stops when it completes', async ($, on) => {
@@ -1010,7 +1063,7 @@ test('a running agent spins while the pane is open and stops when it completes',
   paneEngine(on)
   await spawn($)
   const band = await $.ui.mount({
-    plugin: 'token-meter',
+    plugin: 'flight-deck',
     surface: 'terminal',
     component: 'AbovePrompt',
     props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
@@ -1023,12 +1076,12 @@ test('a running agent spins while the pane is open and stops when it completes',
   await clock.advance(120)
   const second = await mark()
   expect(second).not.toBe(first)
-  expect(second).not.toBe('○')
+  expect(second).not.toBe('⣿')
 
   await completeAgent($, 'a1')
-  expect(await mark()).toBe('○')
+  expect(await mark()).toBe('⣿')
   await clock.advance(600)
-  expect(await mark()).toBe('○')
+  expect(await mark()).toBe('⣿')
   await ui.unmount()
   await band.unmount()
 })
@@ -1050,8 +1103,12 @@ test('an agent row is colored by its status', async ($, on) => {
     expect((await ui.find({ key: 'agent:a2' }))?.props.dimColor).toBeUndefined()
     expect((await ui.find({ key: 'agent:a1' }))?.props.dimColor).toBe(true)
 
+    // The title is a bold cell: a Text on the terminal, a Client's props on the desktop.
     const titleColor = async () =>
-      (await ui.findAll({ type: 'Text' })).find((x) => x.props.bold === true)?.props.color
+      (await ui.findAll({ type: 'Text' })).find((x) => x.props.bold === true)?.props.color ??
+      (await ui.findAll({ type: 'Client' }))
+        .map((c) => c.props.props as Cell)
+        .find((c) => c.bold === true)?.color
     await ui.press({ key: 'agent:a2' })
     expect(await titleColor()).toBe('#a9dc76')
     await ui.press({ key: 'back' })
@@ -1090,10 +1147,12 @@ test('a tool call is colored by its outcome', async ($, on) => {
     const ui = await mountPane($, surface)
     await ui.press({ key: 'agent:a1' })
     const drawn = (await marks(ui)).map((m) => [m.text.trim(), m.props.color])
+    // The title's mark first: a1 is idle.
     expect(drawn).toEqual([
+      ['⣿', '#727072'],
       ['✓', '#a9dc76'],
       ['✗', '#ff6188'],
-      ['⠋', '#ffd866'],
+      [surface === 'terminal' ? '⣾' : '◌', '#ffd866'],
     ])
     // A failed call's row stays at full strength; a finished one is dim at rest.
     expect((await ui.find({ key: 'tool:ok' }))?.props.dimColor).toBe(true)
@@ -1102,4 +1161,229 @@ test('a tool call is colored by its outcome', async ($, on) => {
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
+})
+
+const notify = ($: Engine, agentId: string, status: string) =>
+  $.prompt.submit({
+    text: `<task-notification>\n<task-id>${agentId}</task-id>\n<status>${status}</status>\n</task-notification>`,
+    wait: false,
+    origin: { kind: 'task-notification' },
+  } as never)
+
+const STOPPED = { text: '⣿ ', props: { color: '#ff6188' } }
+
+test('an aborted run of an agent draws it stopped', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  await $.turn.complete({ ...DONE, isAborted: true, reason: 'aborted', agentId: 'a1' } as never)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await marks(ui)).toMatchObject([STOPPED])
+    expect((await ui.find({ key: 'agent:a1' }))?.props.dimColor).toBe(true)
+    // An aborted run is not counted.
+    await ui.press({ key: 'agent:a1' })
+    expect(await paneText(ui)).toContain('0 runs')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a killed notification stops the agent and its next event runs it again', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  await notify($, 'a1', 'killed')
+  // A notification of a task that is not an agent changes nothing.
+  await notify($, 'bash1', 'killed')
+
+  let ui = await mountPane($, 'terminal')
+  expect(await marks(ui)).toMatchObject([STOPPED])
+  expect(await ui.find({ key: 'agent:bash1' })).toBeUndefined()
+  await ui.unmount()
+
+  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+  ui = await mountPane($, 'terminal')
+  expect((await marks(ui))[0]?.props.color).toBe('#a9dc76')
+  await ui.unmount()
+})
+
+test('a stored running agent that this process does not list loads as stopped', async ($, on) => {
+  mock.clock(on, { now: 5000 })
+  mock.store(on, {
+    'agents:S1': { a9: { id: 'a9', status: 'running', runs: 0, startedAt: 1, endedAt: null } },
+  })
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'b1' } as never)
+
+  const ui = await mountPane($, 'terminal')
+  const marked = await marks(ui)
+  expect(marked).toHaveLength(2)
+  expect(marked.map((m) => m.props.color)).toContain('#ff6188')
+  await ui.unmount()
+})
+
+// A redraw of the pane during a click drops it on the desktop, so the spinner must not
+// redraw the pane there: the mark is a Client that draws its own frames.
+test('on the desktop a running mark turns in its own Client and the pane is not drawn again', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  const band = await $.ui.mount({
+    plugin: 'flight-deck',
+    surface: 'desktop',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
+  })
+  await band.press({ key: 'agents' })
+  const ui = await mountPane($, 'desktop')
+  const spinner = (await ui.findAll({ type: 'Client' })).find(
+    (c) => (c.props.props as Cell).spin === true,
+  )
+  expect(spinner?.props.module).toBe('src/cellClient.tsx')
+  const key = String(spinner?.key)
+  const frame = async () => JSON.stringify(await ui.drawn({ in: key }))
+  const pane = JSON.stringify(await ui.drawn())
+  const first = await frame()
+  await ui.advance(120)
+  await clock.advance(600)
+  expect(await frame()).not.toBe(first)
+  expect(JSON.stringify(await ui.drawn())).toBe(pane)
+  await ui.unmount()
+  await band.unmount()
+})
+
+test('an agent shows its model and effort, and its numbers under the title', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', effort: 'high', agentId: 'a1' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    // The table names no model; the dashboard's row names the short one, the transcript the
+    // whole one with its effort.
+    expect(await paneText(ui)).toContain('sonnet-5-5')
+    expect(await paneText(ui)).not.toContain('claude-sonnet-5-5')
+    await ui.press({ key: 'agent:a1' })
+    const text = await paneText(ui)
+    expect(text).toContain('claude-sonnet-5-5 high')
+    // The model, the runs and the time are a row of their own below the title.
+    expect(await ui.find({ key: 'meta' })).toBeDefined()
+    expect(text).toContain('↑ in 100')
+    expect(text).toContain('⌘ calls 1')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+    // The band of the agent's view names the model and the effort too.
+    expect(await bandText($, surface, 'a1')).toContain('◆ agent claude-sonnet-5-5 high │')
+  }
+})
+
+// The working time of an agent: from its spawn to now while it runs, to its end once it ended.
+// On a desktop a running agent's time is a `Client` with its own timer, as the spinner is.
+test('an agent row and its title show how long the agent worked', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  await clock.advance(65_000)
+
+  const terminal = await mountPane($, 'terminal')
+  expect(await paneText(terminal)).toContain(' 1:05')
+  await terminal.unmount()
+  const desktop = await mountPane($, 'desktop')
+  const clocks = (await desktop.findAll({ type: 'Client' })).map((c) => c.props.props as Cell)
+  expect(clocks.filter((c) => c.since !== undefined).map((c) => c.since)).toEqual([1000])
+  await desktop.unmount()
+
+  await completeAgent($, 'a1')
+  await clock.advance(10_000)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).toContain(' 1:05')
+    await ui.press({ key: 'agent:a1' })
+    expect(await paneText(ui)).toContain(' 1:05')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+// Above the agents: the engine's session cost, then per model an estimated cost, the working
+// time and the runs of its agents.
+test("the dashboard shows the session cost and each model's cost, time and runs", async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5' } as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-haiku-4-5-20251001', agentId: 'a1' } as never)
+  await clock.advance(65_000)
+  await completeAgent($, 'a1')
+  await measure($, 1.5)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    const text = await paneText(ui)
+    expect(text).toContain('total $1.50')
+    expect(text).toContain('opus-5-5')
+    expect(text).toContain('haiku-4-5')
+    // USAGE is 10 in, 5 out, 80 read and 10 written: under a cent at either price.
+    expect(text).toContain('≈$0.00')
+    expect(text).toContain('◷ 1:05')
+    await ui.unmount()
+  }
+})
+
+// A click on a pane that does not hold the keys only moves the focus: it reaches the plugin as
+// `ui.focus`, not as a press. The plugin runs the button's action then.
+test('a click that gives the pane the focus also presses the button', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  // Landing the ring draws the pane focused before `next` resolves, as a desktop does.
+  let isLanding = false
+  on('ui.focus', async () => {
+    if (isLanding) await (await mountPane($, 'terminal', true)).unmount()
+    return { value: {} } as never
+  })
+  await spawn($)
+  await completeAgent($, 'a1')
+  const ui = await mountPane($, 'desktop', false)
+  const click = (element: string, kind: 'person' | 'plugin' = 'person') =>
+    $.ui.focus({
+      component: 'Pane',
+      requestId: 'agents',
+      plugin: 'flight-deck',
+      element,
+      origin: kind === 'person' ? { kind } : { kind, name: 'other' },
+    } as never)
+  // Another plugin's focus move does not press.
+  await click('agent:a1', 'plugin')
+  expect(await ui.find({ key: 'back' })).toBeUndefined()
+  isLanding = true
+  await click('agent:a1')
+  isLanding = false
+  expect(await ui.find({ key: 'back' })).toBeDefined()
+  await ui.unmount()
+  // With the keys, a focus move is Tab or an arrow: it does not press.
+  const focused = await mountPane($, 'desktop', true)
+  await click('back')
+  expect(await focused.find({ key: 'back' })).toBeDefined()
+  await focused.unmount()
 })

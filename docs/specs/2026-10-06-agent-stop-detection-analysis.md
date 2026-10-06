@@ -1,10 +1,10 @@
 # Agent stop detection: analysis and TODO
 
-Status: analysis only. Nothing in this document is implemented.
+Status: implemented. See `docs/plans/2026-10-06-agent-stop-detection.md` for the probe results (P1, P2, P3) and the two changes to the design: rule 4 applies before the event, and rule 5 keeps an agent that `$.agent.list()` still shows.
 
 ## Problem
 
-The agents pane of `token-meter` shows each subagent as `running` or `idle`. Only events set the status:
+The agents pane of `flight-deck` shows each subagent as `running` or `idle`. Only events set the status:
 
 - `agent.spawn`, `turn.step` and `tool.call` with an `agentId` set `running`.
 - `turn.complete` with an `agentId` sets `idle`.
@@ -13,7 +13,7 @@ If an agent stops and no `turn.complete` arrives at the hook, the registry keeps
 
 ## Sources
 
-- The plugin typings of Claude Code 2.1.289 (`T` below): `mods/token-meter/.claude-plugin/types/claude-code/index.d.ts`.
+- The plugin typings of Claude Code 2.1.289 (`T` below): `mods/flight-deck/.claude-plugin/types/claude-code/index.d.ts`.
 - The saved transcripts of session `3aa4d765`. In that session the parent stopped one agent with `TaskStop` and then started it again.
 - No probe ran for this analysis. Each line marked INFERRED is not verified.
 
@@ -89,9 +89,9 @@ No timer and no new engine call are necessary.
 
 Run these probes before the implementation. The probe mod is in `.tmp/agent-probe/` (not in git).
 
-- [ ] P1: Does a killed subagent raise `turn.complete`, and with which `reason`? Start a background agent that runs `sleep 120`, call `TaskStop`, log the event.
-- [ ] P2: Does `prompt.submit` fire for a task notification, and is the text in `e.text`? Log it for an idle session and for a turn in progress. This result decides if rule 1 is possible.
-- [ ] P3: What does `$.agent.list()` show for a killed agent, and for how long? Log the list each 250 ms for 10 s after the kill.
+- [x] P1: Does a killed subagent raise `turn.complete`, and with which `reason`? Yes: `reason: 'aborted'`, `isAborted: true` (2.1.290).
+- [x] P2: Does `prompt.submit` fire for a task notification, and is the text in `e.text`? Yes, with `origin.kind: 'task-notification'`, for a turn in progress. The idle case is not probed.
+- [x] P3: What does `$.agent.list()` show for a killed agent, and for how long? `killed`, at once and for at least 30 s.
 - [ ] P4: What fires for an agent that fails with an API error?
 - [ ] P5: Does a background agent continue after the user interrupts the main turn?
 - [ ] P6: Does `$.agent.list()` show `waiting` for an agent that waits for a permission? If yes, the pane can show a `waiting` state for the 5.5 hour case.
@@ -99,5 +99,5 @@ Run these probes before the implementation. The probe mod is in `.tmp/agent-prob
 
 Then:
 
-- [ ] Implement the design with the signals that the probes confirm. Write the tests first.
-- [ ] If P2 fails, use rules 2, 4 and 5 only, and write in the README that a kill can stay `running`.
+- [x] Implement the design with the signals that the probes confirm. Write the tests first.
+- [x] If P2 fails, use rules 2, 4 and 5 only, and write in the README that a kill can stay `running`. Not necessary: P2 passed.

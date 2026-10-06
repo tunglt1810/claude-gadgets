@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { bandSegments } from './layout'
+import { bandSegments, statSegments } from './layout'
 import { PALETTE } from './palette'
 import type { Snapshot } from './snapshot'
 
@@ -14,6 +14,7 @@ const snap: Snapshot = {
   agents: 2,
   bg: 1,
   byAgent: {},
+  byModel: {},
 }
 const base = { snap, busySince: null, now: 78_000, ttl: '5m' as const }
 const segs = (cols: number) => bandSegments({ ...base, columns: cols })
@@ -194,4 +195,36 @@ test('an open pane marks the button', () => {
     .filter((s) => s.isButton)
     .map((s) => s.text)
   expect(t).toEqual(['▾ agents 2'])
+})
+
+test('the stats of an agent are its tokens, cache hit, calls and diff, with no cost', () => {
+  const snap = {
+    totals: { input: 1000, output: 2500, cacheRead: 9000, cacheWrite: 0 },
+    tools: 7,
+    lastStepAt: null,
+    workMs: 0,
+    costUsd: 0,
+    added: 12,
+    removed: 3,
+    agents: 0,
+    bg: 0,
+    byAgent: {},
+    byModel: {},
+  } satisfies Snapshot
+  const text = statSegments(snap)
+    .map((s) => s.text)
+    .join('')
+  expect(text).toBe('↑ in 10.0k  ↓ out 2.5k  ◈ hit 90%  ⌘ calls 7  ± diff +12 -3')
+})
+
+test('an agent view names the model and the effort after its mark', () => {
+  const t = bandSegments({
+    ...base,
+    columns: 200,
+    isAgentView: true,
+    model: 'claude-sonnet-5-5 high',
+  })
+    .map((s) => s.text)
+    .join('')
+  expect(t.startsWith('◆ agent claude-sonnet-5-5 high │ ↑ in 12.5k')).toBe(true)
 })

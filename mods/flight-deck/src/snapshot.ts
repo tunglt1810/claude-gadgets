@@ -14,6 +14,7 @@ export const emptySnapshot = (): Snapshot => ({
   agents: 0,
   bg: 0,
   byAgent: {},
+  byModel: {},
 })
 
 export const storeKey = (sessionId: string): string => `session:${sessionId}`
@@ -67,6 +68,10 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
     agents: num(r.agents),
     bg: num(r.bg),
     byAgent: parseAgents(r.byAgent),
+    byModel: Object.fromEntries(
+      Object.entries(isRecord(r.byModel) ? r.byModel : {}).map(([m, t]) => [m, parseTotals(t)]),
+    ),
+    ...(typeof r.mainModel === 'string' ? { mainModel: r.mainModel } : {}),
   }
 }
 
@@ -75,7 +80,9 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
 export const isComplete = (s: Partial<Snapshot>): boolean =>
   [s.tools, s.workMs, s.costUsd, s.added, s.removed, s.agents, s.bg].every(
     (v) => typeof v === 'number' && Number.isFinite(v),
-  ) && isRecord(s.byAgent)
+  ) &&
+  isRecord(s.byAgent) &&
+  isRecord(s.byModel)
 
 // Recency index of stored sessions: the id first, duplicates removed, anything past `max`
 // is dropped so the store does not grow by a key per session forever.

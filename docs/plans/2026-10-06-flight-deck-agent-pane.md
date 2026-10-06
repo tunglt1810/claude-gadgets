@@ -1,31 +1,31 @@
-# token-meter Agent Pane Implementation Plan
+# flight-deck Agent Pane Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a pane to `token-meter` that lists the subagents of the session as a tree and shows the transcript of each one. The `◆ agents N` part of the band is the button that opens and closes the pane.
+**Goal:** Add a pane to `flight-deck` that lists the subagents of the session as a tree and shows the transcript of each one. The `◆ agents N` part of the band is the button that opens and closes the pane.
 
 **Architecture:** The mod keeps an agent registry that it makes from `agent.spawn`, `turn.step`, `tool.call` and `turn.complete`. It stores the registry in `$.store` for each session. It reads a transcript with `$.session.messages({ agentId })` when the user opens an agent. Pure logic is in `src/` with unit tests. `hooks/register.tsx` connects events to state.
 
 **Tech Stack:** Claude Code plugin API 2.1.289 (early access), TypeScript 7.0.2, Bun 1.4.2, Biome 2.5.15, `claude-code/testing`.
 
-**Spec:** `docs/specs/2026-10-06-token-meter-agent-pane-design.md`. Read it before Task 1.
+**Spec:** `docs/specs/2026-10-06-flight-deck-agent-pane-design.md`. Read it before Task 1.
 
 ## Global Constraints
 
-- All paths below are relative to `mods/token-meter/` unless they start with `docs/` or `README.md`.
+- All paths below are relative to `mods/flight-deck/` unless they start with `docs/` or `README.md`.
 - Docs, comments, identifiers, commit messages and drawn strings are English.
 - No new dependency.
 - TDD: write the failing test, run it, see it fail, then write the code.
 - `bun run check` (lint, typecheck, validate, test) must pass at the end of each task.
-- Run one test file with `claude plugin test mods/token-meter` (it runs all `*.test.ts` files).
-- The plugin API typings are `mods/token-meter/.claude-plugin/types/claude-code/index.d.ts` (15,000 lines). Grep them for a name. Do not guess a prop or an event field. If a code block in this plan does not agree with the typings, the typings are correct: adapt the code and keep the behavior.
+- Run one test file with `claude plugin test mods/flight-deck` (it runs all `*.test.ts` files).
+- The plugin API typings are `mods/flight-deck/.claude-plugin/types/claude-code/index.d.ts` (15,000 lines). Grep them for a name. Do not guess a prop or an event field. If a code block in this plan does not agree with the typings, the typings are correct: adapt the code and keep the behavior.
 - `types/index.d.ts` is self-contained: no imports, only `export type` and `declare module 'claude-code'`.
 - A function that receives `$` is a module-level `function` declaration in `hooks/register.tsx`.
 - `ui.render` writes no state. Write from events or handlers, and compute in the updater: `update($, atom, c => ...)`.
 - No emoji in drawn text. Each row fits `bodyColumns`. A long text is cut, not wrapped.
 - Scratch files go in `.tmp/` of the repo, never `/tmp`.
-- Do not change behavior of `token-meter` that the spec does not name. Existing tests must continue to pass. Change a test helper only when this plan says so.
-- Branch: `feat/token-meter-agent-pane`. One commit for each task. Do not push.
+- Do not change behavior of `flight-deck` that the spec does not name. Existing tests must continue to pass. Change a test helper only when this plan says so.
+- Branch: `feat/flight-deck-agent-pane`. One commit for each task. Do not push.
 
 ## Review Focus
 
@@ -101,7 +101,7 @@ export type PaneView = {
 }
 ```
 
-Add `agents: Agents` and `pane: PaneView` to the `'token-meter'` block of `PluginState`.
+Add `agents: Agents` and `pane: PaneView` to the `'flight-deck'` block of `PluginState`.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -178,7 +178,7 @@ test('agentsKey names the store key of a session', () => {
 
 - [ ] **Step 3: Run the test and see it fail**
 
-Run: `claude plugin test mods/token-meter`
+Run: `claude plugin test mods/flight-deck`
 Expected: FAIL, `./registry` not found.
 
 - [ ] **Step 4: Write `src/registry.ts`**
@@ -292,8 +292,8 @@ Expected: PASS. If `validate` reports that `agents` or `pane` is declared and no
 - [ ] **Step 6: Commit**
 
 ```bash
-git add mods/token-meter/types/index.d.ts mods/token-meter/src/registry.ts mods/token-meter/src/registry.test.ts
-git commit -m "feat(token-meter): add agent registry reducers"
+git add mods/flight-deck/types/index.d.ts mods/flight-deck/src/registry.ts mods/flight-deck/src/registry.test.ts
+git commit -m "feat(flight-deck): add agent registry reducers"
 ```
 
 ---
@@ -353,7 +353,7 @@ test('an empty registry gives no rows', () => {
 
 - [ ] **Step 2: Run the test and see it fail**
 
-Run: `claude plugin test mods/token-meter`
+Run: `claude plugin test mods/flight-deck`
 Expected: FAIL, `./tree` not found.
 
 - [ ] **Step 3: Write `src/tree.ts`**
@@ -390,8 +390,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mods/token-meter/src/tree.ts mods/token-meter/src/tree.test.ts
-git commit -m "feat(token-meter): order agents as a tree"
+git add mods/flight-deck/src/tree.ts mods/flight-deck/src/tree.test.ts
+git commit -m "feat(flight-deck): order agents as a tree"
 ```
 
 ---
@@ -472,7 +472,7 @@ test('inputText is the command for Bash and JSON for the rest', () => {
 
 - [ ] **Step 2: Run the tests and see them fail**
 
-Run: `claude plugin test mods/token-meter`
+Run: `claude plugin test mods/flight-deck`
 Expected: FAIL, modules not found.
 
 - [ ] **Step 3: Write `src/clip.ts`**
@@ -524,8 +524,8 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add mods/token-meter/src/clip.ts mods/token-meter/src/clip.test.ts mods/token-meter/src/summary.ts mods/token-meter/src/summary.test.ts
-git commit -m "feat(token-meter): add text limits and tool summaries"
+git add mods/flight-deck/src/clip.ts mods/flight-deck/src/clip.test.ts mods/flight-deck/src/summary.ts mods/flight-deck/src/summary.test.ts
+git commit -m "feat(flight-deck): add text limits and tool summaries"
 ```
 
 ---
@@ -622,7 +622,7 @@ test('lastItems keeps the newest 300 and counts the rest', () => {
 
 - [ ] **Step 2: Run the test and see it fail**
 
-Run: `claude plugin test mods/token-meter`
+Run: `claude plugin test mods/flight-deck`
 Expected: FAIL, `./transcript` not found.
 
 - [ ] **Step 3: Write `src/transcript.ts`**
@@ -693,8 +693,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add mods/token-meter/src/transcript.ts mods/token-meter/src/transcript.test.ts
-git commit -m "feat(token-meter): turn agent messages into transcript items"
+git add mods/flight-deck/src/transcript.ts mods/flight-deck/src/transcript.test.ts
+git commit -m "feat(flight-deck): turn agent messages into transcript items"
 ```
 
 ---
@@ -731,7 +731,7 @@ If an existing test in `src/layout.test.ts` asserts the old drop order of `agent
 
 - [ ] **Step 2: Run the tests and see them fail**
 
-Run: `claude plugin test mods/token-meter`
+Run: `claude plugin test mods/flight-deck`
 Expected: FAIL on the two new tests.
 
 - [ ] **Step 3: Change `src/layout.ts`**
@@ -817,8 +817,8 @@ Expected: PASS, all existing tests included.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add mods/token-meter/src/layout.ts mods/token-meter/src/layout.test.ts mods/token-meter/src/band.tsx mods/token-meter/hooks/register.tsx mods/token-meter/hooks/register.test.ts
-git commit -m "feat(token-meter): draw the agents count as a button"
+git add mods/flight-deck/src/layout.ts mods/flight-deck/src/layout.test.ts mods/flight-deck/src/band.tsx mods/flight-deck/hooks/register.tsx mods/flight-deck/hooks/register.test.ts
+git commit -m "feat(flight-deck): draw the agents count as a button"
 ```
 
 ---
@@ -831,7 +831,7 @@ git commit -m "feat(token-meter): draw the agents count as a button"
 
 **Interfaces:**
 - Consumes: `spawned`, `ran`, `completed`, `merged`, `parseRegistry`, `agentsKey` (Task 1). `Agents` from `../types`.
-- Produces: the atom `agents` (`{ plugin: 'token-meter', key: 'agents' }`), the module-level functions `trackAgent($, change)` and `loadAgents($, id)`.
+- Produces: the atom `agents` (`{ plugin: 'flight-deck', key: 'agents' }`), the module-level functions `trackAgent($, change)` and `loadAgents($, id)`.
 
 Tests observe the registry through the store (a session-id round trip) in this task. Task 7 adds the pane, and its tests observe the tree.
 
@@ -880,7 +880,7 @@ Replace each comment with the real read of the mock store before you run the tes
 
 - [ ] **Step 2: Run the tests and see them fail**
 
-Run: `claude plugin test mods/token-meter`
+Run: `claude plugin test mods/flight-deck`
 Expected: FAIL, nothing is stored under `agents:S1`.
 
 - [ ] **Step 3: Add the atom and the two functions**
@@ -889,7 +889,7 @@ In `hooks/register.tsx`, next to the other atoms:
 
 ```ts
 const initialAgents: Agents = { sessionId: null, entries: {} }
-const agents = atom({ plugin: 'token-meter', key: 'agents' } as const, initialAgents)
+const agents = atom({ plugin: 'flight-deck', key: 'agents' } as const, initialAgents)
 ```
 
 Module-level functions (they receive `$`):
@@ -971,8 +971,8 @@ Expected: PASS. `validate` must list `$.agent.list (via trackAgent)`.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add mods/token-meter/hooks/register.tsx mods/token-meter/hooks/register.test.ts
-git commit -m "feat(token-meter): keep a registry of the session's agents"
+git add mods/flight-deck/hooks/register.tsx mods/flight-deck/hooks/register.test.ts
+git commit -m "feat(flight-deck): keep a registry of the session's agents"
 ```
 
 ---
@@ -1020,7 +1020,7 @@ const ROWS = [
 
 const mountPane = ($: Engine, surface: 'terminal' | 'desktop') =>
   $.ui.mount({
-    plugin: 'token-meter',
+    plugin: 'flight-deck',
     surface,
     component: 'Pane',
     requestId: 'agents',
@@ -1080,7 +1080,7 @@ Write these tests in the same style, each with real assertions:
 
 - [ ] **Step 2: Run the tests and see them fail**
 
-Run: `claude plugin test mods/token-meter`
+Run: `claude plugin test mods/flight-deck`
 Expected: FAIL, no hook draws the `Pane`.
 
 - [ ] **Step 3: Write `src/pane.tsx`**
@@ -1194,7 +1194,7 @@ Check each element's props in the typings (`MarkdownProps.text`, `CodeProps.sour
 ```ts
 const PANE_ID = 'agents'
 const initialPane: PaneView = { isOpen: false, agentId: null, expanded: [], transcript: null }
-const pane = atom({ plugin: 'token-meter', key: 'pane' } as const, initialPane)
+const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
 ```
 
 Module-level functions:
@@ -1309,8 +1309,8 @@ Expected: PASS, all tests on both surfaces.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add mods/token-meter/src/pane.tsx mods/token-meter/hooks/register.tsx mods/token-meter/hooks/register.test.ts
-git commit -m "feat(token-meter): add the agents pane and its toggle"
+git add mods/flight-deck/src/pane.tsx mods/flight-deck/hooks/register.tsx mods/flight-deck/hooks/register.test.ts
+git commit -m "feat(flight-deck): add the agents pane and its toggle"
 ```
 
 ---
@@ -1329,7 +1329,7 @@ git commit -m "feat(token-meter): add the agents pane and its toggle"
 
 - [ ] **Step 2: Update `README.md`**
 
-Read the `token-meter` section of `README.md`. Add a subsection `Agents pane` in the same style, in ASD-STE100 English (short sentences, active voice, no semicolons). It must say:
+Read the `flight-deck` section of `README.md`. Add a subsection `Agents pane` in the same style, in ASD-STE100 English (short sentences, active voice, no semicolons). It must say:
 
 - Press `◆ agents N` on the band, or run `/agent-log`, to open and close the pane.
 - The pane lists the subagents of the session as a tree. A child agent is below its parent.
@@ -1351,8 +1351,8 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add mods/token-meter/.claude-plugin/plugin.json README.md
-git commit -m "docs(token-meter): describe the agents pane"
+git add mods/flight-deck/.claude-plugin/plugin.json README.md
+git commit -m "docs(flight-deck): describe the agents pane"
 ```
 
 - [ ] **Step 5: Report**
@@ -1363,7 +1363,7 @@ Report: the commits, the output of the last `bun run check`, each place where th
 
 ## Live verification (the user, after Task 8)
 
-1. `claude --plugin-dir mods/token-meter` in a terminal. The band is on one row and `◆ agents N` is in it.
+1. `claude --plugin-dir mods/flight-deck` in a terminal. The band is on one row and `◆ agents N` is in it.
 2. Start a subagent and let it complete. Press `◆ agents N` (click, or ctrl+x tab then Enter). Open the transcript of the subagent.
 3. Send a message to the completed subagent. The pane shows both runs.
 4. Resume the session with `--resume`. The tree and the transcript are available.

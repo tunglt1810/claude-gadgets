@@ -1,11 +1,26 @@
 import type { EngineInterface, Register } from 'claude-code'
 import { atom, read, update } from 'claude-code'
+import { focusAction } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { ttlMs } from '../src/countdown'
 import { linesChanged } from '../src/diff'
 import { AgentPane } from '../src/pane'
-import { agentsKey, completed, merged, parseRegistry, ran, spawned } from '../src/registry'
+import { paneData } from '../src/paneData'
+import {
+  agentsKey,
+  completed,
+  ended,
+  merged,
+  modelLabel,
+  parseRegistry,
+  ran,
+  restored,
+  spawned,
+  stopped,
+  taskNotice,
+  tuned,
+} from '../src/registry'
 import {
   emptySnapshot,
   isComplete,
@@ -14,36 +29,41 @@ import {
   storeKey,
   touchSessions,
 } from '../src/snapshot'
+import { SPIN_MS } from '../src/spinner'
 import { transcriptItems } from '../src/transcript'
 import { countsOf, isSettled, retargetShown, shownAt, snapShown } from '../src/tween'
-import { addUsage } from '../src/usage'
+import { addUsage, emptyTotals } from '../src/usage'
 import { endTurn, startTurn } from '../src/work'
-import type { Agents, Meter, PaneView, Registry, Transcript } from '../types'
+import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
 
 type Api = EngineInterface
 type Ttl = '5m' | '1h'
 
 const initialMeter: Meter = { ...emptySnapshot(), sessionId: null, active: 0, busySince: null }
-const meter = atom({ plugin: 'token-meter', key: 'meter' } as const, initialMeter)
-const nowAtom = atom({ plugin: 'token-meter', key: 'now' } as const, 0)
+const meter = atom({ plugin: 'flight-deck', key: 'meter' } as const, initialMeter)
+const nowAtom = atom({ plugin: 'flight-deck', key: 'now' } as const, 0)
 const shown = atom(
-  { plugin: 'token-meter', key: 'shown' } as const,
+  { plugin: 'flight-deck', key: 'shown' } as const,
   snapShown(null, countsOf(emptySnapshot())),
 )
 
 const initialAgents: Agents = { sessionId: null, entries: {} }
-const agents = atom({ plugin: 'token-meter', key: 'agents' } as const, initialAgents)
+const agents = atom({ plugin: 'flight-deck', key: 'agents' } as const, initialAgents)
 
 const PANE_ID = 'agents'
+// The store key of the last wrap choice: one for the plugin, not one per session.
+const WRAP_KEY = 'wrap'
 const initialPane: PaneView = {
   isOpen: false,
-  isWrapped: false,
+  isWrapped: true,
   agentId: null,
   expanded: [],
   transcript: null,
 }
-const pane = atom({ plugin: 'token-meter', key: 'pane' } as const, initialPane)
-const spin = atom({ plugin: 'token-meter', key: 'spin' } as const, 0)
+const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
+const initialData: PaneData = { sessionId: null, entries: {}, stats: null, dashboard: null }
+const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
+const spin = atom({ plugin: 'flight-deck', key: 'spin' } as const, 0)
 
 // The engine only follows `$` into functions declared at the top of this file, so
 // the helpers live here and take what they need as arguments.
@@ -89,21 +109,46 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     agents: s.agents,
     bg: s.bg,
     byAgent: s.byAgent,
+    byModel: s.byModel,
+    ...(s.mainModel === undefined ? {} : { mainModel: s.mainModel }),
   })
 }
 
 // The registry of the session `id`: the live atom, or the stored copy on a session change.
 // The pane goes back to the tree then: a transcript of the other session is never drawn.
+// A stored agent that is running but that this process does not list ran in a dead process.
 async function loadAgents($: Api, id: string): Promise<void> {
   const cur = await read($, agents)
   if (cur.sessionId === id) return
-  const entries = parseRegistry(await $.store.get(agentsKey(id)))
+  const entries = restored(
+    parseRegistry(await $.store.get(agentsKey(id))),
+    await $.agent.list(),
+    await $.clock.now(),
+  )
   await update($, agents, (c) => (c.sessionId === id ? c : { sessionId: id, entries }))
   await update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
+  await syncPane($)
 }
 
-// One registry change, then the engine's list merged in (it has the agents that raised no
-// spawn), then stored.
+// Copies what the pane draws into its own atom, only when it changed: every write redraws
+// the pane, and a desktop drops a click on a native button that a redraw replaced.
+async function syncPane($: Api): Promise<void> {
+  const id = await $.session.id()
+  const reg = await read($, agents)
+  const view = await read($, pane)
+  const next = paneData(
+    id,
+    reg.sessionId === id ? reg.entries : {},
+    view.agentId,
+    await currentMeter($),
+    await $.clock.now(),
+  )
+  const cur = await read($, shownData)
+  if (JSON.stringify(cur) !== JSON.stringify(next)) await update($, shownData, () => next)
+}
+
+// The engine's list merged in (it has the agents that raised no spawn), then one registry
+// change, then stored. The change comes last: an event outranks a stale status in the list.
 async function trackAgent(
   $: Api,
   id: string,
@@ -113,9 +158,10 @@ async function trackAgent(
   const at = await $.clock.now()
   const list = await $.agent.list()
   const next = await update($, agents, (c) =>
-    c.sessionId === id ? { ...c, entries: merged(change(c.entries, at), list, at) } : c,
+    c.sessionId === id ? { ...c, entries: change(merged(c.entries, list, at), at) } : c,
   )
   if (next.sessionId === id) await $.store.set(agentsKey(id), next.entries)
+  await syncPane($)
   startSpinner($)
 }
 
@@ -126,11 +172,27 @@ async function loadTranscript($: Api, agentId: string): Promise<void> {
   const transcript: Transcript = Array.isArray(rows)
     ? { agentId, items: transcriptItems(rows) }
     : { agentId, deny: rows.deny }
+  // An unchanged transcript is not written again: a write redraws the pane.
+  const cur = (await read($, pane)).transcript
+  if (JSON.stringify(cur) === JSON.stringify(transcript)) return
   await update($, pane, (c) => (c.agentId === agentId ? { ...c, transcript } : c))
 }
 
+// A screen change takes the pressed button off the screen, and the engine then drops the
+// pane's focus: the next click would only focus. So the focus moves to `key`, a button of the
+// new screen. The move starts before the change: it waits for the drawing that brings `key`,
+// and the pane still holds the keys then. A refusal (no keys, no such site) changes nothing.
+async function focusAfter($: Api, key: string, change: () => Promise<void>): Promise<void> {
+  const moved = $.ui.focus({ requestId: PANE_ID, key }).catch(() => ({}))
+  await change()
+  await moved
+}
+
 async function openAgent($: Api, agentId: string): Promise<void> {
-  await update($, pane, (c) => ({ ...c, agentId, expanded: [], transcript: null }))
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, agentId, expanded: [], transcript: null }))
+    await syncPane($)
+  })
   await loadTranscript($, agentId)
 }
 
@@ -140,6 +202,36 @@ async function refreshViewed($: Api, agentId: string): Promise<void> {
   if (cur.isOpen && cur.agentId === agentId) await loadTranscript($, agentId)
 }
 
+// Back to the tree, with the focus on the row of the agent that was open.
+async function backToTree($: Api): Promise<void> {
+  const from = (await read($, pane)).agentId
+  await focusAfter($, `agent:${from}`, async () => {
+    await update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
+    await syncPane($)
+  })
+}
+
+// What a pane button does, from its press or from the click that gave the pane the focus.
+async function act($: Api, action: PaneAction): Promise<void> {
+  if (action.kind === 'open') return openAgent($, action.agentId)
+  if (action.kind === 'back') return backToTree($)
+  if (action.kind === 'wrap') {
+    const next = await update($, pane, (c) => ({ ...c, isWrapped: !c.isWrapped }))
+    return $.store.set(WRAP_KEY, next.isWrapped)
+  }
+  await update($, pane, (c) => {
+    const id = action.toolUseId
+    const expanded = c.expanded.includes(id)
+      ? c.expanded.filter((x) => x !== id)
+      : [...c.expanded, id]
+    return { ...c, expanded }
+  })
+}
+
+// Whether the pane held the keys when it was last drawn (its `isFocused` prop). Kept here, not
+// in state: a render hook does not write state.
+let isPaneFocused = true
+
 async function togglePane($: Api): Promise<boolean> {
   const cur = await read($, pane)
   if (cur.isOpen) {
@@ -148,15 +240,17 @@ async function togglePane($: Api): Promise<boolean> {
     return false
   }
   await loadAgents($, await $.session.id())
-  await update($, pane, (c) => ({ ...c, isOpen: true }))
-  await $.ui.open({ id: PANE_ID, title: 'Agents' })
+  const isWrapped = (await $.store.get(WRAP_KEY)) !== false
+  await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
+  await syncPane($)
+  // The pane takes the keyboard: a click on a pane without it only focuses.
+  await $.ui.open({ id: PANE_ID, title: 'Agents', focus: true })
   startSpinner($)
   return true
 }
 
 // The spinner of the running agents: a short tick of its own, alive only while the pane is
 // open and an agent of this session runs. It stops itself, so an idle session draws nothing.
-const SPIN_MS = 120
 let spinner: { cancel: () => void } | null = null
 function startSpinner($: Api): void {
   if (spinner !== null) return
@@ -265,6 +359,11 @@ export const register: Register = (on, options) => {
     const nextMeter = await update($, meter, (c) => ({
       ...c,
       totals: addUsage(c.totals, res.usage),
+      byModel: {
+        ...c.byModel,
+        [e.model]: addUsage(c.byModel[e.model] ?? emptyTotals(), res.usage),
+      },
+      ...(isMain ? { mainModel: e.model } : {}),
       lastStepAt: isMain && res.usage !== null ? sentAt : c.lastStepAt,
       byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
         ...a,
@@ -275,7 +374,11 @@ export const register: Register = (on, options) => {
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
     const agentId = e.agentId
-    if (agentId !== undefined) await trackAgent($, id, (r, t) => ran(r, agentId, t))
+    const effort = e.effort === undefined ? undefined : String(e.effort)
+    if (agentId !== undefined)
+      await trackAgent($, id, (r, t) => tuned(ran(r, agentId, t), agentId, e.model, effort))
+    // The dashboard's numbers changed.
+    else await syncPane($)
     startTimer($, ttl)
     return res
   })
@@ -352,6 +455,7 @@ export const register: Register = (on, options) => {
     const nextMeter = await update($, meter, (c) => ({ ...c, costUsd: usd }))
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
+    await syncPane($)
     return next(e)
   })
 
@@ -365,11 +469,13 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     // A subagent's run raises turn.complete without a turn.start: it must not close
-    // the main turn's interval. It ends one run of that agent.
+    // the main turn's interval. It ends one run of that agent: an answer, or a stop (a kill
+    // gives `aborted`).
     const agentId = e.agentId
     if (agentId !== undefined) {
       const session = await ensureLoaded($)
-      await trackAgent($, session, (r, t) => completed(r, agentId, t))
+      const end = e.reason === 'answer' ? completed : stopped
+      await trackAgent($, session, (r, t) => end(r, agentId, t))
       await refreshViewed($, agentId)
       return next(e)
     }
@@ -378,6 +484,34 @@ export const register: Register = (on, options) => {
     const nextMeter = await update($, meter, (c) => ({ ...c, ...endTurn(c, at) }))
     await save($, id, nextMeter)
     return next(e)
+  })
+
+  // A background task's notification names how an agent ended: killed, failed or completed.
+  on('prompt.submit', async ($, e, next) => {
+    const res = await next(e)
+    const notice = e.origin.kind === 'task-notification' ? taskNotice(e.text) : null
+    if (notice !== null) {
+      const session = await ensureLoaded($)
+      await trackAgent($, session, (r, t) => ended(r, notice.id, notice.status, t))
+    }
+    return res
+  })
+
+  // A click on a pane that does not hold the keys only moves the focus: the engine raises
+  // `ui.focus`, not a press, and the click is lost. The button's action runs here then. With the
+  // keys, a person's focus move is Tab or an arrow, and it presses nothing.
+  on('ui.focus', async ($, e, next) => {
+    // Read before `next`: landing the ring draws the pane focused.
+    const wasFocused = isPaneFocused
+    const res = await next(e)
+    const element = e.element
+    const isClick =
+      e.component === 'Pane' && e.requestId === PANE_ID && e.origin.kind === 'person' && !wasFocused
+    if (isClick && element !== undefined && res.deny === undefined) {
+      const action = focusAction(element, (await read($, pane)).transcript)
+      if (action !== null) await act($, action)
+    }
+    return res
   })
 
   on('command.run', { command: 'agent-log' }, async ($) => ({
@@ -391,28 +525,28 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
+    // Only `paneData`, the view and (on the terminal) the spinner are read here: each read
+    // value redraws the pane when it changes.
+    isPaneFocused = e.props.isFocused
     const id = await $.session.id()
-    const reg = await read($, agents)
+    const data = await read($, shownData)
+    const isCurrent = data.sessionId === id
     return (
       <AgentPane
         ui={$.ui.resolve(e)}
-        entries={reg.sessionId === id ? reg.entries : {}}
+        entries={isCurrent ? data.entries : {}}
         view={await read($, pane)}
-        spin={await read($, spin)}
+        stats={isCurrent ? data.stats : null}
+        dashboard={isCurrent ? data.dashboard : null}
+        // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
+        // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
+        spin={e.surface === 'terminal' ? await read($, spin) : null}
+        now={await $.clock.now()}
         columns={e.props.bodyColumns}
-        onOpen={(agentId) => openAgent($, agentId)}
-        onBack={() =>
-          update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
-        }
-        onWrap={() => update($, pane, (c) => ({ ...c, isWrapped: !c.isWrapped }))}
-        onTool={(toolUseId) =>
-          update($, pane, (c) => ({
-            ...c,
-            expanded: c.expanded.includes(toolUseId)
-              ? c.expanded.filter((x) => x !== toolUseId)
-              : [...c.expanded, toolUseId],
-          }))
-        }
+        onOpen={(agentId) => act($, { kind: 'open', agentId })}
+        onBack={() => act($, { kind: 'back' })}
+        onWrap={() => act($, { kind: 'wrap' })}
+        onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
       />
     )
   })
@@ -426,6 +560,8 @@ export const register: Register = (on, options) => {
     const isPaneOpen = (await read($, pane)).isOpen
     const viewed = e.props.view.agentId
     const snap = viewed === undefined ? session : agentView(session, viewed)
+    const reg = viewed === undefined ? null : await read($, agents)
+    const model = modelLabel(viewed === undefined ? undefined : reg?.entries[viewed])
     return (
       <Band
         ui={$.ui.resolve(e)}
@@ -436,6 +572,7 @@ export const register: Register = (on, options) => {
             : undefined
         }
         isAgentView={viewed !== undefined}
+        {...(model === undefined ? {} : { model })}
         busySince={session.busySince}
         now={now}
         ttl={ttl}
