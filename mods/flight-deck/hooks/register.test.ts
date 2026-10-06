@@ -127,8 +127,8 @@ test(
     const text = await settled($, clock)
     expect(text).toContain('↑ in 200')
     expect(text).toContain('↓ out 10')
-    expect(text).toContain('◈ hit 80%')
-    expect(text).toContain('◔ cache 5:00')
+    expect(text).toContain('◈ cache 80%')
+    expect(text).toContain('◔ 5:00')
   },
 )
 
@@ -147,7 +147,7 @@ test(
 
     const text = await settled($, clock)
     expect(text).toContain('↑ in 200')
-    expect(text).toContain('◔ cache 4:50')
+    expect(text).toContain('◔ 4:50')
   },
 )
 
@@ -161,7 +161,7 @@ test('a step without usage changes nothing and never produces NaN', async ($, on
 
   const text = await settled($, clock)
   expect(text).toContain('↑ in 0')
-  expect(text).toContain('◔ cache --')
+  expect(text).toContain('◔ --')
   expect(text).not.toContain('NaN')
 })
 
@@ -275,9 +275,9 @@ test('the countdown changes tone and expires', { options: { cacheTtl: '5m' } }, 
 
   await runStep($, STEP)
   await clock.advance(250_000)
-  expect(await settled($, clock)).toContain('◔ cache 0:50')
+  expect(await settled($, clock)).toContain('◔ 0:50')
   await clock.advance(310_000)
-  expect(await settled($, clock)).toContain('◔ cache expired')
+  expect(await settled($, clock)).toContain('◔ expired')
 })
 
 test('the band draws on the desktop surface too', async ($, on) => {
@@ -297,7 +297,7 @@ test('a cache lifetime of 1h is honoured', { options: { cacheTtl: '1h' } }, asyn
 
   await runStep($, STEP)
 
-  expect(await settled($, clock)).toContain('◔ cache 60:00')
+  expect(await settled($, clock)).toContain('◔ 60:00')
 })
 
 test('a subagent turn.complete does not close the main ◷ interval', async ($, on) => {
@@ -342,7 +342,7 @@ test(
     const text = await settled($, clock)
     expect(text).toContain('⌘ calls 7')
     expect(text).toContain('◷ work 0:09')
-    expect(text).toContain('◔ cache 4:56')
+    expect(text).toContain('◔ 4:56')
   },
 )
 
@@ -361,7 +361,7 @@ test(
 
     await runStep($, STEP)
 
-    expect(await settled($, clock)).toContain('◔ cache 3:20')
+    expect(await settled($, clock)).toContain('◔ 3:20')
   },
 )
 
@@ -457,7 +457,7 @@ test(
     await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
     await clock.advance(10_000)
 
-    expect(await settled($, clock)).toContain('◔ cache 4:50')
+    expect(await settled($, clock)).toContain('◔ 4:50')
   },
 )
 
@@ -528,7 +528,7 @@ test('edits add their changed lines to the diff; failed and denied calls do not'
   answer = { deny: 'no' }
   await $.tool.call({ tool: 'Edit', file_path: 'a', old_string: 'b', new_string: 'c' })
 
-  expect(await settled($, clock)).toContain('± diff +4 -1 ')
+  expect(await settled($, clock)).toMatch(/± diff \+4 -1$/)
 })
 
 test('cost and diff survive a session id round trip', async ($, on) => {
@@ -546,12 +546,12 @@ test('cost and diff survive a session id round trip', async ($, on) => {
   id = 'S2'
   const other = await settled($, clock)
   expect(other).toContain('$ cost 0.00')
-  expect(other).toContain('± diff +0 -0 ')
+  expect(other).toMatch(/± diff \+0 -0$/)
 
   id = 'S1'
   const back = await settled($, clock)
   expect(back).toContain('$ cost 2.50')
-  expect(back).toContain('± diff +1 -2 ')
+  expect(back).toMatch(/± diff \+1 -2$/)
 })
 
 for (const surface of ['terminal', 'desktop'] as const) {
@@ -695,15 +695,15 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(sub).toContain('◆ agent m │ ↑ in 200 ')
       expect(sub).toContain('↓ out 10 ')
       expect(sub).toContain('⌘ calls 1 ')
-      expect(sub).toContain('± diff +1 -1 ')
+      expect(sub).toMatch(/± diff \+1 -1$/)
       // The agent's own cache: its step was sent 10s after the main one.
-      expect(sub).toContain('◔ cache 5:00')
+      expect(sub).toContain('◔ 5:00')
       expect(sub).not.toContain('$ cost')
 
       const main = await bandText($, surface)
       expect(main).toContain('↑ in 400 ')
       expect(main).toContain('▸ agents 3 ')
-      expect(main).toContain('◔ cache 4:50')
+      expect(main).toContain('◔ 4:50')
     },
   )
 }
@@ -739,10 +739,10 @@ test("the tick keeps running while a subagent's cache is live, after the main on
   await runStep($, { ...STEP, agentId: 'a1' })
   // The main cache lapses here; the subagent's has 200s more.
   await clock.advance(110_000)
-  expect(await bandText($, 'terminal', 'a1')).toContain('◔ cache 3:10')
+  expect(await bandText($, 'terminal', 'a1')).toContain('◔ 3:10')
 
   await clock.advance(60_000)
-  expect(await bandText($, 'terminal', 'a1')).toContain('◔ cache 2:10')
+  expect(await bandText($, 'terminal', 'a1')).toContain('◔ 2:10')
 })
 
 // One agent's messages as the engine returns them: a prompt, a tool call, the handback.
@@ -1749,7 +1749,7 @@ test('an environment variable sets the cache lifetime before the mod option', as
   on('turn.step', stepHook(USAGE))
   await runStep($, STEP)
   // The option defaults to 1h.
-  expect(await settled($, clock)).toContain('◔ cache 5:00')
+  expect(await settled($, clock)).toContain('◔ 5:00')
 })
 
 test('a session over its plan limit caches the main loop for 5m', async ($, on) => {
@@ -1760,7 +1760,7 @@ test('a session over its plan limit caches the main loop for 5m', async ($, on) 
   }))
   on('turn.step', stepHook(USAGE))
   await runStep($, STEP)
-  expect(await settled($, clock)).toContain('◔ cache 5:00')
+  expect(await settled($, clock)).toContain('◔ 5:00')
 })
 
 // A skill that runs in a subagent raises no `agent.spawn`: its steps are the first sign of it.

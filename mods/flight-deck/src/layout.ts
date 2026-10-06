@@ -43,20 +43,23 @@ const SEP: Segment = { text: ' │ ', color: PALETTE.dim }
 const LABEL = {
   in: '↑ in',
   out: '↓ out',
-  hit: '◈ hit',
+  hit: '◈ cache',
   tools: '⌘ calls',
   bg: '◇ bg',
   work: '◷ work',
   cost: '$ cost',
   diff: '± diff',
   cache: '◔ cache',
+  // The countdown beside the percentage: the percentage has the label.
+  clock: '◔',
 } as const
 
+// The percentage of the prompt tokens that the cache gave, and the time the cache has left.
 const GROUPS: readonly (readonly Part[])[] = [
-  ['in', 'out', 'hit'],
+  ['in', 'out'],
+  ['hit', 'cache'],
   ['tools', 'agents', 'bg', 'work'],
   ['cost', 'diff'],
-  ['cache'],
 ]
 
 // Metrics in the order they are dropped when the band is too narrow (first = dropped first).
@@ -73,6 +76,8 @@ const DROP_ORDER = [
   'agents',
 ] as const
 type Part = (typeof DROP_ORDER)[number] | 'cache'
+// `timer` is the countdown with no label: it is drawn in place of `cache`, never dropped by name.
+type Parts = Record<Part | 'timer', Segment[]>
 
 const SESSION_ONLY = ['cost', 'work', 'agents', 'bg'] as const
 const AGENT_MARK: Segment = { text: '◆ agent', color: PALETTE.orange, bold: true }
@@ -124,8 +129,11 @@ export const bandSegments = ({
   // The terminal has no blink attribute: pulse by alternating bold/inverse each second.
   const pulse = tone === 'danger' && Math.floor(now / 1000) % 2 === 0
   const cacheColor = expired ? PALETTE.dim : TONE[tone]
+  const countdown = (label: string): Segment[] => [
+    { text: `${label} ${formatCountdown(rem)}`, color: cacheColor, bold: pulse, inverse: pulse },
+  ]
 
-  const partsFor = (c: Counts): Record<Part, Segment[]> => ({
+  const partsFor = (c: Counts): Parts => ({
     // Every prompt token, cached ones included: `input_tokens` alone is only the uncached
     // remainder, which is near zero once the prompt cache is warm.
     in: [{ text: `${LABEL.in} ${formatTokens(c.in)}`, color: PALETTE.cyan }],
@@ -153,14 +161,8 @@ export const bandSegments = ({
       { text: `${LABEL.diff} +${c.added}`, color: PALETTE.green },
       { text: ` -${c.removed}`, color: PALETTE.red },
     ],
-    cache: [
-      {
-        text: `${LABEL.cache} ${formatCountdown(rem)}`,
-        color: cacheColor,
-        bold: pulse,
-        inverse: pulse,
-      },
-    ],
+    cache: countdown(LABEL.cache),
+    timer: countdown(LABEL.clock),
     bar: [
       { text: ' ' },
       { text: '━'.repeat(filled), color: cacheColor },
@@ -168,7 +170,7 @@ export const bandSegments = ({
     ],
   })
 
-  const build = (parts: Record<Part, Segment[]>, dropped: ReadonlySet<string>): Segment[] => {
+  const build = (parts: Parts, dropped: ReadonlySet<string>): Segment[] => {
     const mark: Segment[] = model === undefined ? [] : [{ text: ` ${model}`, color: PALETTE.fg }]
     const segs: Segment[] = isAgentView ? [AGENT_MARK, ...mark, SEP] : []
     const start = segs.length
@@ -178,7 +180,8 @@ export const bandSegments = ({
       if (segs.length > start) segs.push(SEP)
       present.forEach((part, i) => {
         if (i > 0) segs.push({ text: '  ' })
-        segs.push(...parts[part])
+        // Beside the percentage the countdown has no label of its own.
+        segs.push(...(part === 'cache' && !dropped.has('hit') ? parts.timer : parts[part]))
         // An expired cache has no time left to show: the bar is drawn for a live one only.
         if (part === 'cache' && !expired && !dropped.has('bar')) segs.push(...parts.bar)
       })

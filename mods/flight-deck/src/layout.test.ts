@@ -29,27 +29,39 @@ test('every metric is icon, label, value', () => {
   const t = text(146)
   expect(t).toContain('↑ in 12.5k')
   expect(t).toContain('↓ out 3.1k')
-  expect(t).toContain('◈ hit 1%')
+  expect(t).toContain('◈ cache 1%')
   expect(t).toContain('⌘ calls 14')
   expect(t).toContain('◷ work 12:05')
   expect(t).toContain('$ cost 0.42')
   expect(t).toContain('± diff +120 -30')
-  expect(t).toContain('◔ cache 3:42')
+  expect(t).toContain('◔ 3:42')
   expect(t).toContain('━')
 })
 
 test('every metric uses the same spacing: one icon, a space, the label, a space, the value', () => {
   const metrics = segs(146).filter((s) => /^\S \S/.test(s.text))
   expect(metrics.length).toBe(10)
-  for (const m of metrics) expect(m.text).toMatch(/^\S [a-z]+ \S+$/)
+  // Beside the percentage, the countdown is the clock and the time, with no label.
+  for (const m of metrics)
+    expect(m.text).toMatch(m.text.startsWith('◔') ? /^◔ \S+$/ : /^\S [a-z]+ \S+$/)
 })
 
-test('metrics are grouped: tokens | activity | spend | cache', () => {
+test('metrics are grouped: tokens | cache | activity | spend', () => {
   expect(text(146).split(' │ ')).toEqual([
-    '↑ in 12.5k  ↓ out 3.1k  ◈ hit 1%',
+    '↑ in 12.5k  ↓ out 3.1k',
+    expect.stringMatching(/^◈ cache 1% {2}◔ 3:42 ━{10}$/),
     '⌘ calls 14  ▸ agents 2  ◇ bg 1  ◷ work 12:05',
     '$ cost 0.42  ± diff +120 -30',
-    expect.stringMatching(/^◔ cache 3:42 ━{10}$/),
+  ])
+})
+
+test('a band with no room for the percentage gives the countdown its label', () => {
+  expect(text(100).split(' │ ')[1]).toBe('◈ cache 1%  ◔ 3:42')
+  expect(text(99).split(' │ ')).toEqual([
+    '↑ in 12.5k  ↓ out 3.1k',
+    '◔ cache 3:42',
+    '⌘ calls 14  ▸ agents 2  ◷ work 12:05',
+    '$ cost 0.42',
   ])
 })
 
@@ -71,8 +83,8 @@ test('narrow widths drop the bar first, then bg, diff, hit, calls, work, cost, o
   expect(text(120)).not.toContain('━')
   expect(text(126)).toContain('diff')
   expect(text(110)).not.toContain('diff')
-  expect(text(110)).toContain('hit')
-  expect(text(94)).not.toContain('hit')
+  expect(text(110)).toContain('◈ cache')
+  expect(text(94)).not.toContain('◈')
   expect(text(94)).toContain('calls')
   expect(text(84)).not.toContain('calls')
   expect(text(84)).toContain('work')
@@ -109,7 +121,7 @@ test('group separators are dim', () => {
 
 test('the countdown color follows the remaining time', () => {
   const cache = (now: number) =>
-    bandSegments({ ...base, now, columns: 120 }).find((s) => s.text.startsWith('◔ cache '))
+    bandSegments({ ...base, now, columns: 120 }).find((s) => s.text.startsWith('◔ '))
   expect(cache(0)?.color).toBe(PALETTE.green)
   expect(cache(250_000)?.color).toBe(PALETTE.yellow)
   expect(cache(290_000)?.color).toBe(PALETTE.red)
@@ -120,7 +132,7 @@ test('an expired cache is dim text alone: no strikethrough and no bar', () => {
   const expired = bandSegments({ ...base, now: 400_000, columns: 200 })
   expect(expired.some((s) => 'strike' in s)).toBe(false)
   const row = expired.map((s) => s.text).join('')
-  expect(row).toContain('◔ cache expired')
+  expect(row).toContain('◔ expired')
   expect(row).not.toContain('━')
   // The fit does not count a bar that is not drawn (the button's `[ ]` takes four cells).
   const fitted = bandSegments({ ...base, now: 400_000, columns: row.length + 4 })
@@ -139,7 +151,7 @@ test('animated counts replace the numbers that are drawn', () => {
   expect(t).toContain('⌘ calls 13')
   expect(t).toContain('$ cost 0.20')
   expect(t).toContain('± diff +100 -20')
-  expect(t).toContain('◈ hit 1%')
+  expect(t).toContain('◈ cache 1%')
 })
 
 test('parts are dropped by the target values, so a part does not come and go during a tween', () => {
@@ -172,15 +184,15 @@ test('an agent view is marked and leaves out the session-only metrics', () => {
   expect(t.startsWith('◆ agent │ ↑ in 12.5k')).toBe(true)
   expect(t).toContain('⌘ calls 14')
   expect(t).toContain('± diff +120 -30')
-  expect(t).toContain('◔ cache 3:42')
+  expect(t).toContain('◈ cache 1%  ◔ 3:42')
   for (const gone of ['$ cost', '◷ work', '▸ agents', '◇ bg']) expect(t).not.toContain(gone)
 })
 
 test('agents is the last part the band drops', () => {
   // Wide enough for the agents button and the cache countdown only. The button is drawn
   // as `[ label ]`: its four cells of chrome count toward the width.
-  const fit = '[ ▸ agents 2 ] │ ◔ cache 3:42'.length
-  expect(text(fit)).toBe('▸ agents 2 │ ◔ cache 3:42')
+  const fit = '◔ cache 3:42 │ [ ▸ agents 2 ]'.length
+  expect(text(fit)).toBe('◔ cache 3:42 │ ▸ agents 2')
   expect(text(fit - 1)).toBe('◔ cache 3:42')
 })
 
@@ -218,7 +230,7 @@ test('the stats of an agent are its tokens, cache hit, calls and diff, with no c
   const text = statSegments(snap)
     .map((s) => s.text)
     .join('')
-  expect(text).toBe('↑ in 10.0k  ↓ out 2.5k  ◈ hit 90%  ⌘ calls 7  ± diff +12 -3')
+  expect(text).toBe('↑ in 10.0k  ↓ out 2.5k  ◈ cache 90%  ⌘ calls 7  ± diff +12 -3')
 })
 
 test('an agent view names the model and the effort after its mark', () => {
