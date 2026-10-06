@@ -213,10 +213,10 @@ The `side requests` row is the ledger cost that no model row and no advisor cost
 
 ## 10. Band
 
-The band is one row above the prompt (`AbovePrompt`). Each metric is `icon label value`. A `│` separates the groups.
+The band is one row above the prompt (`AbovePrompt`). Each metric is `icon label value`. A `│` separates the groups. The countdown beside the cache percentage has no label. In a narrow band with no percentage, it is `◔ cache 3:42`.
 
 ```
-↑ in 12.5k  ↓ out 3.1k  ◈ hit 89% │ ⌘ calls 14  [ ▸ agents 2 ]  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30 │ ◔ cache 3:42 ━━━━━━━━━━
+↑ in 12.5k  ↓ out 3.1k │ ◈ cache 89%  ◔ 3:42 ━━━━━━━━━━ │ ⌘ calls 14  [ ▸ agents 2 ]  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30
 ```
 
 - No emoji. Each drawn character has a width of one cell.
@@ -247,7 +247,7 @@ When the transcript of an agent is in view (`e.props.view.agentId`), the band sh
 
 ## 11. Pane
 
-The pane opens from the `agents` button and from the `/agent-log` command. Its title is `Flight Deck`. The pane has two screens.
+The pane opens from the `agents` button and from the `/agent-log` command. Its title is `🤖 Flight Deck`. The pane has two screens.
 
 Section 11.7 gives the layout of the pane. That layout is the same on each surface. Section 11.8 gives how each surface draws it.
 

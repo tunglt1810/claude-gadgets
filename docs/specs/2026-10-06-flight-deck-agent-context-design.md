@@ -108,7 +108,7 @@ A model with a window of 1000000 compacts at approximately 967000 tokens. Thus t
 ### 5.1 Row
 
 ```
-   agents                        runs      time
+     agents                      runs      time
 ⣿  ▾ Explore · find window api      1   0:01:12
      sonnet-5-5 · high · ctx 182.4k/1M 18%
 ⣿  ▸ general-purpose · web search   0   0:00:41
@@ -118,6 +118,7 @@ A model with a window of 1000000 compacts at approximately 967000 tokens. Thus t
 - The expand button is between the mark and the name. Its label is `▸` (closed) or `▾` (open). Its key is `expand:<agentId>`.
 - The width of the expand button does not change. The name column is narrower by that width and one gap.
 - The name button does not change. It opens the transcript of the agent.
+- The header row has an empty cell above the expand buttons. Thus the `agents` header starts above the names, and a desktop aligns the header with the rows.
 
 ### 5.2 Detail row
 
@@ -148,7 +149,7 @@ Rules:
 The row below the title gets a last part:
 
 ```
-sonnet-5-5 high · 2 runs · ◷ 0:01:12 · ctx 182.4k/1M 18%
+claude-sonnet-5-5 high · 2 runs · ◷ 0:01:12 · ctx 182.4k/1M 18%
 ```
 
 - The part is `ctx <tokens>/<window> <pct>%` with the color of section 4.4.
@@ -184,6 +185,7 @@ After:
 - The sequence in which a narrow band removes its parts does not change.
 - The band of an agent view has the same groups.
 - The stats row of the transcript screen shows `◈ cache 90%`. It has no countdown.
+- The diff is the last part of the band, and the `agents` button is after the countdown.
 
 ## 9. Redraw
 

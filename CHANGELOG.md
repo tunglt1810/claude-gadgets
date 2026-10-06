@@ -9,6 +9,23 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+### [0.5.0] - 2026-10-06
+
+Tested on Claude Code 2.1.291.
+
+#### Added
+
+- Agents table: each row has an expand button (`▸`, `▾`). It shows or hides a detail row with the model, the effort and the context length of the agent: `sonnet-5-5 · high · ctx 182.4k/1M 18%`.
+- Transcript screen: the row below the title shows the context length of the agent.
+- The context length has a color for its percentage: green below 50, yellow from 50, red from 80.
+- The context window of a model follows the resolver of Claude Code 2.1.291: 1M for Opus 4.7 and later, Sonnet 5 and later, Fable and Mythos, and for an id with `[1m]`. 200k for all other models, and for each model when `CLAUDE_CODE_DISABLE_1M_CONTEXT` is set.
+- Terminal: an empty row is between the pane title and the pane body.
+
+#### Changed
+
+- The title of the pane is `🤖 Flight Deck`.
+- Band: the cache hit percentage and the cache countdown are one group, after the tokens: `◈ cache 80%  ◔ 4:50 ━━━`. The label of the percentage is `cache`, not `hit`. A narrow band with no percentage shows `◔ cache 4:50`.
+
 ### [0.4.0] - 2026-10-06
 
 Tested on Claude Code 2.1.291.
