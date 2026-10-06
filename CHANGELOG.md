@@ -25,7 +25,11 @@ Tested on Claude Code 2.1.291.
 
 - The title of the pane is `🤖 Flight Deck`.
 - Band: the `agents` button is the last part, at the right end of the row.
-- Band: the cache hit percentage and the cache countdown are one group, after the tokens: `◈ cache 80%  ◔ 4:50 ━━━`. The label of the percentage is `cache`, not `hit`. A narrow band with no percentage shows `◔ cache 4:50`.
+
+#### Removed
+
+- Band: the bar after the cache countdown. The countdown is its time only.
+- Band: the cache hit percentage and the cache countdown are one group, after the tokens: `◈ cache 80%  ◔ 4:50`. The label of the percentage is `cache`, not `hit`. A narrow band with no percentage shows `◔ cache 4:50`.
 
 ### [0.4.0] - 2026-10-06
 

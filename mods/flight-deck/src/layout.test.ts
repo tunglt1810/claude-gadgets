@@ -35,7 +35,8 @@ test('every metric is icon, label, value', () => {
   expect(t).toContain('$ cost 0.42')
   expect(t).toContain('± diff +120 -30')
   expect(t).toContain('◔ 3:42')
-  expect(t).toContain('━')
+  // The countdown is its time alone: the band draws no bar.
+  expect(t).not.toContain('━')
 })
 
 test('every metric uses the same spacing: one icon, a space, the label, a space, the value', () => {
@@ -49,7 +50,7 @@ test('every metric uses the same spacing: one icon, a space, the label, a space,
 test('metrics are grouped: tokens | cache | activity | spend', () => {
   expect(text(146).split(' │ ')).toEqual([
     '↑ in 12.5k  ↓ out 3.1k',
-    expect.stringMatching(/^◈ cache 1% {2}◔ 3:42 ━{10}$/),
+    '◈ cache 1%  ◔ 3:42',
     '⌘ calls 14  ◇ bg 1  ◷ work 12:05',
     '$ cost 0.42  ± diff +120 -30  ▸ agents 2',
   ])
@@ -79,8 +80,9 @@ test('the band never exceeds the width it is given and never starts or ends with
   }
 })
 
-test('narrow widths drop the bar first, then bg, diff, hit, calls, work, cost, output, input, agents', () => {
-  expect(text(120)).not.toContain('━')
+test('narrow widths drop bg first, then diff, hit, calls, work, cost, output, input, agents', () => {
+  expect(text(129)).toContain('◇ bg')
+  expect(text(124)).not.toContain('◇ bg')
   expect(text(126)).toContain('diff')
   expect(text(110)).not.toContain('diff')
   expect(text(110)).toContain('◈ cache')
@@ -128,13 +130,12 @@ test('the countdown color follows the remaining time', () => {
   expect(cache(400_000)?.color).toBe(PALETTE.dim)
 })
 
-test('an expired cache is dim text alone: no strikethrough and no bar', () => {
+test('an expired cache is dim text alone: no strikethrough', () => {
   const expired = bandSegments({ ...base, now: 400_000, columns: 200 })
   expect(expired.some((s) => 'strike' in s)).toBe(false)
   const row = expired.map((s) => s.text).join('')
   expect(row).toContain('◔ expired')
-  expect(row).not.toContain('━')
-  // The fit does not count a bar that is not drawn (the button's `[ ]` takes four cells).
+  // The button's `[ ]` takes four cells.
   const fitted = bandSegments({ ...base, now: 400_000, columns: row.length + 4 })
   expect(fitted.map((s) => s.text).join('')).toBe(row)
 })
@@ -155,26 +156,25 @@ test('animated counts replace the numbers that are drawn', () => {
 })
 
 test('parts are dropped by the target values, so a part does not come and go during a tween', () => {
-  const columns = text(200).length - 1
-  expect(text(columns)).not.toContain('━')
-  // `999` is narrower than `12.5k`: with the bar it would fit, but the target does not.
+  // One cell short of the whole band: the button's `[ ]` takes four cells.
+  const columns = text(200).length + 3
+  expect(text(columns)).not.toContain('◇ bg')
+  // `999` is narrower than `12.5k`: with it the bg would fit, but the target does not.
   const t = bandSegments({ ...base, columns, shown: { ...target, in: 999 } })
     .map((s) => s.text)
     .join('')
   expect(t).toContain('↑ in 999')
-  expect(t).not.toContain('━')
+  expect(t).not.toContain('◇ bg')
 })
 
-test('spawn counts are the first metrics dropped after the bar', () => {
+test('the background count is the first metric dropped', () => {
   const full = text(200)
   expect(full).toContain('▸ agents 2')
   expect(full).toContain('◇ bg 1')
-  const w = full.length
-  expect(text(w - 1)).not.toContain('━')
-  const noBar = text(w - 1).length
-  expect(text(noBar - 1)).not.toContain('◇ bg')
-  expect(text(noBar - 1)).toContain('▸ agents 2')
-  expect(text(noBar - 1)).toContain('± diff')
+  const narrow = text(full.length + 3)
+  expect(narrow).not.toContain('◇ bg')
+  expect(narrow).toContain('▸ agents 2')
+  expect(narrow).toContain('± diff')
 })
 
 test('an agent view is marked and leaves out the session-only metrics', () => {

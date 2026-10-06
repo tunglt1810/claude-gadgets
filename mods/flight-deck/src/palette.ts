@@ -2,7 +2,6 @@
 export const PALETTE = {
   fg: '#fcfcfa',
   dim: '#727072',
-  track: '#403e41',
   red: '#ff6188',
   orange: '#fc9867',
   yellow: '#ffd866',

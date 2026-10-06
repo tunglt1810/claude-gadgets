@@ -32,7 +32,6 @@ type Input = {
 }
 
 const TONE = { ok: PALETTE.green, warn: PALETTE.yellow, danger: PALETTE.red } as const
-const BAR_CELLS = 10
 // Between groups; metrics inside a group are separated by two spaces.
 const SEP: Segment = { text: ' │ ', color: PALETTE.dim }
 
@@ -64,18 +63,7 @@ const GROUPS: readonly (readonly Part[])[] = [
 ]
 
 // Metrics in the order they are dropped when the band is too narrow (first = dropped first).
-const DROP_ORDER = [
-  'bar',
-  'bg',
-  'diff',
-  'hit',
-  'tools',
-  'work',
-  'cost',
-  'out',
-  'in',
-  'agents',
-] as const
+const DROP_ORDER = ['bg', 'diff', 'hit', 'tools', 'work', 'cost', 'out', 'in', 'agents'] as const
 type Part = (typeof DROP_ORDER)[number] | 'cache'
 // `timer` is the countdown with no label: it is drawn in place of `cache`, never dropped by name.
 type Parts = Record<Part | 'timer', Segment[]>
@@ -126,7 +114,6 @@ export const bandSegments = ({
   const tone = countdownTone(rem)
   const expired = tone === 'expired'
   const pct = cacheHitPct(snap.totals)
-  const filled = rem === null || rem <= 0 ? 0 : Math.max(1, Math.round((rem / total) * BAR_CELLS))
   // The terminal has no blink attribute: pulse by alternating bold/inverse each second.
   const pulse = tone === 'danger' && Math.floor(now / 1000) % 2 === 0
   const cacheColor = expired ? PALETTE.dim : TONE[tone]
@@ -164,11 +151,6 @@ export const bandSegments = ({
     ],
     cache: countdown(LABEL.cache),
     timer: countdown(LABEL.clock),
-    bar: [
-      { text: ' ' },
-      { text: '━'.repeat(filled), color: cacheColor },
-      { text: '━'.repeat(BAR_CELLS - filled), color: PALETTE.track },
-    ],
   })
 
   const build = (parts: Parts, dropped: ReadonlySet<string>): Segment[] => {
@@ -183,8 +165,6 @@ export const bandSegments = ({
         if (i > 0) segs.push({ text: '  ' })
         // Beside the percentage the countdown has no label of its own.
         segs.push(...(part === 'cache' && !dropped.has('hit') ? parts.timer : parts[part]))
-        // An expired cache has no time left to show: the bar is drawn for a live one only.
-        if (part === 'cache' && !expired && !dropped.has('bar')) segs.push(...parts.bar)
       })
     }
     // The band draws the free room of the row before the button: a gap parts them, not a `│`.

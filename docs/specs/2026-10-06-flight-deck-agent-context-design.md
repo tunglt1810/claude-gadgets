@@ -178,13 +178,13 @@ Before:
 After:
 
 ```
-↑ in 12.5k  ↓ out 3.1k │ ◈ cache 1%  ◔ 3:42 ━━━━━━━━━━ │ ⌘ calls 14  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30        [ ▸ agents 2 ]
+↑ in 12.5k  ↓ out 3.1k │ ◈ cache 1%  ◔ 3:42 │ ⌘ calls 14  ◇ bg 1  ◷ work 12:05 │ $ cost 0.42  ± diff +120 -30        [ ▸ agents 2 ]
 ```
 
 - The label of the percentage is `cache`, not `hit`. Its color does not change.
-- Beside the percentage, the countdown is the clock icon and the time: `◔ 3:42`, `◔ expired`, `◔ --`. Its color, its pulse and its bar do not change.
+- Beside the percentage, the countdown is the clock icon and the time: `◔ 3:42`, `◔ expired`, `◔ --`. The band draws no bar after the countdown. The color and the pulse of the countdown do not change.
 - A narrow band removes the percentage before the countdown. The countdown then has its label again: `◔ cache 3:42`.
-- The sequence in which a narrow band removes its parts does not change.
+- A narrow band removes its parts in this sequence: bg, diff, percentage, calls, work, cost, out, in, agents.
 - The band of an agent view has the same groups.
 - The stats row of the transcript screen shows `◈ cache 90%`. It has no countdown.
 - The `agents` button is the last part of the band, at the right end of the row. It is in no group: a gap of two cells or more is before it, and no `│`.
