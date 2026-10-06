@@ -1829,3 +1829,55 @@ test('a killed notification ends the working time of the agent', async ($, on) =
   await clock.advance(5000)
   expect(await settled($, clock)).toContain('◷ work 0:03')
 })
+
+test('the transcript screen shows the context length of the agent', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-haiku-4-5-20251001', agentId: 'a2' } as never)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    // The agents table shows no context length while each detail row is closed.
+    expect(await paneText(ui)).not.toContain('ctx ')
+    await ui.press({ key: 'agent:a1' })
+    expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+    await ui.press({ key: 'back' })
+    await ui.press({ key: 'agent:a2' })
+    expect(await paneText(ui)).toContain('ctx 100/200k 0%')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the 1M disable variable gives a window of 200k', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, { CLAUDE_CODE_DISABLE_1M_CONTEXT: '1' })
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a1' } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).toContain('ctx 100/200k 0%')
+  await ui.unmount()
+})
+
+test('an agent with no step shows no context part', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).not.toContain('ctx ')
+  expect(await ui.find({ key: 'meta:sep:ctx' })).toBeUndefined()
+  await ui.unmount()
+})

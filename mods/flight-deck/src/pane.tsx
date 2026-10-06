@@ -19,6 +19,7 @@ import { inputCode, toolSummary } from './summary'
 import { agentTable, recency, runsLabel } from './table'
 import { lastItems } from './transcript'
 import { treeRows } from './tree'
+import { contextColor, contextText } from './window'
 
 type Props = {
   ui: Elements[keyof Elements]
@@ -391,6 +392,12 @@ export const AgentPane = ({
           {cell('meta:runs', { text: runsLabel(agent.runs), dim: true })}
           {cell('meta:sep:time', { text: SEP, dim: true })}
           {cell('meta:time', timeCell(agent, now))}
+          {agent.context !== undefined && cell('meta:sep:ctx', { text: SEP, dim: true })}
+          {agent.context !== undefined &&
+            cell('meta:ctx', {
+              text: contextText(agent.context, true),
+              color: contextColor(agent.context),
+            })}
         </Box>
       )}
       {stats !== null && (

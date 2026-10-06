@@ -33,7 +33,7 @@ import {
 } from '../src/snapshot'
 import { SPIN_MS } from '../src/spinner'
 import { transcriptItems } from '../src/transcript'
-import { cacheTtls, isOverLimit, type Ttl } from '../src/ttl'
+import { cacheTtls, isOn, isOverLimit, type Ttl } from '../src/ttl'
 import {
   countsOf,
   isNamedSettled,
@@ -46,6 +46,7 @@ import {
   snapShown,
 } from '../src/tween'
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
+import { contextTokens, contextWindow } from '../src/window'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
 import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
 
@@ -478,10 +479,25 @@ export const register: Register = (on, options) => {
       await save($, id, nextMeter)
       const agentId = e.agentId
       const effort = e.effort === undefined ? undefined : String(e.effort)
-      if (agentId !== undefined)
-        await trackAgent($, id, (r, t) => tuned(ran(r, agentId, t), agentId, e.model, effort))
-      // The dashboard's numbers changed.
-      else await syncPane($)
+      if (agentId !== undefined) {
+        // A step with no usage tells nothing of the window: the entry keeps its context.
+        const context =
+          res.usage === null
+            ? undefined
+            : {
+                tokens: contextTokens(res.usage),
+                window: contextWindow(
+                  e.model,
+                  isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')),
+                ),
+              }
+        await trackAgent($, id, (r, t) =>
+          tuned(ran(r, agentId, t), agentId, e.model, effort, context),
+        )
+      } else {
+        // The dashboard's numbers changed.
+        await syncPane($)
+      }
       startTimer($, ttls)
       return res
     } finally {

@@ -11,7 +11,7 @@ export const TTL_ENV = [
 ] as const
 export type TtlEnv = Partial<Record<(typeof TTL_ENV)[number], string | undefined>>
 
-const isOn = (v: string | undefined): boolean =>
+export const isOn = (v: string | undefined): boolean =>
   v !== undefined && ['1', 'true', 'yes', 'on'].includes(v.toLowerCase())
 
 // The engine's resolver, read from the Claude Code 2.1.291 binary (minified, names restored):

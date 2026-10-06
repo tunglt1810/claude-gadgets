@@ -80,6 +80,8 @@ export type AgentEntry = {
   // The model and the effort of the agent's latest step.
   model?: string
   effort?: string
+  // The input side of the agent's latest step, and the window of the step's model.
+  context?: { tokens: number; window: number }
   status: 'running' | 'idle' | 'stopped'
   runs: number
   startedAt: number
