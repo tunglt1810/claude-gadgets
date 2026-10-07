@@ -14,6 +14,7 @@ import { costOf } from '../src/price'
 import {
   agentsKey,
   agentTitle,
+  called,
   completed,
   ended,
   merged,
@@ -772,7 +773,7 @@ export const register: Register = (on, options) => {
     // of a stopped call can come after the end of the run.
     if (loop !== undefined) {
       const session = await ensureLoaded($)
-      await trackAgent($, session, (r, t) => ran(r, loop, t))
+      await trackAgent($, session, (r, t) => called(r, loop, t))
     }
     const res = await next(e)
     // A call the user or a rule denied never ran.

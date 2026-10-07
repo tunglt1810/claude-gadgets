@@ -1308,8 +1308,9 @@ test('a stored running agent that this process does not list loads as stopped', 
   await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'b1' } as never)
 
   const ui = await mountPane($, 'terminal')
+  // The tool call loads the session. Its loop is not a known agent: it adds no row.
   const marked = await marks(ui)
-  expect(marked).toHaveLength(2)
+  expect(marked).toHaveLength(1)
   expect(marked.map((m) => m.props.color)).toContain('#ff6188')
   await ui.unmount()
 })
@@ -2747,5 +2748,20 @@ test('a stop button forgets its question when the agent ends', async ($, on) => 
   expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
   await ui.press({ key: 'stop:a1' })
   expect(stops).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('a tool call of a loop that the session does not list adds no agent', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  // An inner loop of the engine: it raises tool calls under an id, with no spawn and no step.
+  await $.tool.call({ tool: 'Read', file_path: 'a.md', agentId: 'ghost' } as never)
+
+  const ui = await mountPane($, 'terminal')
+  expect(await ui.find({ key: 'agent:a1' })).toBeDefined()
+  expect(await ui.find({ key: 'agent:ghost' })).toBeUndefined()
   await ui.unmount()
 })

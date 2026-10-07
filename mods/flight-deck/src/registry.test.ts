@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
   agentsKey,
+  called,
   completed,
   ended,
   merged,
@@ -189,4 +190,10 @@ test('parseRegistry loads an entry with no context and ignores a bad one', () =>
     const raw = { a1: { ...old.a1, context: bad } }
     expect(parseRegistry(raw).a1).toEqual(old.a1)
   }
+})
+
+test('a tool call runs a known agent and adds no entry for an unknown loop', () => {
+  const r = stopped(spawned({}, 'a1', 100, {}), 'a1', 200)
+  expect(called(r, 'a1', 300).a1).toMatchObject({ status: 'running', runs: 2 })
+  expect(called(r, 'ghost', 300)).toEqual(r)
 })

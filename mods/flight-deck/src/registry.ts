@@ -51,6 +51,12 @@ export const ran = (r: Registry, id: string, at: number): Registry => {
   }
 }
 
+// A tool call under the id of a loop: a known agent runs. An unknown id adds no entry: an inner
+// loop of the engine raises tool calls under an id of its own, with no spawn, no step and no
+// end, and the session does not list it.
+export const called = (r: Registry, id: string, at: number): Registry =>
+  r[id] === undefined ? r : ran(r, id, at)
+
 // An agent as the pane and the band name it: its type, then what it does.
 export const agentTitle = (a: AgentEntry): string =>
   [a.type ?? 'agent', a.description ?? a.name ?? a.id].join(' · ')
