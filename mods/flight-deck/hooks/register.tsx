@@ -273,15 +273,32 @@ async function recordContext(
 
 // Reads a breakdown and draws it. A `full` one sends a token-count request for each tool and
 // each memory file: only a press asks for it.
-async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void> {
+async function measureContext($: Api, detail: 'summary' | 'full', isRetry = false): Promise<void> {
   const id = await $.session.id()
   const seq = ++contextSeq
   const usage = await $.session.usage({ breakdown: detail })
-  // A full count is slow. A reply that comes after a newer sample, or after a change of the
-  // session, is dropped.
-  if (seq !== contextSeq || (await $.session.id()) !== id) return
+  if ((await $.session.id()) !== id) return
+  // A full count is slow. A reply that comes after a newer sample is dropped. The person
+  // asked for a full count: it is counted one more time.
+  if (seq !== contextSeq) {
+    if (detail === 'full' && !isRetry) await measureContext($, 'full', true)
+    return
+  }
   await recordContext($, id, usage.context, detail, false)
   await syncPane($)
+}
+
+// A full count sends many requests: a press while one is on its way starts no other.
+let isCounting = false
+async function countFull($: Api): Promise<void> {
+  if (isCounting) return
+  isCounting = true
+  try {
+    // A count that fails leaves the summary on the screen.
+    await measureContext($, 'full').catch(() => undefined)
+  } finally {
+    isCounting = false
+  }
 }
 
 // The engine's list merged in (it has the agents that raised no spawn), then one registry
@@ -300,10 +317,10 @@ async function trackAgent(
       ? { ...c, entries: change(pruned(merged(c.entries, list, at), list, at), at) }
       : c,
   )
-  // An unchanged registry is not stored and not drawn again: most events of a running agent
-  // change nothing.
-  if (JSON.stringify(next.entries) === before) return
-  if (next.sessionId === id) await $.store.set(agentsKey(id), next.entries)
+  // An unchanged registry is not stored again: most events of a running agent change
+  // nothing. The pane is still drawn: the caller can have changed the numbers of the meter.
+  if (next.sessionId === id && JSON.stringify(next.entries) !== before)
+    await $.store.set(agentsKey(id), next.entries)
   await syncPane($)
   startSpinner($)
 }
@@ -395,8 +412,7 @@ async function openContext($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isContext: true }))
   })
-  // A count that fails leaves the summary on the screen.
-  await measureContext($, 'full').catch(() => undefined)
+  await countFull($)
 }
 
 // Back to the tree, with the focus on the button that opened the context screen.
@@ -487,11 +503,7 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
   await update($, pane, (c) => ({
     ...c,
     controlError:
-      reason !== null
-        ? { agentId, reason: stopFailure(reason) }
-        : c.controlError?.agentId === agentId
-          ? null
-          : c.controlError,
+      reason !== null ? { agentId, reason: stopFailure(reason) } : ownErrorGone(c, agentId),
   }))
 }
 
@@ -499,17 +511,24 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
 // this wait.
 const REFOCUS_MS = 80
 
+// The field that the later focus moves go to, or null when the person chose another place.
+let wantedFocus: string | null = null
+
 // Puts the focus in the message field of an agent, so the person can type at once. The
 // pressed button stays on the screen, and the engine can give it the ring back when the
 // press ends: a second move comes a short time after the press.
 async function focusField($: Api, agentId: string): Promise<void> {
-  const move = () => $.ui.focus({ requestId: PANE_ID, key: `say:${agentId}` }).catch(() => ({}))
+  const key = `say:${agentId}`
+  wantedFocus = key
+  // A later move does nothing after the person moved the focus or pressed another button.
+  const move = async (): Promise<{ deny?: string }> =>
+    wantedFocus === key ? $.ui.focus({ requestId: PANE_ID, key }).catch(() => ({})) : {}
   const first = await move()
   // A click presses a button of a pane that does not hold the keyboard, and the engine then
   // refuses each focus move. The pane asks for the keyboard as it does when it opens.
   // Limit: the surface gives the keyboard only while the prompt of the session is empty. With
   // text in the prompt the field gets no focus, and the person must click the field.
-  if (!isPaneFocused || ('deny' in first && first.deny !== undefined)) {
+  if (!isPaneFocused || first.deny !== undefined) {
     await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true }).catch(() => undefined)
   }
   // The pane holds the keyboard a short time after it asked: a live log gave a refused move
@@ -553,6 +572,7 @@ async function toggleCompose($: Api, agentId: string): Promise<void> {
 
 // What a pane button does, from its press or from the click that gave the pane the focus.
 async function act($: Api, action: PaneAction): Promise<void> {
+  if (action.kind !== 'compose') wantedFocus = null
   if (action.kind === 'stop') return stopAgent($, action.agentId)
   // Any other press takes back the question of a stop button.
   if ((await read($, pane)).stopAsk != null) await update($, pane, (c) => ({ ...c, stopAsk: null }))
@@ -563,7 +583,7 @@ async function act($: Api, action: PaneAction): Promise<void> {
     // State of an older shape (a hot reload) has no flag.
     return (await read($, pane)).isContext === true ? closeContext($) : backToTree($)
   if (action.kind === 'context') return openContext($)
-  if (action.kind === 'recount') return measureContext($, 'full').catch(() => undefined)
+  if (action.kind === 'recount') return countFull($)
   if (action.kind === 'category') {
     // A category with no items has no rows to open: a click that only gave the pane the
     // focus gets here too.
@@ -830,8 +850,6 @@ export const register: Register = (on, options) => {
                 ),
               }
         await trackAgent($, id, (r) => tuned(r, agentId, e.model, effort, context))
-        // The numbers of the step changed, with or without a change of the registry.
-        await syncPane($)
       } else {
         // The dashboard's numbers changed.
         await syncPane($)
@@ -881,7 +899,11 @@ export const register: Register = (on, options) => {
     }))
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
-    if (loop !== undefined) await refreshViewed($, loop)
+    if (loop !== undefined) {
+      // The counts of the agent changed.
+      await syncPane($)
+      await refreshViewed($, loop)
+    }
     return res
   })
 
@@ -1002,6 +1024,8 @@ export const register: Register = (on, options) => {
   on('ui.focus', async ($, e, next) => {
     // Read before `next`: landing the ring draws the pane focused.
     const wasFocused = isPaneFocused
+    // The person moved the focus: no later move of the mod takes it back.
+    if (e.origin.kind === 'person') wantedFocus = null
     const res = await next(e)
     const element = e.element
     const isClick =

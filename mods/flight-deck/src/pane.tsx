@@ -84,7 +84,7 @@ const BUTTON_CHROME = 4
 // The least room that the bar of a scrolled transcript keeps for the agent's name.
 const MIN_STICKY_NAME = 8
 // The columns that the toolbar of a transcript keeps for its back and wrap buttons.
-const TOOLBAR_USED = 27
+const TOOLBAR_USED = BACK.length + BUTTON_CHROME + 1 + 'wrap off'.length + BUTTON_CHROME + 1 + 1
 // A tool call by its outcome: its mark and the color of the mark. A finished call is dim at
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const

@@ -86,7 +86,11 @@ export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSa
     categories: byTokens(
       b.categories
         .filter((r) => r.kind === 'used' && r.name !== MESSAGES)
-        .map((r) => ({ name: r.name, tokens: r.tokens, items: items[r.name] ?? [] })),
+        .map((r) => ({
+          name: r.name,
+          tokens: r.tokens,
+          items: Object.hasOwn(items, r.name) ? (items[r.name] ?? []) : [],
+        })),
     ),
     servers,
   }
@@ -132,10 +136,12 @@ export const contextView = (
       ? null
       : Math.max(0, Math.floor((s.threshold - s.tokens) / perTurn))
   const price = snap.mainModel === undefined ? null : readPrice(snap.mainModel)
+  // A session of an older version has no record of its steps and its calls: a carry cost from
+  // it is too small, and no server is known as unused.
+  const isPartial = snap.mcpCalls.includes(UNKNOWN_CALLS)
   const carry = (tokens: number): number | null =>
-    price === null ? null : (tokens * snap.steps * price) / 1e6
-  // A session of an older version has no record of its calls: no server is known as unused.
-  const unused = (snap.mcpCalls.includes(UNKNOWN_CALLS) ? [] : s.servers)
+    price === null || isPartial ? null : (tokens * snap.steps * price) / 1e6
+  const unused = (isPartial ? [] : s.servers)
     .filter((v) => !v.tools.some((t) => snap.mcpCalls.includes(t)))
     .map((v) => ({ name: v.name, tokens: v.tokens, count: v.tools.length }))
   return {

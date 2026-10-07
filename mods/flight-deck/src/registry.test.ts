@@ -223,3 +223,9 @@ test('parseRegistry reads a record of an older version, with no run, as one star
   const old = { a1: { id: 'a1', status: 'stopped', runs: 0, startedAt: 1, endedAt: 2 } }
   expect(parseRegistry(old).a1?.runs).toBe(1)
 })
+
+test('a completed notification ends a first run whose turn.complete the mod did not see', () => {
+  // An agent in its first run has no earlier run that a late notification can be of.
+  const r = ended(spawned({}, 'a1', 100, {}), 'a1', 'completed', 200)
+  expect(r.a1).toMatchObject({ status: 'idle', runs: 1, endedAt: 200 })
+})

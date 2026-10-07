@@ -328,3 +328,24 @@ test('a session with no record of its MCP calls shows no dead weight', () => {
   expect(v?.unused).toEqual([])
   expect(v?.deadWeight).toBe(0)
 })
+
+test('a session with no record of its steps shows no carry cost', () => {
+  // A snapshot of an older version has no count of steps: a cost from it is too small.
+  const v = contextView(state(), { ...SNAP, steps: 4, mcpCalls: [UNKNOWN_CALLS] })
+  expect(v?.carryUsd).toBeNull()
+  expect(v?.categories.every((r) => r.carryUsd === null)).toBe(true)
+})
+
+test('a category with the name of an object method has no items', () => {
+  const odd = sampleOf(
+    {
+      ...CONTEXT,
+      breakdown: {
+        ...CONTEXT.breakdown,
+        categories: [{ name: 'constructor', tokens: 10, kind: 'used' }],
+      },
+    },
+    'full',
+  )
+  expect(odd?.categories).toEqual([{ name: 'constructor', tokens: 10, items: [] }])
+})

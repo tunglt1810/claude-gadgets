@@ -108,12 +108,13 @@ export type TaskStatus = 'completed' | 'failed' | 'killed'
 // A task notification of a known agent. No end counts a run: its start counted it. Another
 // background task's notification changes nothing. A `completed` one changes no agent that
 // runs: the turn.complete of the run ends it, and the notification can come after a message
-// started the agent again.
+// started the agent again. An agent in its first run has no earlier run: the notification
+// ends it, which covers a turn.complete that the mod did not see.
 export const ended = (r: Registry, id: string, status: TaskStatus, at: number): Registry => {
   const a = r[id]
   if (a === undefined) return r
   if (status !== 'completed') return stopped(r, id, at)
-  if (a.status === 'running') return r
+  if (a.status === 'running' && a.endedAt !== null) return r
   return { ...r, [id]: { ...a, status: 'idle', endedAt: at } }
 }
 
