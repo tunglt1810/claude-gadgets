@@ -21,6 +21,9 @@ const engine = (
     toasts: [] as string[],
     headers: [] as (string | undefined)[],
     session: 'S1',
+    checks: 0,
+    // A hook beneath the plugin that changes the command: by default it changes nothing.
+    rewrite: (command: string, _check: number) => command,
     verdict,
   }
   on('session.id', () => ({ value: seen.session }))
@@ -43,7 +46,7 @@ const engine = (
     }
     const { decision } = await $.tool.check({
       tool: e.tool,
-      input: { command: e.command },
+      input: { command: seen.rewrite(String(e.command), ++seen.checks) },
       tool_use_id: e.tool_use_id,
     })
     if (decision !== 'allow') return { result: {} as never, text: seen.verdict, isError: true }
@@ -201,4 +204,35 @@ test('a remembered rule does not run a call that the classifier judged', async (
   expect(seen.runs).toBe(1)
   expect(res.text).toBe(JUDGMENT)
   expect(seen.toasts).toHaveLength(0)
+})
+
+test('the question shows the input that the permission decision read', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  seen.rewrite = (command) => `${command} --force`
+
+  await $.tool.call(CALL)
+
+  expect(seen.asks[0]).toContain('{"command":"git push --force"}')
+  expect(seen.runs).toBe(1)
+})
+
+test('an approval does not run an input that the question did not show', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  seen.rewrite = (command, check) => (check === 1 ? command : 'rm -rf x')
+
+  const res = await $.tool.call(CALL)
+
+  expect(seen.asks).toHaveLength(1)
+  expect(seen.runs).toBe(0)
+  expect(res.text).toBe(NO_VERDICT)
+})
+
+test('a rule does not run an input that changes after the match', async ($, on) => {
+  const seen = engine($, on, REMEMBER)
+
+  await $.tool.call(CALL)
+  seen.rewrite = (command, check) => (check === 3 ? command : 'rm -rf x')
+  await $.tool.call({ ...CALL, tool_use_id: 't2' })
+
+  expect(seen.runs).toBe(1)
 })

@@ -7,9 +7,9 @@ const SUBCOMMAND = /^[a-z][a-z0-9-]*$/
 // For Bash it is the command and its subcommand (`git push`). A command with no
 // subcommand (`rm -rf x`, `bash -c "..."`) has none: one word says too little about what
 // runs. For each other tool it is the tool name.
-export const ruleOf = (tool: string, args: Record<string, unknown>): string | undefined => {
+export const ruleOf = (tool: string, input: unknown): string | undefined => {
   if (tool !== 'Bash') return tool
-  const { command } = args
+  const command = (input as { command?: unknown } | null | undefined)?.command
   if (typeof command !== 'string' || NOT_SIMPLE.test(command)) return undefined
   const [first, second] = command.trim().split(/\s+/)
   if (first === undefined || first.includes('=')) return undefined

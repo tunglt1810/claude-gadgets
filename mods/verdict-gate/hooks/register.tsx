@@ -8,10 +8,13 @@ const REMEMBER = 'Do not ask again: '
 // The chip of the question: 12 characters at most.
 const HEADER = 'No verdict'
 
-// Calls whose verdict the engine left to the mode's decider, and calls the user approved.
-// Both are keyed by `tool_use_id` and live for one `tool.call`.
-const asked = new Set<string>()
-const approved = new Set<string>()
+// The input, as JSON, of each call whose verdict the engine left to the mode's decider, and
+// of each call the user approved. Both are keyed by `tool_use_id` and live for one
+// `tool.call`. The input is the one `tool.check` read: a hook beneath can change a call.
+const asked = new Map<string, string>()
+const approved = new Map<string, string>()
+
+const json = (input: unknown): string => JSON.stringify(input) ?? ''
 
 // The rules the user approved, for one session id: a different id starts with none.
 let session: string | undefined
@@ -29,10 +32,11 @@ async function sessionRules($: EngineInterface) {
 async function check(_$: EngineInterface, e: Args<'tool.check'>, next: Next<'tool.check'>) {
   const id = e.tool_use_id
   if (id === undefined) return next(e)
-  if (approved.has(id))
+  // An approval is for the input that the question showed, not for the `tool_use_id`.
+  if (approved.get(id) === json(e.input))
     return { decision: 'allow' as const, reason: 'The user approved this call.' }
   const verdict = await next(e)
-  if (verdict.decision === 'ask') asked.add(id)
+  if (verdict.decision === 'ask') asked.set(id, json(e.input))
   return verdict
 }
 
@@ -42,12 +46,12 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
     const res = await next(e)
     const denial = res.deny ?? (res.isError ? res.text : undefined)
     // A tool that ran can print the same words: only a call that waited for a verdict counts.
-    if (denial === undefined || !asked.has(id) || !isNoVerdict(denial)) return res
-    const { tool, tool_use_id: _id, ...args } = e
+    const detail = asked.get(id)
+    if (denial === undefined || detail === undefined || !isNoVerdict(denial)) return res
     const known = await sessionRules($)
-    const rule = ruleOf(tool, args)
+    const rule = ruleOf(e.tool, JSON.parse(detail || 'null'))
     if (rule === undefined || !known.has(rule)) {
-      const text = question(tool, args)
+      const text = question(e.tool, detail)
       if (text === undefined) return res
       const offer = rule === undefined ? undefined : REMEMBER + rule
       const options = offer === undefined ? [RUN, REFUSE] : [RUN, offer, REFUSE]
@@ -57,7 +61,7 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
       if (rule !== undefined && answer === offer) known.add(rule)
       else if (answer !== RUN) return res
     } else $.ui.toast(`verdict-gate ran ${rule} with no review`)
-    approved.add(id)
+    approved.set(id, detail)
     return await next(e)
   } finally {
     asked.delete(id)

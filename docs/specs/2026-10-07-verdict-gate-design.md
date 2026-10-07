@@ -30,7 +30,7 @@ Out of scope:
 | call | One tool call of the model, with one `tool_use_id`. |
 | no-verdict denial | A denial of the engine that contains a phrase of section 4.2. |
 | judgment | A denial in which the classifier found the call unsafe. |
-| arguments | The input of `tool.call` without `tool` and `tool_use_id`. |
+| input | The `input` that `tool.check` read for the call. A hook below the mod can change a call, so this is not always the input of `tool.call`. |
 | question | The dialog that `$.ui.ask` shows. |
 | rule | A tool name or a Bash command prefix that the user approved for the session. |
 | simple command | A Bash command that has none of the characters of section 7.2. |
@@ -69,22 +69,22 @@ A text with a judgment phrase is a judgment, also when it has a phrase of the fi
 
 ## 5. Question
 
-The text is `Auto mode did not review this <tool> call: <arguments>. Run it?`.
+The text is `Auto mode did not review this <tool> call: <input>. Run it?`.
 
 - The chip of the question is `No verdict`. It separates this question from a question of the model.
-- The arguments are JSON. Thus a line break shows as `\n`, and the user sees each control character.
-- The question shows the arguments whole. The user approves only what the question shows.
+- The input is JSON. Thus a line break shows as `\n`, and the user sees each control character.
+- The question shows the input whole. The user approves only what the question shows.
 - When the JSON is longer than 2000 characters, the mod asks no question and the denial stays.
 
 ## 6. Answers
 
 | Answer | Result |
 |---|---|
-| `Run once` | The mod calls `next(e)` again. Its `tool.check` hook returns `allow` for that `tool_use_id`. |
+| `Run once` | The mod calls `next(e)` again. Its `tool.check` hook returns `allow` for that `tool_use_id`, when the input is the input that the question showed. |
 | `Do not run` | The call returns `{ deny: 'The user refused this call. Do not issue it again.' }`. |
 | The user dismisses the dialog, or no user is there | The denial stays. |
 
-An approval is for one `tool_use_id`. The mod removes it when the `tool.call` hook returns.
+An approval is for one `tool_use_id` and one input. When the input of the second run is different, the denial stays. The mod removes the approval when the `tool.call` hook returns.
 
 ## 7. Session rules
 
@@ -165,6 +165,7 @@ The test hooks stand for the engine. The `tool.call` hook asks `$.tool.check` fi
 - A compound command with a matching start gets a question.
 - A different session id has no rules.
 - A rule does not run a call that the classifier judged.
+- The question shows the input of `tool.check`. An approval or a rule does not run a different input.
 - The question has the `No verdict` chip.
 
 ## 10. Checks in a live session
@@ -182,4 +183,4 @@ The test kit cannot prove these points. Do them when the classifier next gives n
 - A tool that the classifier approved can fail and print a phrase of section 4.2. The mod then asks the question, or a rule runs the call a second time. The second run is the same call.
 - A deny after `next(e)` makes the engine write one dim line to the transcript.
 - A no-verdict state can last: a classifier transcript that is too long gives no verdict for each call. During that time a rule runs each match with no review.
-- A tool rule is wide: `Write` runs each write. A Bash rule does not limit the arguments after the subcommand. The question shows the rule before the user approves it.
+- A tool rule is wide: `Write` runs each write. A Bash rule does not limit the words after the subcommand. The question shows the rule before the user approves it.

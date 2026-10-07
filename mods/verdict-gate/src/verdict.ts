@@ -10,10 +10,9 @@ export const isNoVerdict = (text: string): boolean => !JUDGMENT.test(text) && NO
 
 const MAX_DETAIL = 2000
 
-// The user approves what the question shows, so it shows the whole call or there is no
-// question. JSON keeps a line break and a control character as written (`\n`), not drawn.
-export const question = (tool: string, args: Record<string, unknown>): string | undefined => {
-  const detail = JSON.stringify(args)
+// The user approves what the question shows, so it shows the whole input (`detail`, as
+// JSON) or there is no question. JSON keeps a line break and a control character as written (`\n`), not drawn.
+export const question = (tool: string, detail: string): string | undefined => {
   if (detail.length > MAX_DETAIL) return undefined
   return `Auto mode did not review this ${tool} call: ${detail}. Run it?`
 }

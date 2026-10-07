@@ -35,15 +35,17 @@ test('a tool error is not found', () => {
 })
 
 test('the question names the tool and shows the arguments whole, as JSON', () => {
-  expect(question('Bash', { command: 'git push' })).toBe(
+  expect(question('Bash', '{"command":"git push"}')).toBe(
     'Auto mode did not review this Bash call: {"command":"git push"}. Run it?',
   )
 })
 
 test('a line break in a command is shown as written, not drawn', () => {
-  expect(question('Bash', { command: 'true\nrm -rf x' })).toContain('true\\nrm -rf x')
+  expect(question('Bash', JSON.stringify({ command: 'true\nrm -rf x' }))).toContain(
+    'true\\nrm -rf x',
+  )
 })
 
 test('a call too long to show whole has no question', () => {
-  expect(question('Bash', { command: 'x'.repeat(5000) })).toBeUndefined()
+  expect(question('Bash', 'x'.repeat(5000))).toBeUndefined()
 })
