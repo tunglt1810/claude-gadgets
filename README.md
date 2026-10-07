@@ -44,6 +44,22 @@ Limits:
 - An agent that started before the mod loaded is not in the list.
 - The engine does not let a mod read the agents of a workflow run. The same is true for a teammate in its own terminal pane. The pane shows the refusal text of the engine.
 
+## Context screen
+
+The pane shows what fills the context window of the main loop.
+
+- Below the dashboard, a block shows the context length (`ctx 84.2k/200k 42%`), a bar and three totals. In the bar, `█` is the overhead, `▓` is the messages, `░` is the free room and `▒` is the room that auto-compaction keeps.
+- The overhead is the content that each request carries before the conversation: the system prompt, the tools, the memory files and the skills.
+- Press `context` to see the overhead by category. Press a category with a `▸` mark to see its MCP servers, its memory files or its skills.
+- `carry($)` is an estimate of what the overhead cost in this session: its tokens, multiplied by the steps of the main loop and by the cache read price.
+- `dead weight` lists the MCP servers that have loaded tools and that the session did not call.
+- The screen opens with a full count, which sends one token-count request for each tool and each memory file. Press `recount` to count again.
+
+Limits:
+
+- The numbers are for the main loop. The engine gives no breakdown of the context of a subagent.
+- A tool that loads on demand is not in the window, and thus not in the overhead.
+
 ## Adding a mod
 
 Run the `/new-mod <name>` skill, or copy `mods/flight-deck` and trim it. Rules the engine enforces: the `types` contract is self-contained (no imports), helpers that take `$` are module-level function declarations, and plugin files link with static `import` only.

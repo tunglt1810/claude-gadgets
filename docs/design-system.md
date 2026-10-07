@@ -142,6 +142,7 @@ Rule: use single-width, text-presentation characters only. Do not use an emoji. 
 | `✓` / `✗` | Tool call done / failed | `TOOL_MARK` in `pane.tsx` |
 | `◷ ` | Work time of an agent in the pane. The agents table has no icon in its time column. | `CLOCK` in `pane.tsx` |
 | `─` | Rule that closes a table | `line` and `rule` in `pane.tsx` |
+| `█`, `▓`, `░`, `▒` | The parts of the context bar: overhead, messages, free room, compact buffer | `barSegments` in `context.ts` |
 | `← agents` | Back label | `BACK` in `pane.tsx` |
 
 All agent marks and spinner frames are eight-dot braille glyphs. One font draws them at one size. Every mark has a width of two cells (`MARK_WIDTH`).
@@ -234,7 +235,20 @@ Terminal rules:
 - A scrolled transcript shows a sticky bar: a `Box` with `position="absolute"`, `top` equal to the scroll offset, and `backgroundColor` `PALETTE.strip`. It holds the back button, the agent mark, the name (bold) and the context.
 - The engine draws the first 100,000 characters of a tree. A sticky row comes after the body. Keep the body below the limit (`lastItems`, `drawnChars` in `pane.tsx`).
 
-## 10. Known duplicates in the code
+## 10. Bar
+
+Source: `barCells` and `barSegments` in `mods/flight-deck/src/context.ts`, `bar` in `mods/flight-deck/src/pane.tsx`.
+
+The pane has one bar: the context window of the main loop. The band has no bar.
+
+- The bar has 40 cells (`BAR_CELLS`). It takes no width from the pane.
+- Each cell is a block element. A desktop draws the block elements at one width.
+- `█` is the overhead and `▓` is the messages. Both have the color of the context tone.
+- `░` is the free room and `▒` is the compact buffer. Both are dim.
+- An overhead of more than 0 tokens has one cell at least.
+- The bar is one `Text` with a `Text` for each segment, in a `Box` with `height={1}` and `overflow="hidden"`.
+
+## 11. Known duplicates in the code
 
 These duplicates exist today. This file lists them and does not fix them.
 
@@ -243,6 +257,6 @@ These duplicates exist today. This file lists them and does not fix them.
 - The name `SEP` has two values. It is `│` (in ` │ `) in `layout.ts`. It is `·` in `pane.tsx` and in `detail.ts`.
 - `TONE` in `pane.tsx` is a third value of the same name. It maps an agent status to a color, and it is not a duplicate of the other two.
 
-## 11. Open points
+## 12. Open points
 
 - The first spec (section 10) lists the band drop order without `ctx`. The code drops `ctx` after `in`, before `agents`. The context spec (section 8.1) says `ctx` goes last "after the tokens". The code agrees with it.
