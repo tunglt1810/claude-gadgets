@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `e90434b`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `2cee933`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -67,6 +67,22 @@ Giới hạn:
 
 - Các con số là của vòng lặp chính. Engine không cho breakdown context của một subagent.
 - Một tool nạp theo yêu cầu thì không nằm trong window, nên không nằm trong overhead.
+
+## Câu hỏi khi không có verdict
+
+`verdict-gate` dành cho auto mode. Nạp mod bằng `claude --plugin-dir mods/verdict-gate`.
+
+Khi safety classifier không đưa ra verdict cho một tool call, engine từ chối call đó. Mod hiện một câu hỏi có chip `No verdict` và toàn bộ input của call ở dạng JSON. Một ký tự không phải ASCII in được hiện thành mã của nó (`\u{202e}`).
+
+| Câu trả lời | Kết quả |
+| --- | --- |
+| `Run once` | Call chạy ngay trong lượt đó. |
+| `Do not ask again: <rule>` | Call chạy. Trong session này, một call sau có cùng rule và không có verdict sẽ chạy mà không hỏi, và một toast nêu tên rule. |
+| `Do not run` | Call vẫn bị từ chối, và model nhận chỉ dẫn không gọi lại call đó. |
+
+Một rule là tên một tool (`Read`), hoặc một lệnh Bash kèm subcommand (`Bash(git push:*)`). Lệnh ghép, lệnh không có subcommand và lệnh đứng sau một wrapper như `sudo` hay `bash` không có rule. Rule nằm trong bộ nhớ cho tới khi session hoặc mod nạp lại.
+
+Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input dài hơn 2000 ký tự cũng không có câu hỏi.
 
 ## Thêm một mod
 
