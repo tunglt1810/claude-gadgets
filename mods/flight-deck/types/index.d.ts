@@ -176,6 +176,53 @@ export type PaneData = {
   dashboard: Dashboard | null
 }
 
+// One item below a category of the context: an MCP server (`count` is its loaded tools), a
+// memory file, a skill or a custom agent.
+export type ContextGroup = { name: string; tokens: number; count?: number }
+
+// One category of the overhead, with its items; a category with no list has none.
+export type ContextCategoryRow = { name: string; tokens: number; items: ContextGroup[] }
+
+// What the mod keeps of one `$.session.usage({ breakdown })` reply. `threshold` is the count
+// at which auto-compaction starts, null when it is off. `servers` holds the loaded tools of
+// each MCP server by their wire names.
+export type ContextSample = {
+  detail: 'summary' | 'full'
+  tokens: number
+  window: number
+  threshold: number | null
+  categories: ContextCategoryRow[]
+  servers: { name: string; tokens: number; tools: string[] }[]
+}
+
+// The context of one session: its latest sample, the tokens of the first sample after the
+// start or a compaction (`base`), and the main turns that ended since then.
+export type ContextState = {
+  sessionId: string | null
+  sample: ContextSample | null
+  base: number | null
+  turns: number
+}
+
+// What the pane draws of a context. `overhead` is the categories, `messages` the rest of the
+// tokens, `buffer` the room that auto-compaction keeps. `carryUsd` is the estimated cost of
+// reading tokens from the cache at each of `steps` steps; null for a model with no price.
+export type ContextView = {
+  detail: 'summary' | 'full'
+  tokens: number
+  window: number
+  overhead: number
+  messages: number
+  buffer: number
+  perTurn: number | null
+  turnsLeft: number | null
+  steps: number
+  carryUsd: number | null
+  categories: (ContextCategoryRow & { carryUsd: number | null })[]
+  unused: ContextGroup[]
+  deadWeight: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'flight-deck': {
