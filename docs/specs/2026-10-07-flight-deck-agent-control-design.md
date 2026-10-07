@@ -44,7 +44,8 @@ An open agent row has a control row below its detail row.
 
 - The toolbar has the `» message` button, and the `■ stop` button while the agent runs, with the same two presses. The bar of a scrolled transcript has the two buttons too, with the keys `sticky:msg:<id>` and `sticky:stop:<id>`.
 - `» message` puts the focus in the message field.
-- The two buttons are icons when the pane has less than 70 columns.
+- The bar has two rows: the back button, the agent and its context, then the two buttons.
+- The two buttons of the toolbar are icons when the pane has less than 50 columns. The two buttons of the bar are icons when it has less than 24.
 - The message field is after the last item of the transcript. The engine gives no height of the pane, so no row stays at the end of the pane.
 
 ## 4. Design

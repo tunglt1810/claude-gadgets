@@ -83,8 +83,8 @@ const BACK = '← agents'
 const BUTTON_CHROME = 4
 // The least room that the bar of a scrolled transcript keeps for the agent's name.
 const MIN_STICKY_NAME = 8
-// The columns that the bar keeps for its other parts before its controls get words.
-const STICKY_WORDS = 46
+// The columns that the toolbar of a transcript keeps for its back and wrap buttons.
+const TOOLBAR_USED = 26
 // A tool call by its outcome: its mark and the color of the mark. A finished call is dim at
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const
@@ -809,22 +809,23 @@ export const AgentPane = ({
     agent?.context === undefined ? null : contextFit(agent.context, columns - metaUsed)
   // The engine scrolls the pane as one tree, so the header goes out of view. A bar out of the
   // flow, at the first row that the window shows, keeps the back button, the agent and its
-  // context in view. It has a background: it lies over a row of the transcript.
-  // The controls of the agent: words where the bar has room for them, icons in a narrow one.
-  const ctl = controlLabels(columns - STICKY_WORDS, view.stopAsk === viewed)
-  const isRunning = agent?.status === 'running'
-  const controls = (prefix: string) => [
-    <Button key={`${prefix}msg:${viewed}`} label={ctl.message} onPress={() => onCompose(viewed)} />,
-    isRunning && (
-      <Button key={`${prefix}stop:${viewed}`} label={ctl.stop} onPress={() => onStop(viewed)} />
-    ),
-  ]
-  const stickyRoom =
-    columns -
-    (BACK.length + BUTTON_CHROME + 1) -
-    (MARK_WIDTH + 1) -
-    (ctl.message.length + BUTTON_CHROME + 1) -
-    (isRunning ? ctl.stop.length + BUTTON_CHROME + 1 : 0)
+  // context in view. Its second row has the controls of the agent. It has a background: it
+  // lies over two rows of the transcript.
+  // The controls of the agent, with words where `room` has cells for them.
+  const controls = (prefix: string, room: number) => {
+    const ctl = controlLabels(room, view.stopAsk === viewed)
+    return [
+      <Button
+        key={`${prefix}msg:${viewed}`}
+        label={ctl.message}
+        onPress={() => onCompose(viewed)}
+      />,
+      agent?.status === 'running' && (
+        <Button key={`${prefix}stop:${viewed}`} label={ctl.stop} onPress={() => onStop(viewed)} />
+      ),
+    ]
+  }
+  const stickyRoom = columns - (BACK.length + BUTTON_CHROME + 1) - (MARK_WIDTH + 1)
   const stickyCtx =
     agent?.context === undefined
       ? null
@@ -837,28 +838,30 @@ export const AgentPane = ({
       top={top}
       left={0}
       width={isClient ? columns : '100%'}
-      flexDirection="row"
-      alignItems="center"
-      gap={1}
+      flexDirection="column"
       backgroundColor={PALETTE.strip}
     >
-      <Button key={`${key}:back`} label={BACK} onPress={onBack} />
-      {agent !== undefined && cell(`${key}:mark`, agentMark(agent))}
-      {rest(`${key}:title`, agent === undefined ? viewed : name(agent), stickyName, {
-        bold: true,
-        color: agent?.status === 'running' ? TONE.running : PALETTE.fg,
-      })}
-      {stickyCtx !== null &&
-        agent?.context !== undefined &&
-        cell(
-          `${key}:ctx`,
-          shownCtx(agent.id, {
-            text: '',
-            ctx: { ...agent.context, isFull: stickyCtx === contextText(agent.context, true) },
-            color: contextColor(agent.context),
-          }),
-        )}
-      {controls(`${key}:`)}
+      <Box key={`${key}:head`} flexDirection="row" alignItems="center" gap={1}>
+        <Button key={`${key}:back`} label={BACK} onPress={onBack} />
+        {agent !== undefined && cell(`${key}:mark`, agentMark(agent))}
+        {rest(`${key}:title`, agent === undefined ? viewed : name(agent), stickyName, {
+          bold: true,
+          color: agent?.status === 'running' ? TONE.running : PALETTE.fg,
+        })}
+        {stickyCtx !== null &&
+          agent?.context !== undefined &&
+          cell(
+            `${key}:ctx`,
+            shownCtx(agent.id, {
+              text: '',
+              ctx: { ...agent.context, isFull: stickyCtx === contextText(agent.context, true) },
+              color: contextColor(agent.context),
+            }),
+          )}
+      </Box>
+      <Box key={`${key}:controls`} flexDirection="row" gap={1}>
+        {controls(`${key}:`, columns)}
+      </Box>
     </Box>
   )
   return (
@@ -873,7 +876,7 @@ export const AgentPane = ({
           label={`wrap ${isWrapped ? 'on' : 'off'}`}
           onPress={onWrap}
         />
-        {controls('')}
+        {controls('', columns - TOOLBAR_USED)}
       </Box>
       <Box key="title" flexDirection="row" alignItems="center" gap={1}>
         {agent !== undefined && cell('mark', agentMark(agent))}

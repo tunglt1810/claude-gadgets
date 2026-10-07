@@ -2638,9 +2638,11 @@ test('the bar of a scrolled transcript has the message and the stop buttons', as
   expect((await ui.find({ key: 'sticky:stop:a1' }))?.props.label).toBe('■ stop?')
   await ui.press({ key: 'sticky:stop:a1' })
   expect(stops.at(-1)).toMatchObject({ tool: 'TaskStop', task_id: 'a1' })
+  // The controls are a row of their own, below the row of the back button.
+  expect((await ui.find({ key: 'sticky:controls' }))?.type).toBe('Box')
   await ui.unmount()
   // A narrow bar draws them as icons.
-  ui = await mountPane($, 'terminal', true, 50, 12)
+  ui = await mountPane($, 'terminal', true, 20, 12)
   expect((await ui.find({ key: 'sticky:msg:a1' }))?.props.label).toBe('»')
   await ui.press({ key: 'back' })
   await ui.unmount()
