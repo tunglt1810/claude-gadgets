@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `3b07001`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `04ef9e3`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -39,11 +39,15 @@ Tuỳ chọn `cacheTtl` của `flight-deck` nhận `5m` (mặc định) hoặc `
 - Bấm vào một agent để xem transcript của nó. Bấm vào một lần gọi tool để xem input và kết quả của nó.
 - Mỗi hàng agent có một hàng chi tiết và một nút mở rộng. Hàng chi tiết mở sẵn, và nút này ẩn hoặc hiện nó. Hàng chi tiết hiển thị model, effort và độ dài context của agent (`ctx 182.4k/1M 18%`). Màu là xanh lá dưới 50%, vàng từ 50% và đỏ từ 80%.
 - Màn hình transcript hiển thị cùng độ dài context đó bên dưới tiêu đề.
+- Một hàng agent đang mở có hai nút điều khiển. `» message` mở một ô nhập: gõ tin nhắn rồi bấm Enter để gửi cho agent. Một agent đã hoàn thành sẽ chạy lại. `■ stop` dừng một agent đang chạy ở lần bấm thứ hai.
+- Màn hình transcript có cùng nút stop đó trên thanh công cụ, và một ô nhập tin nhắn sau mục cuối cùng.
 - Pane vẫn hiển thị một agent sau khi agent đó hoàn thành, sau khi một tin nhắn mới khởi chạy lại nó, và sau `--resume`.
 
 Giới hạn:
 
 - Một agent đã khởi chạy trước khi mod được nạp thì không có trong danh sách.
+- Ở auto mode, engine không gửi tin nhắn từ pane. Hãy thêm `"SendMessage"` vào `permissions.allow` trong settings. Rule này cũng cho model gửi tin nhắn mà không qua kiểm tra.
+- Mỗi câu trả lời của một agent, và mỗi lần stop, làm vòng lặp chính chạy một turn: engine gửi cho nó một thông báo.
 - Engine không cho một mod đọc các agent của một lần chạy workflow. Một teammate chạy trong pane terminal riêng cũng vậy. Pane hiển thị thông báo từ chối của engine.
 
 ## Màn hình context
