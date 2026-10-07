@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `66934e4`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `1bccb10`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -45,6 +45,22 @@ Giới hạn:
 
 - Một agent đã khởi chạy trước khi mod được nạp thì không có trong danh sách.
 - Engine không cho một mod đọc các agent của một lần chạy workflow. Một teammate chạy trong pane terminal riêng cũng vậy. Pane hiển thị thông báo từ chối của engine.
+
+## Màn hình context
+
+Pane hiển thị những gì đang chiếm context window của vòng lặp chính.
+
+- Bên dưới dashboard, một khối hiển thị độ dài context (`ctx 84.2k/200k 42%`), một thanh và ba tổng số. Trong thanh, `█` là overhead, `▓` là messages, `░` là phần còn trống và `▒` là phần mà auto-compaction giữ lại.
+- Overhead là nội dung mà mỗi request mang theo trước cuộc hội thoại: system prompt, các tool, các file memory và các skill.
+- Bấm `context` để xem overhead theo từng category. Bấm vào một category có dấu `▸` để xem các MCP server, các file memory hoặc các skill của nó.
+- `carry($)` là ước lượng chi phí của overhead trong session này: số token của nó, nhân với số step của vòng lặp chính và với giá cache read.
+- `dead weight` liệt kê các MCP server có tool đã nạp mà session chưa gọi.
+- Màn hình mở ra với một lần đếm đầy đủ. Lần đếm này gửi một request token-count cho mỗi tool và mỗi file memory. Bấm `recount` để đếm lại.
+
+Giới hạn:
+
+- Các con số là của vòng lặp chính. Engine không cho breakdown context của một subagent.
+- Một tool nạp theo yêu cầu thì không nằm trong window, nên không nằm trong overhead.
 
 ## Thêm một mod
 
