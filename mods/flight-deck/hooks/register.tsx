@@ -518,6 +518,11 @@ async function forgetStop($: Api, agentId: string): Promise<void> {
 async function toggleCompose($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.agentId === agentId) {
+    // The field is after the last item: the window goes there first. A field out of the
+    // window takes no focus, and the keys then go to the prompt of the session.
+    await $.ui
+      .scroll({ in: PANE_ID, to: { key: `say:${agentId}` }, block: 'end' })
+      .catch(() => ({}))
     await focusField($, agentId)
     return
   }
