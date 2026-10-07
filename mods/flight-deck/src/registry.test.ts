@@ -210,3 +210,9 @@ test('a completed notification ends a first run whose turn.complete the mod did 
   const r = ended(spawned({}, 'a1', 100, {}), 'a1', 'completed', 200)
   expect(r.a1).toMatchObject({ status: 'idle', runs: 1, endedAt: 200 })
 })
+
+test('a running entry of an older version, with no run, counts its run at the next step', () => {
+  // The live registry after a hot reload from a version that counted a run at its end.
+  const old = { a1: { id: 'a1', status: 'running' as const, runs: 0, startedAt: 1, endedAt: null } }
+  expect(ran(old, 'a1', 50).a1?.runs).toBe(1)
+})

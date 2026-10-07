@@ -75,3 +75,6 @@ An open agent row has a control row below its detail row.
 - A Button takes no color: the stop button is not red.
 - Only a step starts a run of an agent. A tool call marks no agent: a call of a stopped step can start after the end of the run.
 - A `completed` notification of the engine ends an agent in its first run only. For an agent that a message started again, the notification can be of the earlier run, and nothing in it names the run. So it changes no agent that runs again. When the mod does not see the `turn.complete` of such a run (a hot reload in the middle of the run), the agent shows as running until the session loads again. This is a known limit, not a defect to fix.
+- The runs of an entry that an older version stored are not counted again: such an entry is one run at least, and an agent that an older version stored in a later run shows one run less. This is a known limit.
+- While the window moves to a new row, the bar is drawn at the two rows and the message field at the new row only: a field has one place in a drawing. This is a known limit.
+- The row of the message field in the header is a count of the header's rows (`headRows` in `pane.tsx`): a new header row must be added to it.

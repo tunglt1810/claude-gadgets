@@ -253,6 +253,10 @@ async function syncPane($: Api): Promise<void> {
 
 // Counts the context samples that were asked for: a reply knows from it if it is the newest.
 let contextSeq = 0
+// The count of the newest sample that is kept.
+let sampleSeq = 0
+// The main steps at the last end of a turn, by session: a turn with no step grows no context.
+let turnSteps = { id: '', steps: 0 }
 
 // Keeps the breakdown of a usage reply as the context sample of the session `id`. A reply
 // with no breakdown changes nothing. `isTurnEnd` counts a turn of the growth.
@@ -262,10 +266,12 @@ async function recordContext(
   context: UsageContext,
   detail: 'summary' | 'full',
   isTurnEnd: boolean,
+  seq: number,
 ): Promise<void> {
   const sample = sampleOf(context, detail)
   if (sample === null) return
   await update($, contextAtom, (c) => sampled(c, id, sample, isTurnEnd))
+  sampleSeq = Math.max(sampleSeq, seq)
 }
 
 // Reads a breakdown and draws it. A `full` one sends a token-count request for each tool and
@@ -282,20 +288,28 @@ async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void>
     // sample.
     const newer = (await read($, contextAtom)).sample
     if (detail !== 'full') return
-    if (newer !== null && !newer.isEstimate) context = { ...context, tokens: newer.tokens }
+    // The kept sample is newer than this count only when a later request gave it.
+    if (sampleSeq > seq && newer !== null && !newer.isEstimate)
+      context = { ...context, tokens: newer.tokens }
   }
-  await recordContext($, id, context, detail, false)
+  await recordContext($, id, context, detail, false, seq)
   await syncPane($)
 }
 
+// The longest that a press waits on a full count before another count can start.
+const COUNT_WAIT_MS = 60_000
 // A full count sends many requests: a press while one is on its way starts no other.
 let isCounting = false
 async function countFull($: Api): Promise<void> {
   if (isCounting) return
   isCounting = true
   try {
-    // A count that fails leaves the summary on the screen.
-    await measureContext($, 'full').catch(() => undefined)
+    // A count that fails leaves the summary on the screen. A count that does not end must
+    // not stop each later count: the wait has an end.
+    await Promise.race([
+      measureContext($, 'full').catch(() => undefined),
+      $.clock.sleep(COUNT_WAIT_MS),
+    ])
   } finally {
     isCounting = false
   }
@@ -341,7 +355,8 @@ async function markAgent($: Api, agentId: string): Promise<void> {
     const session = await ensureLoaded($)
     // Most steps are of an agent that runs already: nothing to mark, and no list to read.
     const cur = await read($, agents)
-    if (cur.sessionId === session && cur.entries[agentId]?.status === 'running') return
+    const known = cur.sessionId === session ? cur.entries[agentId] : undefined
+    if (known?.status === 'running' && known.runs > 0) return
     await trackAgent($, session, (r, t) => ran(r, agentId, t), true)
   } catch {
     // The next step of the agent marks it.
@@ -414,8 +429,9 @@ async function openContext($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isContext: true }))
   })
-  // The count is slow: the press does not wait for it.
-  void countFull($)
+  // The count is slow: the press does not wait for it. A full count that is on the screen is
+  // of this context: the end of a turn puts a summary in its place. `recount` counts again.
+  if ((await read($, contextAtom)).sample?.detail !== 'full') void countFull($)
 }
 
 // Back to the tree, with the focus on the button that opened the context screen.
@@ -455,9 +471,10 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   // A second Enter while the message is on its way sends nothing.
   if (text.trim() === '' || sending.has(agentId)) return
   sending.add(agentId)
-  const session = await $.session.id()
+  let session: string
   let res: { isDelivered: true } | { isDelivered: false; reason?: string }
   try {
+    session = await $.session.id()
     // The field is empty while the message is on its way: text that the person types then is
     // a new message, not more of the sent one.
     delete drafts[agentId]
@@ -998,8 +1015,12 @@ export const register: Register = (on, options) => {
     // A breakdown that fails must not keep the turn open: the plain reply has the cost.
     const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => $.session.usage())
     const usd = usage.cost?.usd
-    contextSeq++
-    await recordContext($, id, usage.context, 'summary', true)
+    // A turn with no step of the main loop (an abort before the first response) is no turn
+    // of the context growth.
+    const steps = (await read($, meter)).steps
+    const hadStep = steps > (turnSteps.id === id ? turnSteps.steps : 0)
+    turnSteps = { id, steps }
+    await recordContext($, id, usage.context, 'summary', hadStep, ++contextSeq)
     const nextMeter = await update($, meter, (c) => {
       const ended = { ...c, ...endTurn(c, at), ...(usd === undefined ? {} : { costUsd: usd }) }
       return mainTurns(ended) > 0 || stepsInFlight > 0

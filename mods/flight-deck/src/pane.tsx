@@ -893,7 +893,9 @@ export const AgentPane = ({
             position: 'absolute' as const,
             left: 0,
             width: '100%' as const,
-            top: scrollTop > 0 ? scrollTop + STICKY_ROWS : headRows,
+            // Below the bar, and never above its own row of the header: with a scroll of a row
+            // or two, that row is still in the window.
+            top: scrollTop > 0 ? Math.max(headRows, scrollTop + STICKY_ROWS) : headRows,
             ...(scrollTop > 0 ? { backgroundColor: PALETTE.strip } : {}),
           })}
     >

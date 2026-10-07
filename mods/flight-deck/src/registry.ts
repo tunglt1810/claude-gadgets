@@ -45,10 +45,9 @@ export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>
 export const ran = (r: Registry, id: string, at: number): Registry => {
   const a = r[id]
   if (a === undefined) return { ...r, [id]: blank(id, at) }
-  return {
-    ...r,
-    [id]: { ...a, status: 'running', runs: a.runs + (a.status === 'running' ? 0 : 1) },
-  }
+  // An entry that runs has one run at least: an older version counted a run at its end.
+  const runs = a.status === 'running' ? Math.max(1, a.runs) : a.runs + 1
+  return { ...r, [id]: { ...a, status: 'running', runs } }
 }
 
 // An agent as the pane and the band name it: its type, then what it does.
