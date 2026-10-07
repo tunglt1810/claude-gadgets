@@ -9,6 +9,19 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+### [0.6.0] - 2026-10-07
+
+Tested on Claude Code 2.1.292.
+
+#### Added
+
+- The agents screen shows the context length of the main loop, a bar of what fills the window, and the tokens of the overhead and of the messages.
+- A context screen shows the overhead by category, its estimated cost and the MCP servers that the session did not call.
+
+#### Changed
+
+- A transcript has an empty row before each new prompt.
+
 ### [0.5.1] - 2026-10-07
 
 Tested on Claude Code 2.1.292.
