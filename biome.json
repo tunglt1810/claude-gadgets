@@ -1,6 +1,8 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
-  "files": { "includes": ["**", "!**/.tmp", "!**/.claude-plugin/types", "!bun.lock"] },
+  "files": {
+    "includes": ["**", "!**/.tmp", "!**/.claude-plugin/types", "!**/.claude/worktrees", "!bun.lock"]
+  },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
   "javascript": { "formatter": { "quoteStyle": "single", "semicolons": "asNeeded" } },
   "linter": { "rules": { "preset": "recommended", "suspicious": { "noExplicitAny": "error" } } }
