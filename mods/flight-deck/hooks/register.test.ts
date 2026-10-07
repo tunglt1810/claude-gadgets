@@ -2643,6 +2643,11 @@ test('the bar of a scrolled transcript has the message and the stop buttons', as
   expect(stops.at(-1)).toMatchObject({ tool: 'TaskStop', task_id: 'a1' })
   // The controls are a row of their own, below the row of the back button.
   expect((await ui.find({ key: 'sticky:controls' }))?.type).toBe('Box')
+  // The message field is in the bar while the transcript is scrolled, so it is in the window:
+  // a field out of the window leaves its cursor at the last row of the screen.
+  expect((await ui.find({ key: 'sticky:say' }))?.type).toBe('Box')
+  expect(await ui.findAll({ type: 'Input' })).toHaveLength(1)
+  expect(await ui.find({ key: 'sayrow' })).toBeUndefined()
   await ui.unmount()
   // A narrow bar draws them as icons.
   ui = await mountPane($, 'terminal', true, 20, 12)

@@ -127,6 +127,8 @@ const paneScroll = atom(
   { plugin: 'flight-deck', key: 'paneScroll' } as const,
   null as { offset: number; seen: number } | null,
 )
+// The rows above the pane body on the terminal: the title and the empty row below it.
+const TITLE_ROWS = 2
 // The offset the pane was last drawn with. Kept here, not in state: a render hook does not
 // write state.
 let drawnOffset = 0
@@ -545,11 +547,14 @@ async function forgetStop($: Api, agentId: string): Promise<void> {
 async function toggleCompose($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.agentId === agentId) {
-    // The field is after the last item: the window goes there first. A field out of the
-    // window takes no focus, and the keys then go to the prompt of the session.
-    await $.ui
-      .scroll({ in: PANE_ID, to: { key: `say:${agentId}` }, block: 'end' })
-      .catch(() => ({}))
+    // A scrolled transcript of the terminal has the field in its bar, in the window. With no
+    // scroll the field is after the last item: the window goes there first. A field out of
+    // the window takes no focus, and the keys then go to the prompt of the session.
+    const isInBar = isPaneOnTerminal && drawnOffset > TITLE_ROWS
+    if (!isInBar)
+      await $.ui
+        .scroll({ in: PANE_ID, to: { key: `say:${agentId}` }, block: 'end' })
+        .catch(() => ({}))
     await focusField($, agentId)
     return
   }
@@ -1081,7 +1086,7 @@ export const register: Register = (on, options) => {
     const ui = $.ui.resolve(e)
     const pad = e.surface === 'terminal' ? 1 : 0
     // The rows above the pane body on the terminal: the title and the empty row below it.
-    const above = e.surface === 'terminal' ? 2 : 0
+    const above = e.surface === 'terminal' ? TITLE_ROWS : 0
     // The offset of a scroll event is newer than the pane's own until the engine gives the
     // pane another offset: that one is then the newest (the window can move with no event).
     const asked = await read($, paneScroll)

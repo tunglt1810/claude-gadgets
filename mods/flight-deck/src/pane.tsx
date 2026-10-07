@@ -838,7 +838,7 @@ export const AgentPane = ({
       ? null
       : contextFit(agent.context, stickyRoom - MIN_STICKY_NAME - 1)
   const stickyName = Math.max(1, stickyRoom - (stickyCtx === null ? 0 : stickyCtx.length + 1))
-  const sticky = (key: string, top: number) => (
+  const sticky = (key: string, top: number, hasField = false) => (
     <Box
       key={key}
       position="absolute"
@@ -869,6 +869,14 @@ export const AgentPane = ({
       <Box key={`${key}:controls`} flexDirection="row" gap={1}>
         {controls(`${key}:`, columns - 1)}
       </Box>
+      {/* The message field, in the bar of the window's own row only: a field has one place
+          in a drawing. */}
+      {hasField && (
+        <Box key={`${key}:say`} flexDirection="row">
+          {say(viewed, columns, false)}
+        </Box>
+      )}
+      {hasField && controlError(`${key}:err`, viewed)}
     </Box>
   )
   return (
@@ -941,12 +949,15 @@ export const AgentPane = ({
       )}
       {body()}
       {/* After the transcript: the engine gives no height of the pane, so no row stays at its
-          end. */}
-      <Box key="sayrow" flexDirection="row">
-        {say(viewed, columns, false)}
-      </Box>
-      {controlError('err:end', viewed)}
-      {scrollTop > 0 && sticky('sticky', scrollTop)}
+          end. A scrolled transcript has the field in its bar: the terminal draws the cursor
+          of a field that is out of the window at the last row of the screen. */}
+      {scrollTop === 0 && (
+        <Box key="sayrow" flexDirection="row">
+          {say(viewed, columns, false)}
+        </Box>
+      )}
+      {scrollTop === 0 && controlError('err:end', viewed)}
+      {scrollTop > 0 && sticky('sticky', scrollTop, true)}
       {/* The engine moves the window after this drawing: until then the row it shows has a bar
           too, so no drawing is without a bar at its top. */}
       {scrollFrom !== undefined &&
