@@ -21,6 +21,8 @@ const engine = (
     toasts: [] as string[],
     headers: [] as (string | undefined)[],
     session: 'S1',
+    // What the tool answers when it runs.
+    output: { result: {}, text: 'ok' } as { result: object; text: string; isError?: true },
     checks: 0,
     // A hook beneath the plugin that changes the command: by default it changes nothing.
     rewrite: (command: string, _check: number) => command,
@@ -34,6 +36,7 @@ const engine = (
     return { value: undefined }
   })
   on('tool.check', () => ({ decision: seen.beneath(seen.checks) }))
+  on('classic.PostToolUse', () => ({}))
   on('tool.call', async (_$, e) => {
     if (e.tool === 'AskUserQuestion') {
       const { questions } = e as unknown as {
@@ -53,7 +56,14 @@ const engine = (
     })
     if (decision !== 'allow') return { result: {} as never, text: seen.verdict, isError: true }
     seen.runs++
-    return { result: {} as never, text: 'ok' }
+    // The engine raises this event when a tool ran, before `tool.call` has its answer.
+    await $.classic.PostToolUse({
+      tool_name: e.tool,
+      tool_input: {},
+      tool_response: {},
+      tool_use_id: e.tool_use_id,
+    } as never)
+    return seen.output as never
   })
   return seen
 }
@@ -276,4 +286,42 @@ test('a rejection of the user is not a denial without a verdict', async ($, on) 
 
   expect(seen.asks).toHaveLength(0)
   expect(res.text).toBe(text)
+})
+
+test('a tool that the classifier let run, and that failed with the same words, raises no question', async ($, on) => {
+  const asks: string[] = []
+  let runs = 0
+  on('classic.PostToolUseFailure', () => ({}))
+  on('tool.check', () => ({ decision: 'ask' }))
+  on('tool.call', async (_$, e) => {
+    if (e.tool === 'AskUserQuestion') {
+      asks.push('asked')
+      return { deny: 'dismissed' } as never
+    }
+    await $.tool.check({ tool: e.tool, input: {}, tool_use_id: e.tool_use_id })
+    runs++
+    await $.classic.PostToolUseFailure({
+      tool_name: e.tool,
+      tool_input: {},
+      tool_use_id: e.tool_use_id,
+      error: NO_VERDICT,
+    } as never)
+    return { result: {} as never, text: NO_VERDICT, isError: true }
+  })
+
+  await $.tool.call(CALL)
+
+  expect(asks).toHaveLength(0)
+  expect(runs).toBe(1)
+})
+
+test('a rule stays when its first call ran and failed with the same words', async ($, on) => {
+  const seen = engine($, on, REMEMBER)
+  seen.output = { result: {}, text: NO_VERDICT, isError: true }
+
+  await $.tool.call(CALL)
+  await $.tool.call({ ...CALL, tool_use_id: 't2' })
+
+  expect(seen.asks).toHaveLength(1)
+  expect(seen.runs).toBe(2)
 })

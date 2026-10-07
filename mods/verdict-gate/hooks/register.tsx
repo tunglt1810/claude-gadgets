@@ -59,11 +59,32 @@ async function check(_$: EngineInterface, e: Args<'tool.check'>, next: Next<'too
   return verdict
 }
 
+// The engine raises one of these two events when a tool ran, before `tool.call` has its
+// answer. A call that ran did not wait for a verdict, whatever its output says.
+async function ran(
+  _$: EngineInterface,
+  e: Args<'classic.PostToolUse'>,
+  next: Next<'classic.PostToolUse'>,
+) {
+  asked.delete(e.tool_use_id)
+  return next(e)
+}
+
+async function failed(
+  _$: EngineInterface,
+  e: Args<'classic.PostToolUseFailure'>,
+  next: Next<'classic.PostToolUseFailure'>,
+) {
+  asked.delete(e.tool_use_id)
+  return next(e)
+}
+
 async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.call'>) {
   const id = e.tool_use_id
   try {
     const res = await next(e)
-    // A tool that ran can print the same words: only a call that waited for a verdict counts.
+    // A tool that ran can print the same words: only a call that still waits for a verdict
+    // counts (`ran` and `failed` remove the others).
     const call = asked.get(id)
     if (call === undefined || !isUnjudged(res)) return res
     const { detail, rule } = call
@@ -95,7 +116,8 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
     approved.set(id, detail)
     const again = await next(e)
     // A new rule stays only when its first call got past the check.
-    if (added !== undefined && rule !== undefined && isUnjudged(again)) added.delete(rule)
+    if (added !== undefined && rule !== undefined && asked.has(id) && isUnjudged(again))
+      added.delete(rule)
     return again
   } finally {
     asked.delete(id)
@@ -106,4 +128,6 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
 export const register: Register = (on) => {
   on('tool.check', check)
   on('tool.call', gate)
+  on('classic.PostToolUse', ran)
+  on('classic.PostToolUseFailure', failed)
 }

@@ -39,13 +39,14 @@ Out of scope:
 
 ### 4.1 Conditions
 
-The mod asks the question only when all three conditions are true:
+The mod asks the question only when all four conditions are true:
 
 1. `tool.check` returned `ask` for the call. Thus the mode's decider received the call.
-2. `next(e)` of `tool.call` returned `deny`, or `isError` with `text`.
-3. That text is a no-verdict denial.
+2. The tool did not run. The engine raises `classic.PostToolUse` or `classic.PostToolUseFailure` for a tool that ran, before `tool.call` has its answer.
+3. `next(e)` of `tool.call` returned `deny`, or `isError` with `text`.
+4. That text is a no-verdict denial.
 
-Condition 1 is necessary because a tool that ran can print the same phrases.
+Condition 2 is necessary because a tool that ran can print the same phrases.
 
 ### 4.2 Phrases
 
@@ -165,7 +166,7 @@ The 2000-character limit does not apply to a match, because the user approved th
 
 | File | Content |
 |---|---|
-| `hooks/register.tsx` | The `tool.check` and `tool.call` hooks, and the sets of asked and approved calls. |
+| `hooks/register.tsx` | The `tool.check` and `tool.call` hooks, the hooks of the two classic events of section 4.1, and the maps of asked and approved calls. |
 | `src/verdict.ts` | `isNoVerdict` and `question`. |
 | `src/rule.ts` | `ruleOf` gives the rule of a call. |
 
@@ -179,7 +180,7 @@ The test hooks stand for the engine. The `tool.call` hook asks `$.tool.check` fi
 - `Run once` runs the call one time. The next call gets a new question.
 - `Do not run` runs nothing and returns the deny text.
 - A dismissed question, a judgment and a call longer than the limit keep the denial.
-- A tool error with a phrase raises no question when `tool.check` returned `allow`.
+- A tool error with a phrase raises no question when `tool.check` returned `allow`, and when the tool ran after an `ask`.
 - Each row of the table in section 7.2.
 - The third answer runs the call. A later match runs with no question and shows the toast.
 - A match longer than the limit runs.
@@ -189,23 +190,33 @@ The test hooks stand for the engine. The `tool.call` hook asks `$.tool.check` fi
 - The question shows the input of `tool.check`. An approval or a rule does not run a different input.
 - An approval does not run a call that a rule below the mod denies.
 - Calls at the same time get one question at a time.
-- A rule is not kept when its first call did not run.
+- A rule is not kept when its first call did not run. It stays when that call ran and failed with a phrase.
 - A hidden character shows as its code point. A wrapper and a character that is not printable ASCII give no rule.
 - The question has the `No verdict` chip.
 
 ## 10. Checks in a live session
 
-The test kit cannot prove these points. Do them when the classifier next gives no verdict:
+### 10.1 Done
+
+A scratch mod recorded the events of headless sessions on Claude Code 2.1.292:
+
+- A real call raises `tool.check` with its `tool_use_id`. The input has the fields of the tool, for Bash `command` and `description`.
+- A hook below the mod can change the input. `tool.check` gets the changed input.
+- A denial of the mode's decider (`dontAsk` mode) comes from `next(e)` as `isError` with the denial as `text`. No classic event comes before it.
+- A tool that ran raises `classic.PostToolUse`, or `classic.PostToolUseFailure` when it failed, before `next(e)` gives its answer.
+- A second `next(e)` in one `tool.call` hook runs the tool. The engine raises `tool.check` again with the same `tool_use_id`, and an `allow` from a hook lets the call run.
+
+### 10.2 Open
+
+The sessions did not get a no-verdict denial: the classifier answered each call. Do these checks when the classifier next gives no verdict:
 
 1. The denial text contains a phrase of section 4.2.
-2. A second `next(e)` in one `tool.call` hook runs the tool.
-3. The engine raises `tool.check` again in that second run.
-4. After `Do not run`, the model does not issue the call again.
+2. After `Do not run`, the model does not issue the call again.
+3. The dialog, the chip and the toast look correct on the terminal and on a desktop.
 
 ## 11. Known limits
 
 - A new Claude Code release can change the phrases. Then the mod asks no question, and the denial stays.
-- A tool that the classifier approved can fail and print a phrase of section 4.2. The mod then asks the question, or a rule runs the call a second time. The second run is the same call.
 - A deny after `next(e)` makes the engine write one dim line to the transcript.
 - A no-verdict state can last: a classifier transcript that is too long gives no verdict for each call. During that time a rule runs each match with no review.
 - Text that is not ASCII, such as Vietnamese, is hard to read in the question, because each such character shows as a code point.
