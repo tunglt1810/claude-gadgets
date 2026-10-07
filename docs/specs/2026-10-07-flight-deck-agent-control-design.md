@@ -20,6 +20,8 @@ The spike mod is `.tmp/spike-send/`. It ran headless.
 | A `tool.check` hook of the mod | The engine does not call it for the mod's own message. The mod cannot allow its own message. |
 | An allow rule for `SendMessage` | The message goes through in auto mode. Tested with `--allowedTools SendMessage`. |
 
+A stop in the middle of a Bash call gave this order: the stop result, the end of the Bash call (`isError`, exit code 137) 7 ms later, then `turn.complete` (`aborted`) 3 ms after that. A stop in the middle of a step gave the end of the step 2 ms before `turn.complete`. The hooks of the mod are async, so the end of a call can finish its work after the end of the run. For that reason an agent is marked as running at the start of a step or a call, not at its end.
+
 Not tested: a message to a killed agent, an allow rule in a settings file, and the `Input` element on a live desktop.
 
 ## 3. Behavior
@@ -28,8 +30,8 @@ Not tested: a message to a killed agent, an allow rule in a settings file, and t
 
 An open agent row has a control row below its detail row.
 
-- `» message` opens a message field below the control row, with the focus in it. A second press closes the field.
-- `■ stop` is there only while the agent runs. The first press changes the label to `■ stop?`. The second press stops the agent. A press on any other button takes the question back.
+- `» message` opens a message field below the control row, with the focus in it. The mod moves the focus two times: at the press, and 80 ms later, because the pressed button stays on the screen. A second press closes the field.
+- `■ stop` is there only while the agent runs. The first press changes the label to `■ stop?`. The second press stops the agent. A press on any other button takes the question back, and so does the end of the agent.
 - A row with less than 24 cells draws the two buttons as `»` and `■` (`■?` for the question).
 
 ### 3.2 Message field

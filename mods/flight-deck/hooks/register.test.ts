@@ -2701,3 +2701,51 @@ test('the message field of the tree closes when the transcript opens', async ($,
   expect(await ui.find({ key: 'say:a1' })).toBeUndefined()
   await ui.unmount()
 })
+
+test('the end of a stopped tool call, after the end of the run, does not run the agent again', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => {
+    release = r
+  })
+  engine(on, undefined, async () => {
+    await held
+    return { result: {} as never, text: 'Exit code 137', isError: true }
+  })
+  paneEngine(on)
+  await spawn($)
+  const call = $.tool.call({ tool: 'Bash', command: 'sleep 40', agentId: 'a1' } as never)
+  await new Promise((r) => setTimeout(r, 10))
+  await $.turn.complete({ ...DONE, isAborted: true, reason: 'aborted', agentId: 'a1' } as never)
+  release()
+  await call
+
+  const ui = await mountPane($, 'terminal')
+  expect(await marks(ui)).toMatchObject([STOPPED])
+  expect((await cellOf(ui, 'runs:a1')).trim()).toContain('1')
+  expect(await ui.find({ key: 'stop:a1' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a stop button forgets its question when the agent ends', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  const stops: unknown[] = []
+  engine(on, undefined, (e) => {
+    if ((e as { tool: string }).tool === 'TaskStop') stops.push(e)
+    return { result: {} as never, text: 'ok' }
+  })
+  paneEngine(on)
+  await spawn($)
+
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'stop:a1' })
+  await completeAgent($, 'a1')
+  // The agent runs again: the first press asks again.
+  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+  expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+  await ui.press({ key: 'stop:a1' })
+  expect(stops).toHaveLength(0)
+  await ui.unmount()
+})

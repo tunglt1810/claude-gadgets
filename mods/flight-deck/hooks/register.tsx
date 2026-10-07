@@ -358,7 +358,8 @@ async function openContext($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isContext: true }))
   })
-  await measureContext($, 'full')
+  // A count that fails leaves the summary on the screen.
+  await measureContext($, 'full').catch(() => undefined)
 }
 
 // Back to the tree, with the focus on the button that opened the context screen.
@@ -373,9 +374,12 @@ async function closeContext($: Api): Promise<void> {
 const drafts: Record<string, string> = {}
 // The agents that have a message on its way.
 const sending = new Set<string>()
-// The stops of the pane that are on their way: the `tool.call` hook of the mod sees each one,
-// and it is not a tool call of the session.
-let ownStops = 0
+// The agents that a stop of the pane is on its way to: the `tool.call` hook of the mod sees
+// each stop, and it is not a tool call of the session.
+const ownStops = new Set<string>()
+// The task that a TaskStop call names.
+const taskOf = (e: object): string =>
+  'task_id' in e && typeof e.task_id === 'string' ? e.task_id : ''
 
 // Sends the text of a message field to an agent, as the SendMessage tool does. The engine
 // starts an ended agent again. A message that is not sent stays in its field, with the reason.
@@ -388,7 +392,8 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
     .catch((err: unknown) => ({ isDelivered: false as const, reason: String(err) }))
   sending.delete(agentId)
   if (res.isDelivered) {
-    delete drafts[agentId]
+    // Text that the person typed while the message was on its way stays in the field.
+    if (drafts[agentId] === text) delete drafts[agentId]
     await update($, pane, (c) => ({
       ...c,
       compose: null,
@@ -397,7 +402,7 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
     }))
     return refreshViewed($, agentId)
   }
-  drafts[agentId] = text
+  if (drafts[agentId] === undefined) drafts[agentId] = text
   await update($, pane, (c) => ({
     ...c,
     controlError: { agentId, reason: sendFailure(res.reason) },
@@ -412,16 +417,44 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
     return
   }
   await update($, pane, (c) => ({ ...c, stopAsk: null }))
-  ownStops++
-  const res = await $.tool
-    .call({ tool: 'TaskStop', task_id: agentId })
-    .catch((err: unknown) => ({ deny: String(err) }))
-  ownStops--
-  const reason = 'deny' in res && res.deny !== undefined ? res.deny : res.isError ? res.text : null
+  ownStops.add(agentId)
+  let reason: string | null
+  try {
+    const res = await $.tool.call({ tool: 'TaskStop', task_id: agentId })
+    reason = res.deny !== undefined ? res.deny : res.isError ? (res.text ?? '') : null
+  } catch (err) {
+    reason = String(err)
+  } finally {
+    ownStops.delete(agentId)
+  }
+  // A stop that worked takes back the reason of this agent only.
   await update($, pane, (c) => ({
     ...c,
-    controlError: reason === null ? null : { agentId, reason: stopFailure(reason) },
+    controlError:
+      reason !== null
+        ? { agentId, reason: stopFailure(reason) }
+        : c.controlError?.agentId === agentId
+          ? null
+          : c.controlError,
   }))
+}
+
+// The wait before the second focus move to a message field.
+const REFOCUS_MS = 80
+
+// Puts the focus in the message field of an agent, so the person can type at once. The
+// pressed button stays on the screen, and the engine can give it the ring back when the
+// press ends: a second move comes a short time after the press.
+async function focusField($: Api, agentId: string): Promise<void> {
+  const move = () => $.ui.focus({ requestId: PANE_ID, key: `say:${agentId}` }).catch(() => ({}))
+  await move()
+  setTimeout(() => void move(), REFOCUS_MS)
+}
+
+// A stop button that waits for its second press forgets the question when its agent ends.
+async function forgetStop($: Api, agentId: string): Promise<void> {
+  if ((await read($, pane)).stopAsk !== agentId) return
+  await update($, pane, (c) => (c.stopAsk === agentId ? { ...c, stopAsk: null } : c))
 }
 
 // Opens the message field of an agent's row with the focus in it, or closes it. The transcript
@@ -429,7 +462,7 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
 async function toggleCompose($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.agentId === agentId) {
-    await $.ui.focus({ requestId: PANE_ID, key: `say:${agentId}` }).catch(() => ({}))
+    await focusField($, agentId)
     return
   }
   if (cur.compose === agentId) {
@@ -439,6 +472,7 @@ async function toggleCompose($: Api, agentId: string): Promise<void> {
   await focusAfter($, `say:${agentId}`, async () => {
     await update($, pane, (c) => ({ ...c, compose: agentId, controlError: null }))
   })
+  await focusField($, agentId)
 }
 
 // What a pane button does, from its press or from the click that gave the pane the focus.
@@ -453,7 +487,7 @@ async function act($: Api, action: PaneAction): Promise<void> {
     // State of an older shape (a hot reload) has no flag.
     return (await read($, pane)).isContext === true ? closeContext($) : backToTree($)
   if (action.kind === 'context') return openContext($)
-  if (action.kind === 'recount') return measureContext($, 'full')
+  if (action.kind === 'recount') return measureContext($, 'full').catch(() => undefined)
   if (action.kind === 'category') {
     // A category with no items has no rows to open: a click that only gave the pane the
     // focus gets here too.
@@ -648,8 +682,11 @@ export const register: Register = (on, options) => {
     // A run of an agent has no start event: its first step opens its working time.
     const runner = e.agentId
     if (runner !== undefined) {
-      await ensureLoaded($)
+      const session = await ensureLoaded($)
       await update($, meter, (c) => ({ ...c, ...startRun(c, runner, sentAt) }))
+      // The agent runs from the start of its step. The end of a step does not say so: the end
+      // of a stopped step can come after the end of the run.
+      await trackAgent($, session, (r, t) => ran(r, runner, t))
       startTimer($, (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl))
     }
     try {
@@ -715,9 +752,7 @@ export const register: Register = (on, options) => {
                   isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')),
                 ),
               }
-        await trackAgent($, id, (r, t) =>
-          tuned(ran(r, agentId, t), agentId, e.model, effort, context),
-        )
+        await trackAgent($, id, (r) => tuned(r, agentId, e.model, effort, context))
       } else {
         // The dashboard's numbers changed.
         await syncPane($)
@@ -730,7 +765,14 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
-    if (ownStops > 0 && e.tool === 'TaskStop' && e.agentId === undefined) return next(e)
+    if (e.tool === 'TaskStop' && e.agentId === undefined && ownStops.has(taskOf(e))) return next(e)
+    const loop = e.agentId
+    // The agent runs from the start of its call. The end of a call does not say so: the end
+    // of a stopped call can come after the end of the run.
+    if (loop !== undefined) {
+      const session = await ensureLoaded($)
+      await trackAgent($, session, (r, t) => ran(r, loop, t))
+    }
     const res = await next(e)
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res
@@ -763,11 +805,7 @@ export const register: Register = (on, options) => {
     }))
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
-    const loop = e.agentId
-    if (loop !== undefined) {
-      await trackAgent($, id, (r, t) => ran(r, loop, t))
-      await refreshViewed($, loop)
-    }
+    if (loop !== undefined) await refreshViewed($, loop)
     return res
   })
 
@@ -841,6 +879,7 @@ export const register: Register = (on, options) => {
       await save($, session, nextMeter)
       const end = e.reason === 'answer' ? completed : stopped
       await trackAgent($, session, (r, t) => end(r, agentId, t))
+      await forgetStop($, agentId)
       await refreshViewed($, agentId)
       return next(e)
     }
@@ -875,6 +914,7 @@ export const register: Register = (on, options) => {
       const at = await stamp($)
       await update($, meter, (c) => ({ ...c, ...endRun(c, notice.id, at) }))
       await trackAgent($, session, (r, t) => ended(r, notice.id, notice.status, t))
+      await forgetStop($, notice.id)
     }
     return res
   })
