@@ -210,3 +210,16 @@ test('pruned drops an old running entry with no data that the engine does not li
   const tunedGhost = tuned(r, 'g1', 'claude-haiku-4-5', undefined)
   expect(Object.keys(pruned(tunedGhost, [], 120_000))).toEqual(['a1', 'g1'])
 })
+
+test('a late completed notification does not end an agent that runs again', () => {
+  // The notification of a run can come after a message started the agent again.
+  const again = ran(completed(spawned({}, 'a1', 100, {}), 'a1', 200), 'a1', 300)
+  const r = ended(again, 'a1', 'completed', 350)
+  expect(r.a1).toMatchObject({ status: 'running', runs: 2 })
+  expect(ran(r, 'a1', 400).a1?.runs).toBe(2)
+})
+
+test('parseRegistry reads a record of an older version, with no run, as one started run', () => {
+  const old = { a1: { id: 'a1', status: 'stopped', runs: 0, startedAt: 1, endedAt: 2 } }
+  expect(parseRegistry(old).a1?.runs).toBe(1)
+})

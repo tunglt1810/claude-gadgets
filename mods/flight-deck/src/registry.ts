@@ -105,11 +105,15 @@ export const stopped = (r: Registry, id: string, at: number): Registry => ({
 
 export type TaskStatus = 'completed' | 'failed' | 'killed'
 
-// A task notification of a known agent. No end counts a run: its start counted it. Another background task's notification changes nothing.
+// A task notification of a known agent. No end counts a run: its start counted it. Another
+// background task's notification changes nothing. A `completed` one changes no agent that
+// runs: the turn.complete of the run ends it, and the notification can come after a message
+// started the agent again.
 export const ended = (r: Registry, id: string, status: TaskStatus, at: number): Registry => {
   const a = r[id]
   if (a === undefined) return r
   if (status !== 'completed') return stopped(r, id, at)
+  if (a.status === 'running') return r
   return { ...r, [id]: { ...a, status: 'idle', endedAt: at } }
 }
 
@@ -203,7 +207,8 @@ export const parseRegistry = (raw: unknown): Registry => {
       ...(effort === undefined ? {} : { effort }),
       ...(context === undefined ? {} : { context }),
       status: v.status === 'running' || v.status === 'stopped' ? v.status : 'idle',
-      runs: v.runs,
+      // An older version counted a run at its end: an entry is one started run at least.
+      runs: Math.max(1, v.runs),
       startedAt: v.startedAt,
       endedAt: isNum(v.endedAt) ? v.endedAt : null,
     }

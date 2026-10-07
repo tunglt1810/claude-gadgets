@@ -265,7 +265,7 @@ These duplicates exist today. This file lists them and does not fix them.
 
 - `TONE` `{ ok, warn, danger }` is declared in `layout.ts` and in `window.ts`. The values are the same: `green`, `yellow`, `red`.
 - `BUTTON_CHROME` (value 4) is declared in `layout.ts` and in `pane.tsx`.
-- The name `SEP` has two values. It is `│` (in ` │ `) in `layout.ts`. It is `·` in `pane.tsx` and in `detail.ts`.
+- The name `SEP` has two values. It is `│` (in ` │ `) in `layout.ts`. It is `·` in `pane.tsx`. The dot between the cells of a row is `dotted` in `cell.ts`.
 - `TONE` in `pane.tsx` is a third value of the same name. It maps an agent status to a color, and it is not a duplicate of the other two.
 
 ## 12. Open points

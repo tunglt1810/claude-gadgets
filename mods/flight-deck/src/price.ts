@@ -38,8 +38,8 @@ export const readPrice = (model: string): number | null => {
 // The estimated cost of a model's tokens, or null for a model with no price.
 export const costOf = (model: string, t: Totals, ttl: Ttl = '5m'): number | null => {
   const p = priceOf(model)
-  if (p === undefined) return null
-  const read = p.read ?? p.input * 0.1
+  const read = readPrice(model)
+  if (p === undefined || read === null) return null
   return (
     (t.input * p.input +
       t.output * p.output +

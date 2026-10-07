@@ -6,7 +6,7 @@ import type {
   ContextView,
   Snapshot,
 } from '../types'
-import { cellText } from './cell'
+import { dotted as joined, rowWidth as widthOf } from './cell'
 import { formatTokens, formatUsd } from './format'
 import { PALETTE } from './palette'
 import { readPrice } from './price'
@@ -200,12 +200,6 @@ export const barSegments = (v: ContextView): BarSegment[] => {
   ]
   return segs.filter((s) => s.text !== '')
 }
-
-const DOT: Cell = { text: '·', dim: true }
-const joined = (parts: Cell[]): Cell[] => parts.flatMap((p, i) => (i === 0 ? [p] : [DOT, p]))
-// The width of a row of cells that has one cell between its cells.
-const widthOf = (cells: Cell[]): number =>
-  cells.reduce((n, c) => n + cellText(c, 0, 0).length, 0) + Math.max(0, cells.length - 1)
 
 // The row of a context length: the length, the growth of a turn and the turns before a
 // compaction. A row wider than `room` drops the turns, then the growth, then the counts.

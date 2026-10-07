@@ -310,9 +310,17 @@ async function trackAgent(
 
 // Marks an agent before its step or its call goes on. The engine waits for this hook: a
 // failure of the mod's own record must not stop the work of the agent.
-async function markAgent($: Api, change: (r: Registry, at: number) => Registry): Promise<void> {
+async function markAgent(
+  $: Api,
+  agentId: string,
+  change: (r: Registry, at: number) => Registry,
+): Promise<void> {
   try {
-    await trackAgent($, await ensureLoaded($), change)
+    const session = await ensureLoaded($)
+    // Most events are of an agent that runs already: nothing to mark, and no list to read.
+    const cur = await read($, agents)
+    if (cur.sessionId === session && cur.entries[agentId]?.status === 'running') return
+    await trackAgent($, session, change)
   } catch {
     // The next event of the agent marks it.
   }
@@ -394,6 +402,10 @@ async function closeContext($: Api): Promise<void> {
   })
 }
 
+// The reason on the screen without the one of `agentId`: the reason of another agent stays.
+const ownErrorGone = (c: PaneView, agentId: string): PaneView['controlError'] =>
+  c.controlError?.agentId === agentId ? null : c.controlError
+
 // The text of each message field as the person typed it, by agent. Kept here, not in state:
 // a write to state on each key would draw the pane again.
 const drafts: Record<string, string> = {}
@@ -412,21 +424,33 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   // A second Enter while the message is on its way sends nothing.
   if (text.trim() === '' || sending.has(agentId)) return
   sending.add(agentId)
-  // The field is empty while the message is on its way: text that the person types then is
-  // a new message, not more of the sent one.
-  delete drafts[agentId]
-  await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
-  const res = await $.session
-    .send({ to: { agentId }, text })
-    .catch((err: unknown) => ({ isDelivered: false as const, reason: String(err) }))
-  sending.delete(agentId)
+  let res: { isDelivered: true } | { isDelivered: false; reason?: string }
+  try {
+    // The field is empty while the message is on its way: text that the person types then is
+    // a new message, not more of the sent one.
+    delete drafts[agentId]
+    await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
+    res = await $.session
+      .send({ to: { agentId }, text })
+      .catch((err: unknown) => ({ isDelivered: false as const, reason: String(err) }))
+  } finally {
+    sending.delete(agentId)
+  }
   if (res.isDelivered) {
     // The field and the reason of another agent stay.
-    await update($, pane, (c) => ({
-      ...c,
-      compose: c.compose === agentId ? null : c.compose,
-      controlError: c.controlError?.agentId === agentId ? null : c.controlError,
-    }))
+    const close = () =>
+      update($, pane, (c) => ({
+        ...c,
+        compose: c.compose === agentId ? null : c.compose,
+        controlError: ownErrorGone(c, agentId),
+      }))
+    // The field of the tree leaves the screen with the focus in it: the focus goes to the
+    // message button of the agent first.
+    if ((await read($, pane)).compose === agentId)
+      await focusAfter($, `msg:${agentId}`, async () => {
+        await close()
+      })
+    else await close()
     return refreshViewed($, agentId)
   }
   // The text comes back to the field, unless the person typed a new one.
@@ -494,11 +518,15 @@ async function toggleCompose($: Api, agentId: string): Promise<void> {
     return
   }
   if (cur.compose === agentId) {
-    await update($, pane, (c) => ({ ...c, compose: null, controlError: null }))
+    await update($, pane, (c) => ({ ...c, compose: null, controlError: ownErrorGone(c, agentId) }))
     return
   }
   await focusAfter($, `say:${agentId}`, async () => {
-    await update($, pane, (c) => ({ ...c, compose: agentId, controlError: null }))
+    await update($, pane, (c) => ({
+      ...c,
+      compose: agentId,
+      controlError: ownErrorGone(c, agentId),
+    }))
   })
   await focusField($, agentId)
 }
@@ -561,6 +589,7 @@ async function togglePane($: Api): Promise<boolean> {
   await loadAgents($, await $.session.id())
   const isWrapped = (await $.store.get(WRAP_KEY)) !== false
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
+  await syncPane($)
   // The pane takes the keyboard: a click on a pane without it only focuses.
   await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true })
   startSpinner($)
@@ -717,7 +746,7 @@ export const register: Register = (on, options) => {
     try {
       // The agent runs from the start of its step. The end of a step does not say so: the end
       // of a stopped step can come after the end of the run.
-      if (runner !== undefined) await markAgent($, (r, t) => ran(r, runner, t))
+      if (runner !== undefined) await markAgent($, runner, (r, t) => ran(r, runner, t))
       const res = yield* next(e)
       const id = await ensureLoaded($)
       await stamp($)
@@ -781,6 +810,8 @@ export const register: Register = (on, options) => {
                 ),
               }
         await trackAgent($, id, (r) => tuned(r, agentId, e.model, effort, context))
+        // The numbers of the step changed, with or without a change of the registry.
+        await syncPane($)
       } else {
         // The dashboard's numbers changed.
         await syncPane($)
@@ -797,7 +828,7 @@ export const register: Register = (on, options) => {
     const loop = e.agentId
     // The agent runs from the start of its call. The end of a call does not say so: the end
     // of a stopped call can come after the end of the run.
-    if (loop !== undefined) await markAgent($, (r, t) => called(r, loop, t))
+    if (loop !== undefined) await markAgent($, loop, (r, t) => called(r, loop, t))
     const res = await next(e)
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res
