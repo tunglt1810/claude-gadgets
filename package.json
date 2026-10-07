@@ -10,9 +10,9 @@
   "scripts": {
     "lint": "biome check .",
     "fix": "biome check --write .",
-    "typecheck": "tsc -p mods/flight-deck --noEmit",
-    "validate": "claude plugin validate mods/flight-deck",
-    "test": "claude plugin test mods/flight-deck",
+    "typecheck": "tsc -p mods/flight-deck --noEmit && tsc -p mods/verdict-gate --noEmit",
+    "validate": "claude plugin validate mods/flight-deck && claude plugin validate mods/verdict-gate",
+    "test": "claude plugin test mods/flight-deck && claude plugin test mods/verdict-gate",
     "check": "bun run lint && bun run typecheck && bun run validate && bun run test"
   }
 }

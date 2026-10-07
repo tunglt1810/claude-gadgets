@@ -156,3 +156,15 @@ Tested on Claude Code 2.1.291.
 #### Added
 
 - Band above the prompt: tokens, cache hit, tool calls, working time and cache countdown.
+
+## verdict-gate
+
+### [Unreleased]
+
+### [0.1.0] - 2026-10-07
+
+Tested on Claude Code 2.1.292.
+
+#### Added
+
+- When auto mode gives no verdict for a tool call, a dialog asks you to run the call once, to run each such call for the session, or to refuse it.
