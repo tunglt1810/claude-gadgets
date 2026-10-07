@@ -20,7 +20,7 @@ Tested on Claude Code 2.1.292.
 
 #### Changed
 
-- A transcript has an empty row before each new prompt.
+- A transcript has a short rule before each new prompt.
 
 ### [0.5.1] - 2026-10-07
 

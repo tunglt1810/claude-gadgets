@@ -142,6 +142,7 @@ Rule: use single-width, text-presentation characters only. Do not use an emoji. 
 | `✓` / `✗` | Tool call done / failed | `TOOL_MARK` in `pane.tsx` |
 | `◷ ` | Work time of an agent in the pane. The agents table has no icon in its time column. | `CLOCK` in `pane.tsx` |
 | `─` | Rule that closes a table | `line` and `rule` in `pane.tsx` |
+| `─` × 12, dim | Short rule before each new prompt of a transcript | `TURN_RULE_LENGTH` in `pane.tsx` |
 | `█`, `▓`, `░`, `▒` | The parts of the context bar: overhead, messages, free room, compact buffer | `barSegments` in `context.ts` |
 | `← agents` | Back label | `BACK` in `pane.tsx` |
 

@@ -95,6 +95,9 @@ const RECENCY_TONE = { active: PALETTE.green, recent: PALETTE.yellow } as const
 const RUNS_WIDTH = 7
 // The characters of a terminal's rule: more than the columns of a pane.
 const RULE_LENGTH = 600
+// The characters of the rule between two turns of a transcript: shorter than a table's rule,
+// so it does not read as the end of the header.
+const TURN_RULE_LENGTH = 12
 // The button of the context screen, and the button that reads its breakdown again.
 const CONTEXT = 'context'
 const RECOUNT = 'recount'
@@ -639,12 +642,14 @@ export const AgentPane = ({
           {isWrapped ? `> ${it.text}` : cut(`> ${it.text}`, isClient ? columns : Infinity)}
         </Text>
       )
-      // An empty row parts a new prompt from the turn before it.
+      // A short rule parts a new prompt from the turn before it.
       return i === 0 ? (
         prompt
       ) : (
         <Box key={String(i)} flexDirection="column">
-          <Box key={`turn:${i}`} height={1} />
+          <Box key={`turn:${i}`} height={1} overflow="hidden">
+            <Text dimColor>{'─'.repeat(TURN_RULE_LENGTH)}</Text>
+          </Box>
           {prompt}
         </Box>
       )

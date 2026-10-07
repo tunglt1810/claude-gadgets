@@ -2467,7 +2467,7 @@ test('the context screen stays one row wide in a narrow pane', async ($, on) => 
   }
 })
 
-test('an empty row parts a new prompt from the turn before it', async ($, on) => {
+test('a short rule parts a new prompt from the turn before it', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
@@ -2480,7 +2480,9 @@ test('an empty row parts a new prompt from the turn before it', async ($, on) =>
     // The items are a prompt, a tool call, an answer and the new prompt. The first prompt
     // has no turn before it.
     expect(await ui.find({ key: 'turn:0' })).toBe(undefined)
-    expect((await ui.find({ key: 'turn:3' }))?.props.height).toBe(1)
+    const rule = await ui.find({ key: 'turn:3' })
+    expect(rule?.props.height).toBe(1)
+    expect(rule?.text).toBe('─'.repeat(12))
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
