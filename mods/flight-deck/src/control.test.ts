@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
   controlLabels,
+  fieldLayout,
   isNoVerdict,
   isOpenAsk,
   isPaneSend,
@@ -64,4 +65,35 @@ test('isPaneSend is true only for a call of the mod to an agent with a message o
   expect(isPaneSend({ ...own, agentId: 'a2' }, sending)).toBe(false)
   expect(isPaneSend(own, new Set())).toBe(false)
   expect(isPaneSend({ ...own, input: null }, sending)).toBe(false)
+})
+
+// Each case is a text that a live terminal session drew in a pane of 83 columns.
+test('fieldLayout counts the rows that the terminal draws a message field in', () => {
+  const rows = (text: string) => fieldLayout(text, 83)
+  expect(rows('')).toEqual({ rows: 1, pad: 0 })
+  expect(rows('reply with the word PONG')).toEqual({ rows: 1, pad: 0 })
+  const sentence =
+    'this is a long message that goes on and on past the width of the pane so that it must wrap or cut at the edge'
+  expect(rows(sentence)).toEqual({ rows: 2, pad: 0 })
+  expect(rows('x '.repeat(120))).toEqual({ rows: 4, pad: 0 })
+  expect(rows('abcdefghij '.repeat(20))).toEqual({ rows: 4, pad: 0 })
+  expect(rows(`${'xx '.repeat(24)}x yy zz`)).toEqual({ rows: 2, pad: 0 })
+  // A later row that fills the width is a row as any other.
+  const second = `hello world this is row one and it is short enough ${'abcdefghijklmn '.repeat(5)}end`
+  expect(rows(second)).toEqual({ rows: 2, pad: 0 })
+})
+
+// The terminal drew each of these texts in one row, cut with `…`, in a box of 83 columns.
+test('fieldLayout makes the box narrower when the first row fills the width', () => {
+  expect(fieldLayout('xx '.repeat(80), 83)).toEqual({ rows: 4, pad: 1 })
+  expect(fieldLayout(`${'abcdefghijklmn '.repeat(5)}tail word`, 83)).toEqual({ rows: 2, pad: 1 })
+  expect(fieldLayout(`${'abcdefghijklm '.repeat(5)}tail word`, 83)).toEqual({ rows: 2, pad: 1 })
+  // The same text fills the first row of a box that is one column wider.
+  expect(fieldLayout('x '.repeat(120), 84)).toEqual({ rows: 4, pad: 1 })
+  expect(fieldLayout('x '.repeat(120), 85)).toEqual({ rows: 4, pad: 0 })
+})
+
+test('fieldLayout is one row when a first word fills each width, and in a box with no room', () => {
+  expect(fieldLayout(`${'0123456789'.repeat(11)} and some words`, 83)).toEqual({ rows: 1, pad: 0 })
+  expect(fieldLayout('hello', 4)).toEqual({ rows: 1, pad: 0 })
 })

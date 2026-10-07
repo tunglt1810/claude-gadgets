@@ -12,7 +12,7 @@ import type {
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
 import { barSegments, contextHead, contextSummary, overheadHead } from './context'
-import { ALLOW_LABEL, controlLabels } from './control'
+import { ALLOW_LABEL, controlLabels, fieldLayout } from './control'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
 import { formatDuration, formatTokens, formatUsd } from './format'
@@ -62,7 +62,7 @@ type Props = {
   drafts: Record<string, string>
   onCompose: (agentId: string) => void
   onStop: (agentId: string) => void
-  onDraft: (agentId: string, text: string) => void
+  onDraft: (agentId: string, text: string, width: number) => void
   onAllow: (agentId: string) => void
   onSend: (agentId: string, text: string) => void
 }
@@ -293,15 +293,22 @@ export const AgentPane = ({
       <Box
         key={`saybox:${id}`}
         flexDirection="column"
-        {...(isClient ? { width, flexShrink: 0 } : { flexGrow: 1, flexShrink: 1 })}
+        {...(isClient
+          ? { width, flexShrink: 0 }
+          : {
+              flexGrow: 1,
+              flexShrink: 1,
+            })}
       >
         <ui.Input
           key={`say:${id}`}
-          label="›"
+          // The terminal cuts a field whose first row fills its width: the label grows
+          // by a cell then, and the text wraps in another place. See `fieldLayout`.
+          label={'›'.repeat(1 + (isClient ? 0 : fieldLayout(drafts[id] ?? '', width).pad))}
           value={drafts[id] ?? ''}
           submitLabel="send"
           autoFocus
-          onInput={(text) => onDraft(id, text)}
+          onInput={(text) => onDraft(id, text, width)}
           onSubmit={(text) => onSend(id, text)}
         />
       </Box>
@@ -911,7 +918,10 @@ export const AgentPane = ({
   // header keeps empty rows for it. A desktop scrolls by the pixel and has no bar: the box
   // is in the flow of the header there.
   const isComposing = view.compose === viewed
-  const fieldRows = (isComposing ? 1 : 0) + (view.controlError?.agentId === viewed ? 1 : 0)
+  // The field takes the rows of its text: the rule and the transcript start below them.
+  const spaceRows =
+    (isComposing ? fieldLayout(drafts[viewed] ?? '', columns).rows : 0) +
+    (view.controlError?.agentId === viewed ? 1 : 0)
   // The rows of the header above the field: the toolbar, the title, the meta row, the stats.
   const headRows = 2 + (agent === undefined ? 0 : 1) + (stats === null ? 0 : 1)
   const field = (
@@ -998,7 +1008,7 @@ export const AgentPane = ({
           ))}
         </Text>
       )}
-      {isClient ? field : fieldRows > 0 && <Box key="sayspace" height={fieldRows} />}
+      {isClient ? field : spaceRows > 0 && <Box key="sayspace" height={spaceRows} />}
       {/* Parts the header (toolbar and title) from the transcript below it. */}
       {isClient ? (
         <Text key="rule" dimColor wrap="truncate">

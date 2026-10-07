@@ -5,6 +5,7 @@ import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
 import {
+  fieldLayout,
   isNoVerdict,
   isOpenAsk,
   isPaneSend,
@@ -496,6 +497,11 @@ async function showEnd($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.isOpen && cur.agentId === agentId)
     await $.ui.scroll({ in: PANE_ID, to: 'end' }).catch(() => ({}))
+}
+
+// Draws the pane again for a change that is not in its state: the text of a field.
+async function redraw($: Api): Promise<void> {
+  await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
 }
 
 // Sends the text of a message field to an agent, as the SendMessage tool does. The engine
@@ -1275,8 +1281,13 @@ export const register: Register = (on, options) => {
         drafts={drafts}
         onCompose={(agentId) => act($, { kind: 'compose', agentId })}
         onStop={(agentId) => act($, { kind: 'stop', agentId })}
-        onDraft={(agentId, text) => {
+        onDraft={(agentId, text, width) => {
+          const before = fieldLayout(drafts[agentId] ?? '', width)
+          const after = fieldLayout(text, width)
           drafts[agentId] = text
+          // The pane draws the field by its layout: a field that got or lost a row, or
+          // whose label changes its length, draws the pane again.
+          if (before.rows !== after.rows || before.pad !== after.pad) void redraw($)
         }}
         onSend={(agentId, text) => act($, { kind: 'send', agentId, text })}
         onAllow={(agentId) => act($, { kind: 'allow', agentId })}

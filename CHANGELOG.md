@@ -16,6 +16,7 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 #### Fixed
 
 - A message that you send from a transcript, and the answer of the agent, come into view.
+- A long message in the field of a transcript does not cover the rows below the field, and the terminal does not cut it to one row.
 
 ### [0.6.0] - 2026-10-07
 
