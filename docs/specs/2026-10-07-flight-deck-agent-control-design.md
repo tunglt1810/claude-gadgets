@@ -42,7 +42,9 @@ An open agent row has a control row below its detail row.
 
 ### 3.3 Transcript screen
 
-- The toolbar has a `■ stop` button while the agent runs, with the same two presses.
+- The toolbar has the `» message` button, and the `■ stop` button while the agent runs, with the same two presses. The bar of a scrolled transcript has the two buttons too, with the keys `sticky:msg:<id>` and `sticky:stop:<id>`.
+- `» message` puts the focus in the message field.
+- The two buttons are icons when the pane has less than 70 columns.
 - The message field is after the last item of the transcript. The engine gives no height of the pane, so no row stays at the end of the pane.
 
 ## 4. Design

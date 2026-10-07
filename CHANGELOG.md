@@ -18,7 +18,7 @@ Tested on Claude Code 2.1.292.
 - The agents screen shows the context length of the main loop, a bar of what fills the window, and the tokens of the overhead and of the messages.
 - A context screen shows the overhead by category, its estimated cost and the MCP servers that the session did not call.
 - An open agent row has a `» message` button, which opens a field that sends a message to the agent, and a `■ stop` button, which stops a running agent on its second press.
-- The transcript screen has the stop button and a message field.
+- The transcript screen has the two buttons, also in the bar of a scrolled transcript, and a message field.
 
 #### Changed
 

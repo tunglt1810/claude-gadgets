@@ -83,6 +83,8 @@ const BACK = '← agents'
 const BUTTON_CHROME = 4
 // The least room that the bar of a scrolled transcript keeps for the agent's name.
 const MIN_STICKY_NAME = 8
+// The columns that the bar keeps for its other parts before its controls get words.
+const STICKY_WORDS = 46
 // A tool call by its outcome: its mark and the color of the mark. A finished call is dim at
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const
@@ -251,9 +253,14 @@ export const AgentPane = ({
 
   // The message field of an agent, and below it the reason of a message that was not sent.
   // Enter sends the text. Only the terminal and a desktop draw a field.
-  const say = (a: AgentEntry | undefined, id: string, isFocused: boolean) =>
+  // The field takes its whole row: `width` cells on a desktop, where no box grows.
+  const say = (a: AgentEntry | undefined, id: string, width: number, isFocused: boolean) =>
     'Input' in ui ? (
-      <Box key={`saybox:${id}`} flexDirection="column" flexGrow={1} flexShrink={1}>
+      <Box
+        key={`saybox:${id}`}
+        flexDirection="column"
+        {...(isClient ? { width, flexShrink: 0 } : { flexGrow: 1, flexShrink: 1 })}
+      >
         <ui.Input
           key={`say:${id}`}
           label="›"
@@ -686,7 +693,7 @@ export const AgentPane = ({
               )}
               {isOpen && view.compose === agent.id && (
                 <Box key={`sayrow:${agent.id}`} flexDirection="row" paddingLeft={inset}>
-                  {say(agent, agent.id, true)}
+                  {say(agent, agent.id, Math.max(1, columns - inset), true)}
                 </Box>
               )}
             </Box>
@@ -803,7 +810,21 @@ export const AgentPane = ({
   // The engine scrolls the pane as one tree, so the header goes out of view. A bar out of the
   // flow, at the first row that the window shows, keeps the back button, the agent and its
   // context in view. It has a background: it lies over a row of the transcript.
-  const stickyRoom = columns - (BACK.length + BUTTON_CHROME + 1) - (MARK_WIDTH + 1)
+  // The controls of the agent: words where the bar has room for them, icons in a narrow one.
+  const ctl = controlLabels(columns - STICKY_WORDS, view.stopAsk === viewed)
+  const isRunning = agent?.status === 'running'
+  const controls = (prefix: string) => [
+    <Button key={`${prefix}msg:${viewed}`} label={ctl.message} onPress={() => onCompose(viewed)} />,
+    isRunning && (
+      <Button key={`${prefix}stop:${viewed}`} label={ctl.stop} onPress={() => onStop(viewed)} />
+    ),
+  ]
+  const stickyRoom =
+    columns -
+    (BACK.length + BUTTON_CHROME + 1) -
+    (MARK_WIDTH + 1) -
+    (ctl.message.length + BUTTON_CHROME + 1) -
+    (isRunning ? ctl.stop.length + BUTTON_CHROME + 1 : 0)
   const stickyCtx =
     agent?.context === undefined
       ? null
@@ -837,6 +858,7 @@ export const AgentPane = ({
             color: contextColor(agent.context),
           }),
         )}
+      {controls(`${key}:`)}
     </Box>
   )
   return (
@@ -851,13 +873,7 @@ export const AgentPane = ({
           label={`wrap ${isWrapped ? 'on' : 'off'}`}
           onPress={onWrap}
         />
-        {agent?.status === 'running' && (
-          <Button
-            key={`stop:${viewed}`}
-            label={controlLabels(columns, view.stopAsk === viewed).stop}
-            onPress={() => onStop(viewed)}
-          />
-        )}
+        {controls('')}
       </Box>
       <Box key="title" flexDirection="row" alignItems="center" gap={1}>
         {agent !== undefined && cell('mark', agentMark(agent))}
@@ -915,7 +931,9 @@ export const AgentPane = ({
       {body()}
       {/* After the transcript: the engine gives no height of the pane, so no row stays at its
           end. */}
-      {say(agent, viewed, false)}
+      <Box key="sayrow" flexDirection="row">
+        {say(agent, viewed, columns, false)}
+      </Box>
       {scrollTop > 0 && sticky('sticky', scrollTop)}
       {/* The engine moves the window after this drawing: until then the row it shows has a bar
           too, so no drawing is without a bar at its top. */}

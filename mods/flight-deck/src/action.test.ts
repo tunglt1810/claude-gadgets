@@ -21,6 +21,8 @@ test('focusAction reads the action of each pane button key', () => {
   expect(focusAction('tool:t1', null)).toEqual({ kind: 'tool', toolUseId: 't1' })
   expect(focusAction('msg:a9', null)).toEqual({ kind: 'compose', agentId: 'a9' })
   expect(focusAction('stop:a9', null)).toEqual({ kind: 'stop', agentId: 'a9' })
+  expect(focusAction('sticky:msg:a9', null)).toEqual({ kind: 'compose', agentId: 'a9' })
+  expect(focusAction('stickyfrom:stop:a9', null)).toEqual({ kind: 'stop', agentId: 'a9' })
   // A click on a message field only gives it the focus.
   expect(focusAction('say:a9', null)).toBeNull()
   expect(focusAction('child:t1', transcript)).toEqual({ kind: 'open', agentId: 'a2' })

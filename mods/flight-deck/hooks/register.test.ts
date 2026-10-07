@@ -2605,6 +2605,9 @@ test('the transcript screen has a message field and a stop button', async ($, on
     const ui = await mountPane($, surface)
     await ui.press({ key: 'agent:a1' })
     expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+    // The message button moves the focus to the field: it opens no second field.
+    await ui.press({ key: 'msg:a1' })
+    expect(await ui.findAll({ type: 'Input' })).toHaveLength(1)
     await ui.input({ key: 'say:a1', text: 'one more thing' })
     expect(sent.at(-1)?.text).toBe('one more thing')
     // The field stays on the transcript screen, empty.
@@ -2612,4 +2615,33 @@ test('the transcript screen has a message field and a stop button', async ($, on
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
+})
+
+test('the bar of a scrolled transcript has the message and the stop buttons', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  const stops: unknown[] = []
+  engine(on, undefined, (e) => {
+    stops.push(e)
+    return { result: {} as never, text: 'ok' }
+  })
+  paneEngine(on)
+  await spawn($)
+
+  let ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  await ui.unmount()
+  ui = await mountPane($, 'terminal', true, 80, 12)
+  expect((await ui.find({ key: 'sticky:msg:a1' }))?.props.label).toBe('» message')
+  expect((await ui.find({ key: 'sticky:stop:a1' }))?.props.label).toBe('■ stop')
+  await ui.press({ key: 'sticky:stop:a1' })
+  expect((await ui.find({ key: 'sticky:stop:a1' }))?.props.label).toBe('■ stop?')
+  await ui.press({ key: 'sticky:stop:a1' })
+  expect(stops.at(-1)).toMatchObject({ tool: 'TaskStop', task_id: 'a1' })
+  await ui.unmount()
+  // A narrow bar draws them as icons.
+  ui = await mountPane($, 'terminal', true, 50, 12)
+  expect((await ui.find({ key: 'sticky:msg:a1' }))?.props.label).toBe('»')
+  await ui.press({ key: 'back' })
+  await ui.unmount()
 })

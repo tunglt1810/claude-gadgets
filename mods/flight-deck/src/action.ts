@@ -3,7 +3,10 @@ import type { PaneAction, Transcript } from '../types'
 // The action of a pane button, by its key: a click that only gave the pane the focus reaches
 // the plugin as this key, not as a press. A child agent's button is keyed by its tool call, so
 // the open transcript gives the agent. A key that is not a pane button is null.
-export const focusAction = (element: string, transcript: Transcript | null): PaneAction | null => {
+export const focusAction = (raw: string, transcript: Transcript | null): PaneAction | null => {
+  // A button of the bar that stays in view while a transcript scrolls acts as the button of
+  // the header does.
+  const element = raw.replace(/^sticky(from)?:/, '')
   if (element === 'back' || element === 'wrap' || element === 'context' || element === 'recount')
     return { kind: element }
   const [kind, id] = [
@@ -11,8 +14,6 @@ export const focusAction = (element: string, transcript: Transcript | null): Pan
     element.slice(element.indexOf(':') + 1),
   ]
   if (id === '' || !element.includes(':')) return null
-  // The back button of the bar that stays in view while a transcript scrolls.
-  if (element === 'sticky:back' || element === 'stickyfrom:back') return { kind: 'back' }
   // An agent's name, and the button of its detail row.
   if (kind === 'agent' || kind === 'detail') return { kind: 'open', agentId: id }
   if (kind === 'expand') return { kind: 'expand', agentId: id }

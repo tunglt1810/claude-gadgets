@@ -391,9 +391,15 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
   await $.tool.call({ tool: 'TaskStop', task_id: agentId }).catch(() => undefined)
 }
 
-// Opens the message field of an agent's row with the focus in it, or closes it.
+// Opens the message field of an agent's row with the focus in it, or closes it. The transcript
+// screen always has its field: the focus goes there.
 async function toggleCompose($: Api, agentId: string): Promise<void> {
-  if ((await read($, pane)).compose === agentId) {
+  const cur = await read($, pane)
+  if (cur.agentId === agentId) {
+    await $.ui.focus({ requestId: PANE_ID, key: `say:${agentId}` }).catch(() => ({}))
+    return
+  }
+  if (cur.compose === agentId) {
     await update($, pane, (c) => ({ ...c, compose: null, sendError: null }))
     return
   }
