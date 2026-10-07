@@ -200,3 +200,18 @@ A live session must answer these questions before the release. Task 1 of the pla
 4. How long a `full` breakdown takes.
 
 If a `summary` breakdown has no lists, the pane open of section 4.3 reads a `full` breakdown when the session has no `full` sample.
+
+### 9.1 Results
+
+Measured on Claude Code 2.1.292, in a headless session (`claude -p`) before its first response. The model window was 1000000.
+
+1. The `used` categories are `System prompt`, `System tools`, `MCP tools`, `MCP server instructions`, `Custom agents`, `Memory files`, `Skills` and `Messages`. The `deferred` categories are `MCP tools (deferred)` and `System tools (deferred)`. `Autocompact buffer` is `buffer` and `Free space` is `free`. The names of section 4.2 are correct.
+2. A `summary` breakdown has the `mcpTools`, `memoryFiles`, `skills` and `agents` lists, with tokens. Thus the pane open reads a `summary` breakdown.
+3. `totalTokens` was 24584 for `summary` and 21102 for `full`. The `summary` estimate was 16 percent more.
+4. `summary` took 9 ms. `full` took 851 ms, with 3 loaded MCP tools and 6 memory files.
+
+Other results:
+
+- `context.tokens` is absent before the first response. The mod then uses `breakdown.totalTokens`.
+- The `full` breakdown had no `System tools` row. A category row is thus not always present.
+- Two memory files can have the same type and the same file name. Their item rows then show the same name.
