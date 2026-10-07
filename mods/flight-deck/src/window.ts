@@ -21,8 +21,16 @@ export const contextTokens = (u: Usage): number =>
 const SMALL = 200_000
 const LARGE = 1_000_000
 // The models whose window is 1M with no suffix, by the start of the id after `claude-`
-// (the `native_1m` rows of the catalog in the Claude Code 2.1.291 binary).
-const NATIVE_1M = ['opus-4-7', 'opus-4-8', 'opus-5', 'sonnet-5', 'fable-5', 'mythos-5'] as const
+// (the `native_1m` rows of the catalog in the Claude Code 2.1.293 binary).
+const NATIVE_1M = [
+  'opus-4-7',
+  'opus-4-8',
+  'opus-5',
+  'sonnet-5',
+  'fable-5',
+  'mythos-5',
+  'haiku-5-5',
+] as const
 
 // The engine's resolver, read from the Claude Code 2.1.291 binary (minified, names restored):
 //

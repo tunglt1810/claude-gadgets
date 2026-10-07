@@ -95,6 +95,7 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
       Object.entries(isRecord(r.costByModel) ? r.costByModel : {}).map(([m, c]) => [m, num(c)]),
     ),
     advisor: parseAdvisor(r.advisor),
+    ...(typeof r.engineGap === 'number' ? { engineGap: num(r.engineGap) } : {}),
     steps: num(r.steps),
     // A record of an older version has no list: its calls are not known.
     mcpCalls: Array.isArray(r.mcpCalls)

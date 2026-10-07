@@ -71,4 +71,6 @@ test('rebased takes the rest at the start of a turn, unless a call is still to s
 
 test('restOf is the ledger cost that no step holds', () => {
   expect(restOf({ costUsd: 5, costByModel: { a: 3, b: 1.5 } })).toBe(0.5)
+  // What the engine counts over the listed price of the steps is not a side request.
+  expect(restOf({ costUsd: 5, costByModel: { a: 3, b: 1.5 }, engineGap: 0.25 })).toBe(0.25)
 })

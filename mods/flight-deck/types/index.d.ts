@@ -32,6 +32,9 @@ export type Snapshot = {
   byModel: Record<string, Totals>
   // The cost of those tokens priced at each step, by the cache lifetime of its loop.
   costByModel: Record<string, number>
+  // The cost that the engine counts over the listed price of those steps: the session total
+  // holds it, and it is no side request. Absent in a record of an older version.
+  engineGap?: number
   // The advisor calls the API ran inside the steps: how many, their time, and the model the
   // settings name. A step's usage leaves their tokens out, so their cost is estimated.
   // `usd` is the growth of the ledger cost that no step holds, over the turns that called it.
@@ -182,6 +185,8 @@ export type ModelRow = {
   workMs: number
   runs: number
   main?: true
+  // A warning that the pane draws below the row: a price that the engine counts differently.
+  note?: string
 }
 
 // The numbers above the agents table: the engine's session cost and a row per model.

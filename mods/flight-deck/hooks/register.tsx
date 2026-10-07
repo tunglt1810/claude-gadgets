@@ -18,7 +18,7 @@ import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
-import { costOf } from '../src/price'
+import { costOf, engineGap } from '../src/price'
 import {
   agentsKey,
   agentTitle,
@@ -199,6 +199,7 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     byModel: s.byModel,
     costByModel: s.costByModel,
     advisor: s.advisor,
+    engineGap: s.engineGap ?? 0,
     steps: s.steps,
     mcpCalls: s.mcpCalls,
     ...(s.mainModel === undefined ? {} : { mainModel: s.mainModel }),
@@ -893,12 +894,10 @@ export const register: Register = (on, options) => {
       const isMain = e.agentId === undefined
       const settings = await $.settings.read()
       const ttls = await loadTtls($, settings, options.cacheTtl)
-      // Priced now: the step's cache writes cost by its loop's lifetime.
-      const stepCost = costOf(
-        e.model,
-        addUsage(emptyTotals(), res.usage),
-        isMain ? ttls.main : ttls.agent,
-      )
+      // Priced now: the step's cache writes cost by its loop's lifetime, and its prompt
+      // selects the rate of a model that has a long rate.
+      const stepTotals = addUsage(emptyTotals(), res.usage)
+      const stepCost = costOf(e.model, stepTotals, isMain ? ttls.main : ttls.agent, true)
       const advisorModel = settings.advisorModel
       // Compute inside the updater: concurrent events must not overwrite each other.
       const nextMeter = await update($, meter, (c) => ({
@@ -915,6 +914,7 @@ export const register: Register = (on, options) => {
                     0) + stepCost,
               },
         advisor: advised(c.advisor, res.serverToolUses ?? [], advisorModel),
+        engineGap: (c.engineGap ?? 0) + engineGap(e.model, stepTotals),
         steps: c.steps + (isMain && res.usage !== null ? 1 : 0),
         // An agent with no `agent.spawn` (a skill that runs in a subagent) is counted here.
         agents: c.agents + (e.agentId === undefined || e.agentId in c.byAgent ? 0 : 1),

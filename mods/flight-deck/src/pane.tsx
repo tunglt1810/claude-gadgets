@@ -359,9 +359,9 @@ export const AgentPane = ({
               {head('dash:head:time', 'time', TIME_WIDTH, 'right')}
             </Box>
           )}
-          {dashboard.rows.map((r) => {
+          {dashboard.rows.flatMap((r) => {
             const pct = sharePct(r.costUsd, dashboard.costUsd)
-            return (
+            return [
               <Box key={`dash:${r.model}`} flexDirection="row" gap={1}>
                 {rest(`dash:model:${r.model}`, r.model, MODEL)}
                 {cell(`dash:cost:${r.model}`, {
@@ -389,8 +389,16 @@ export const AgentPane = ({
                   width: TIME_WIDTH,
                   align: 'right',
                 })}
-              </Box>
-            )
+              </Box>,
+              // A warning has the row below its model, in the warning tone.
+              ...(r.note === undefined
+                ? []
+                : [
+                    <Box key={`dash:noterow:${r.model}`} flexDirection="row">
+                      {rest(`dash:note:${r.model}`, r.note, columns, { color: PALETTE.yellow })}
+                    </Box>,
+                  ]),
+            ]
           })}
           {rule('dash:rule')}
         </Box>

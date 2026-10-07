@@ -1418,6 +1418,27 @@ test('an agent row and its title show how long the agent worked', async ($, on) 
   }
 })
 
+// A model whose price the engine counts at another rate has a second row below its row.
+test('the dashboard warns below the row of a model that the engine prices at another rate', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5' } as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-haiku-4-5-20251001', agentId: 'a1' } as never)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(JSON.stringify(await ui.find({ key: 'dash:note:sonnet-5-5' }))).toContain(
+      'cache read $0.10/MTok, engine $0.20',
+    )
+    // One note: the row of Haiku 4.5 has none.
+    expect((await paneText(ui)).split(', engine $').length).toBe(2)
+  }
+})
+
 // Above the agents: the engine's session cost, then per model an estimated cost, the working
 // time and the runs of its agents.
 test("the dashboard shows the session cost and each model's cost, time and runs", async ($, on) => {

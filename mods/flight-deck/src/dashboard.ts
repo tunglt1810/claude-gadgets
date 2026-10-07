@@ -1,6 +1,6 @@
 import type { Dashboard, ModelRow, Registry, Snapshot } from '../types'
 import { PALETTE } from './palette'
-import { costOf } from './price'
+import { costOf, priceNote } from './price'
 import { workedMs } from './registry'
 
 // A model id without its vendor prefix and its date: `haiku-4-5`.
@@ -26,11 +26,13 @@ export const dashboard = (snap: Snapshot, entries: Registry, now: number): Dashb
     if (cur !== undefined) return cur
     const totals = snap.byModel[model]
     const estimate = totals === undefined ? 0 : costOf(model, totals)
+    const note = priceNote(model)
     const next: ModelRow = {
       model: shortModel(model),
       costUsd: estimate === null ? null : (snap.costByModel[model] ?? estimate),
       workMs: 0,
       runs: 0,
+      ...(note === null ? {} : { note }),
     }
     rows.set(model, next)
     return next
@@ -49,7 +51,7 @@ export const dashboard = (snap: Snapshot, entries: Registry, now: number): Dashb
   }
   const sorted = [...rows.values()].sort((a, b) => (b.costUsd ?? -1) - (a.costUsd ?? -1))
   const rest = sorted.every((r) => r.costUsd !== null)
-    ? snap.costUsd - sorted.reduce((sum, r) => sum + (r.costUsd ?? 0), 0)
+    ? snap.costUsd - sorted.reduce((sum, r) => sum + (r.costUsd ?? 0), 0) - (snap.engineGap ?? 0)
     : 0
   const { calls, ms, usd, model } = snap.advisor
   const side = rest - usd
