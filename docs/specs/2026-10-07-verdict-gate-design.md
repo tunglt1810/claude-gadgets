@@ -65,26 +65,34 @@ A judgment has one of these phrases:
 - `Permission for this action has been denied`
 - `judged this action dangerous`
 
-A text with a judgment phrase is a judgment, also when it has a phrase of the first list.
+A rejection of the user in the permission dialog has one of these phrases:
+
+- `The user doesn't want to proceed with this tool use`
+- `The user doesn't want to take this action`
+
+A text with a judgment phrase or a rejection phrase is not a no-verdict denial, also when it has a phrase of the first list.
 
 ## 5. Question
 
 The text is `Auto mode did not review this <tool> call: <input>. Run it?`.
 
 - The chip of the question is `No verdict`. It separates this question from a question of the model.
-- The input is JSON. Thus a line break shows as `\n`, and the user sees each control character.
+- The input is JSON. Thus a line break shows as `\n`.
+- Each other control character, format character and space that is not the ASCII space shows as its code point, for example `\u{202e}`. A terminal hides or obeys such a character.
 - The question shows the input whole. The user approves only what the question shows.
-- When the JSON is longer than 2000 characters, the mod asks no question and the denial stays.
+- When the shown text is longer than 2000 characters, the mod asks no question and the denial stays.
 
 ## 6. Answers
 
 | Answer | Result |
 |---|---|
-| `Run once` | The mod calls `next(e)` again. Its `tool.check` hook returns `allow` for that `tool_use_id`, when the input is the input that the question showed. |
+| `Run once` | The mod calls `next(e)` again. Its `tool.check` hook changes an `ask` to `allow` for that `tool_use_id`, when the input is the input that the question showed. A `deny` from a rule or a hook below the mod stays. |
 | `Do not run` | The call returns `{ deny: 'The user refused this call. Do not issue it again.' }`. |
 | The user dismisses the dialog, or no user is there | The denial stays. |
 
 An approval is for one `tool_use_id` and one input. When the input of the second run is different, the denial stays. The mod removes the approval when the `tool.call` hook returns.
+
+The mod shows one question at a time. A call that waits gets its question, or the match of a new rule, after the answer.
 
 ## 7. Session rules
 
@@ -103,10 +111,20 @@ When a Bash command has no prefix, the question has only the two options of sect
 
 A simple command has none of these characters: `;` `&` `|` `<` `>` `$` `` ` `` `(` `)` `{` `}` `\`, and no line break. Only a simple command has a prefix.
 
-The prefix is the first two words, when both conditions are true:
+A command also has no prefix when it has a tab or a character that is not printable ASCII. The shell does not part words at such a character.
+
+The prefix is the first two words, when all three conditions are true:
 
 - The first word has no `=`.
+- The first word is not a wrapper or a shell. A path before the name does not change this.
 - The second word is a subcommand: it has only lowercase letters, digits and hyphens, and starts with a letter.
+
+The wrappers and the shells are:
+
+- `sudo`, `doas`, `env`, `command`, `exec`, `eval`
+- `nohup`, `time`, `timeout`, `nice`, `ionice`, `xargs`, `watch`, `ssh`
+- `sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`
+- `npx`, `bunx`, `pnpx`, `uvx`
 
 A command with no subcommand has no prefix. One word tells too little about what the command runs.
 
@@ -117,6 +135,8 @@ A command with no subcommand has no prefix. One word tells too little about what
 | `rm -rf build` | none |
 | `bash -c "rm -rf x"` | none |
 | `python a.py` | none |
+| `sudo bash -c "echo hi"` | none |
+| `npx cowsay hi` | none |
 | `FOO=1 git push` | none |
 | `git status && rm -rf x` | none |
 
@@ -138,6 +158,7 @@ The 2000-character limit does not apply to a match, because the user approved th
 - The mod keeps the rules in memory, by `$.session.id()`.
 - A different session id starts with no rules.
 - A reload of the mod removes all rules.
+- A new rule stays only when its first call got past the check. When the second run has a no-verdict denial again, the mod removes the rule.
 - A subagent uses the rules of its session.
 
 ## 8. Layout
@@ -166,6 +187,10 @@ The test hooks stand for the engine. The `tool.call` hook asks `$.tool.check` fi
 - A different session id has no rules.
 - A rule does not run a call that the classifier judged.
 - The question shows the input of `tool.check`. An approval or a rule does not run a different input.
+- An approval does not run a call that a rule below the mod denies.
+- Calls at the same time get one question at a time.
+- A rule is not kept when its first call did not run.
+- A hidden character shows as its code point. A wrapper and a character that is not printable ASCII give no rule.
 - The question has the `No verdict` chip.
 
 ## 10. Checks in a live session
@@ -183,4 +208,5 @@ The test kit cannot prove these points. Do them when the classifier next gives n
 - A tool that the classifier approved can fail and print a phrase of section 4.2. The mod then asks the question, or a rule runs the call a second time. The second run is the same call.
 - A deny after `next(e)` makes the engine write one dim line to the transcript.
 - A no-verdict state can last: a classifier transcript that is too long gives no verdict for each call. During that time a rule runs each match with no review.
+- The list of wrappers is not complete. A wrapper that is not in the list gets a prefix.
 - A tool rule is wide: `Write` runs each write. A Bash rule does not limit the words after the subcommand. The question shows the rule before the user approves it.

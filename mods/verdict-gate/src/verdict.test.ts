@@ -49,3 +49,23 @@ test('a line break in a command is shown as written, not drawn', () => {
 test('a call too long to show whole has no question', () => {
   expect(question('Bash', 'x'.repeat(5000))).toBeUndefined()
 })
+
+test('the question shows each hidden character as its code point', () => {
+  const text = question('Bash', JSON.stringify({ command: 'a\u202eb\u200bc\u007fd\u009be\u00a0f' }))
+  expect(text).toContain('a\\u{202e}b\\u{200b}c\\u{7f}d\\u{9b}e\\u{a0}f')
+})
+
+test('the question keeps a letter that is not ASCII', () => {
+  expect(question('Write', '{"content":"tiếng Việt"}')).toContain('tiếng Việt')
+})
+
+test('a rejection of the user is not found', () => {
+  expect(
+    isNoVerdict(
+      "The user doesn't want to proceed with this tool use. The user said: gave no verdict",
+    ),
+  ).toBe(false)
+  expect(isNoVerdict("The user doesn't want to take this action right now. gave no verdict")).toBe(
+    false,
+  )
+})

@@ -26,3 +26,28 @@ test('the rule of each other tool is its name', () => {
   expect(ruleOf('Read', { file_path: 'a.md' })).toBe('Read')
   expect(ruleOf('mcp__gh__issue', {})).toBe('mcp__gh__issue')
 })
+
+test('a command behind a wrapper or a shell has no rule', () => {
+  for (const c of [
+    'sudo bash -c "echo hi"',
+    'env rm -rf x',
+    'command rm x',
+    'nohup sh run',
+    'xargs rm',
+    'npx cowsay hi',
+    'bash run',
+    '/usr/bin/sudo make install',
+  ])
+    expect(bash(c)).toBeUndefined()
+})
+
+test('a command with a character that is not printable ASCII has no rule', () => {
+  for (const c of [
+    'git push\u00a0x',
+    'git\u00a0push',
+    'git\tpush',
+    'git push \u202ex',
+    'git push é',
+  ])
+    expect(bash(c)).toBeUndefined()
+})

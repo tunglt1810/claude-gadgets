@@ -24,6 +24,8 @@ const engine = (
     checks: 0,
     // A hook beneath the plugin that changes the command: by default it changes nothing.
     rewrite: (command: string, _check: number) => command,
+    // The verdict beneath the plugin for each check: by default the mode's decider gets it.
+    beneath: (_check: number): 'ask' | 'deny' | 'allow' => 'ask',
     verdict,
   }
   on('session.id', () => ({ value: seen.session }))
@@ -31,7 +33,7 @@ const engine = (
     seen.toasts.push(e.text)
     return { value: undefined }
   })
-  on('tool.check', () => ({ decision: 'ask' }))
+  on('tool.check', () => ({ decision: seen.beneath(seen.checks) }))
   on('tool.call', async (_$, e) => {
     if (e.tool === 'AskUserQuestion') {
       const { questions } = e as unknown as {
@@ -235,4 +237,43 @@ test('a rule does not run an input that changes after the match', async ($, on) 
   await $.tool.call({ ...CALL, tool_use_id: 't2' })
 
   expect(seen.runs).toBe(1)
+})
+
+test('an approval does not run a call that a rule beneath now denies', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  seen.beneath = (check) => (check === 1 ? 'ask' : 'deny')
+
+  await $.tool.call(CALL)
+
+  expect(seen.asks).toHaveLength(1)
+  expect(seen.runs).toBe(0)
+})
+
+test('calls at the same time get one question at a time, and a new rule answers the rest', async ($, on) => {
+  const seen = engine($, on, REMEMBER)
+
+  await Promise.all(['t1', 't2', 't3'].map((id) => $.tool.call({ ...CALL, tool_use_id: id })))
+
+  expect(seen.asks).toHaveLength(1)
+  expect(seen.runs).toBe(3)
+})
+
+test('a rule is not kept when its first call did not run', async ($, on) => {
+  const seen = engine($, on, REMEMBER)
+  seen.rewrite = (command, check) => (check === 2 ? 'rm -rf x' : command)
+
+  await $.tool.call(CALL)
+  await $.tool.call({ ...CALL, tool_use_id: 't2' })
+
+  expect(seen.asks).toHaveLength(2)
+})
+
+test('a rejection of the user is not a denial without a verdict', async ($, on) => {
+  const text = `The user doesn't want to proceed with this tool use. To tell you how to proceed, the user said: it gave no verdict`
+  const seen = engine($, on, 'Run once', text)
+
+  const res = await $.tool.call(CALL)
+
+  expect(seen.asks).toHaveLength(0)
+  expect(res.text).toBe(text)
 })
