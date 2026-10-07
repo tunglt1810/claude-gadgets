@@ -258,10 +258,11 @@ export const AgentPane = ({
         {view.controlError.reason}
       </Text>
     ) : null
-  // The message field of an agent.
+  // The message field of an agent. It has no placeholder: text that an input method composes
+  // (Vietnamese on macOS) is not in the field yet, so the engine draws the placeholder below it.
   // Enter sends the text. Only the terminal and a desktop draw a field.
   // The field takes its whole row: `width` cells on a desktop, where no box grows.
-  const say = (a: AgentEntry | undefined, id: string, width: number, isFocused: boolean) =>
+  const say = (id: string, width: number, isFocused: boolean) =>
     'Input' in ui ? (
       <Box
         key={`saybox:${id}`}
@@ -271,7 +272,6 @@ export const AgentPane = ({
         <ui.Input
           key={`say:${id}`}
           label="›"
-          placeholder={`message ${a === undefined ? id : name(a)}`}
           value={drafts[id] ?? ''}
           submitLabel="send"
           {...(isFocused ? { autoFocus: true as const } : {})}
@@ -695,7 +695,7 @@ export const AgentPane = ({
               )}
               {isOpen && view.compose === agent.id && (
                 <Box key={`sayrow:${agent.id}`} flexDirection="row" paddingLeft={inset}>
-                  {say(agent, agent.id, Math.max(1, columns - inset), true)}
+                  {say(agent.id, Math.max(1, columns - inset), true)}
                 </Box>
               )}
               {isOpen && (
@@ -943,7 +943,7 @@ export const AgentPane = ({
       {/* After the transcript: the engine gives no height of the pane, so no row stays at its
           end. */}
       <Box key="sayrow" flexDirection="row">
-        {say(agent, viewed, columns, false)}
+        {say(viewed, columns, false)}
       </Box>
       {controlError('err:end', viewed)}
       {scrollTop > 0 && sticky('sticky', scrollTop)}
