@@ -2,7 +2,7 @@ import type { AgentEntry, Registry } from '../types'
 
 export type { AgentEntry, Registry }
 
-type Info = Pick<AgentEntry, 'parentId' | 'type' | 'description' | 'name'>
+type Info = Pick<AgentEntry, 'parentId' | 'type' | 'description' | 'name' | 'teammateId'>
 
 // What `$.agent.list()` gives for one agent, reduced to the fields the registry uses.
 export type Listed = {
@@ -12,6 +12,7 @@ export type Listed = {
   description?: string
   name?: string
   parentId?: string
+  teammateId?: string
 }
 
 export const agentsKey = (sessionId: string): string => `agents:${sessionId}`
@@ -19,7 +20,7 @@ export const agentsKey = (sessionId: string): string => `agents:${sessionId}`
 const blank = (id: string, at: number): AgentEntry => ({
   id,
   status: 'running',
-  runs: 0,
+  runs: 1,
   startedAt: at,
   endedAt: null,
 })
@@ -33,7 +34,13 @@ const fill = (a: AgentEntry, info: Partial<Info>): AgentEntry => ({
     ? { description: info.description }
     : {}),
   ...(a.name === undefined && info.name !== undefined ? { name: info.name } : {}),
+  ...(a.teammateId === undefined && info.teammateId !== undefined
+    ? { teammateId: info.teammateId }
+    : {}),
 })
+
+// What the TaskStop tool takes for an agent: the address of a teammate, the id of any other.
+export const stopTarget = (r: Registry, id: string): string => r[id]?.teammateId ?? id
 
 export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>): Registry => ({
   ...r,
@@ -41,10 +48,14 @@ export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>
 })
 
 // An event of the agent's loop: the agent runs. Its first event can come before the spawn.
-export const ran = (r: Registry, id: string, at: number): Registry => ({
-  ...r,
-  [id]: { ...(r[id] ?? blank(id, at)), status: 'running' },
-})
+// The first event after an end starts a run, and the run is counted then.
+export const ran = (r: Registry, id: string, at: number): Registry => {
+  const a = r[id]
+  if (a === undefined) return { ...r, [id]: blank(id, at) }
+  // An entry that runs has one run at least: an older version counted a run at its end.
+  const runs = a.status === 'running' ? Math.max(1, a.runs) : a.runs + 1
+  return { ...r, [id]: { ...a, status: 'running', runs } }
+}
 
 // An agent as the pane and the band name it: its type, then what it does.
 export const agentTitle = (a: AgentEntry): string =>
@@ -56,7 +67,7 @@ export const workedMs = (a: AgentEntry, now: number): number =>
 
 export const completed = (r: Registry, id: string, at: number): Registry => {
   const a = r[id] ?? blank(id, at)
-  return { ...r, [id]: { ...a, status: 'idle', runs: a.runs + 1, endedAt: at } }
+  return { ...r, [id]: { ...a, status: 'idle', endedAt: at } }
 }
 
 // The model and the effort of a known agent's latest step: a step without effort clears it.
@@ -86,7 +97,7 @@ export const tuned = (
 export const modelLabel = (a: AgentEntry | undefined): string | undefined =>
   a?.model === undefined ? undefined : [a.model, a.effort].filter((x) => x !== undefined).join(' ')
 
-// A run that ended with no answer. It is not counted in `runs`.
+// A run that ended with no answer. Its start counted it in `runs`.
 export const stopped = (r: Registry, id: string, at: number): Registry => ({
   ...r,
   [id]: { ...(r[id] ?? blank(id, at)), status: 'stopped', endedAt: at },
@@ -94,12 +105,16 @@ export const stopped = (r: Registry, id: string, at: number): Registry => ({
 
 export type TaskStatus = 'completed' | 'failed' | 'killed'
 
-// A task notification of a known agent. `completed` does not count a run: the agent's
-// turn.complete counted it already. Another background task's notification changes nothing.
+// A task notification of a known agent. No end counts a run: its start counted it. Another
+// background task's notification changes nothing. A `completed` one changes no agent that
+// runs: the turn.complete of the run ends it, and the notification can come after a message
+// started the agent again. An agent in its first run has no earlier run: the notification
+// ends it, which covers a turn.complete that the mod did not see.
 export const ended = (r: Registry, id: string, status: TaskStatus, at: number): Registry => {
   const a = r[id]
   if (a === undefined) return r
   if (status !== 'completed') return stopped(r, id, at)
+  if (a.status === 'running' && a.endedAt !== null) return r
   return { ...r, [id]: { ...a, status: 'idle', endedAt: at } }
 }
 
@@ -157,6 +172,7 @@ export const parseRegistry = (raw: unknown): Registry => {
     const type = str(v.type)
     const description = str(v.description)
     const name = str(v.name)
+    const teammateId = str(v.teammateId)
     const model = str(v.model)
     const effort = str(v.effort)
     const c = v.context
@@ -170,11 +186,13 @@ export const parseRegistry = (raw: unknown): Registry => {
       ...(type === undefined ? {} : { type }),
       ...(description === undefined ? {} : { description }),
       ...(name === undefined ? {} : { name }),
+      ...(teammateId === undefined ? {} : { teammateId }),
       ...(model === undefined ? {} : { model }),
       ...(effort === undefined ? {} : { effort }),
       ...(context === undefined ? {} : { context }),
       status: v.status === 'running' || v.status === 'stopped' ? v.status : 'idle',
-      runs: v.runs,
+      // An older version counted a run at its end: an entry is one started run at least.
+      runs: Math.max(1, v.runs),
       startedAt: v.startedAt,
       endedAt: isNum(v.endedAt) ? v.endedAt : null,
     }

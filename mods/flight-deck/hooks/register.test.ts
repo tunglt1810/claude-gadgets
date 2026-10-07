@@ -73,7 +73,7 @@ const settled = async (
 const engine = (
   on: Parameters<typeof mock.store>[0],
   id: () => string = () => 'S1',
-  toolResult: () => object = () => ({ result: {} as never, text: 'ok' }),
+  toolResult: (e?: unknown) => object = () => ({ result: {} as never, text: 'ok' }),
   isSpawnRefused: () => boolean = () => false,
   settings: () => object = () => ({}),
   env: Record<string, string> = {},
@@ -89,7 +89,7 @@ const engine = (
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('prompt.submit', (_$, e) => ({ text: e.text }))
-  on('tool.call', () => toolResult() as never)
+  on('tool.call', (_$, e) => toolResult(e) as never)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: [] }))
   on('settings.read', () => ({ value: settings() }) as never)
@@ -931,8 +931,9 @@ test('a child agent is listed below its parent', async ($, on) => {
   await spawn($, 'a1')
 
   const ui = await mountPane($, 'terminal')
-  // Each agent has three buttons: the expand button, the name and the text of its detail row.
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(6)
+  // Each agent has five buttons: the expand button, the name, the text of its detail row, and
+  // the message and the stop of its control row.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(10)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -968,6 +969,7 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
+  on('turn.step', stepHook(null) as never)
   let isSecond = false
   const calls = paneEngine(on, () =>
     isSecond ? [...ROWS, { role: 'user', text: 'Again.', toolUses: [] }] : ROWS,
@@ -990,6 +992,8 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   expect(await paneText(ui)).not.toContain('Again.')
 
   isSecond = true
+  // A message starts the agent again: its first step counts the run.
+  await runStep($, { ...STEP, agentId: 'a1' } as never)
   await completeAgent($, 'a1')
   const text = await paneText(ui)
   expect(text).toContain('Again.')
@@ -1268,18 +1272,19 @@ test('an aborted run of an agent draws it stopped', async ($, on) => {
     const ui = await mountPane($, surface)
     expect(await marks(ui)).toMatchObject([STOPPED])
     expect((await ui.find({ key: 'agent:a1' }))?.props.dimColor).toBe(true)
-    // An aborted run is not counted.
+    // A run is counted at its start: an aborted run stays counted.
     await ui.press({ key: 'agent:a1' })
-    expect(await paneText(ui)).toContain('0 runs')
+    expect(await paneText(ui)).toContain('1 run')
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
 })
 
-test('a killed notification stops the agent and its next event runs it again', async ($, on) => {
+test('a killed notification stops the agent and its next step runs it again', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
+  on('turn.step', stepHook(null) as never)
   paneEngine(on)
   await spawn($)
   await notify($, 'a1', 'killed')
@@ -1291,7 +1296,7 @@ test('a killed notification stops the agent and its next event runs it again', a
   expect(await ui.find({ key: 'agent:bash1' })).toBeUndefined()
   await ui.unmount()
 
-  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+  await runStep($, { ...STEP, agentId: 'a1' } as never)
   ui = await mountPane($, 'terminal')
   expect((await marks(ui))[0]?.props.color).toBe('#a9dc76')
   await ui.unmount()
@@ -1304,7 +1309,9 @@ test('a stored running agent that this process does not list loads as stopped', 
   })
   engine(on)
   paneEngine(on)
-  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'b1' } as never)
+  on('turn.step', stepHook(null) as never)
+  // The step of another agent loads the registry of the session.
+  await runStep($, { ...STEP, agentId: 'b1' } as never)
 
   const ui = await mountPane($, 'terminal')
   const marked = await marks(ui)
@@ -2316,5 +2323,508 @@ test('a transcript longer than the engine draws keeps its newest items and its b
   expect(text).toMatch(/\.\.\. \d+ older items hidden/)
   expect(await ui.find({ key: 'sticky' })).toBeDefined()
   await ui.press({ key: 'sticky:back' })
+  await ui.unmount()
+})
+
+// A usage reply with a breakdown: 31.4k of overhead, 52.8k of messages, two MCP servers.
+const CONTEXT = {
+  tokens: 84200,
+  window: 200000,
+  breakdown: {
+    categories: [
+      { name: 'System prompt', tokens: 3200, kind: 'used' },
+      { name: 'System tools', tokens: 8100, kind: 'used' },
+      { name: 'MCP tools', tokens: 14200, kind: 'used' },
+      { name: 'Memory files', tokens: 4000, kind: 'used' },
+      { name: 'Skills', tokens: 1900, kind: 'used' },
+      { name: 'Messages', tokens: 52800, kind: 'used' },
+      { name: 'Free space', tokens: 82800, kind: 'free' },
+    ],
+    totalTokens: 84200,
+    mcpTools: [
+      { name: 'mcp__figma__get', serverName: 'figma', tokens: 6000, isLoaded: true },
+      { name: 'mcp__figma__set', serverName: 'figma', tokens: 3800, isLoaded: true },
+      { name: 'mcp__chrome__click', serverName: 'chrome', tokens: 1800, isLoaded: true },
+    ],
+    memoryFiles: [{ path: '/repo/CLAUDE.md', type: 'Project', tokens: 4000 }],
+    agents: [],
+    skills: { skillFrontmatter: [{ name: 'docs', tokens: 1900 }] },
+    autoCompactThreshold: 167000,
+    isAutoCompactEnabled: true,
+  },
+}
+
+// The engine with a usage that has the breakdown above.
+const contextEngine = (on: Parameters<typeof mock.store>[0]) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, {}, () => ({ context: CONTEXT }))
+  paneEngine(on)
+}
+
+const turn = async ($: Engine, turnId: string) => {
+  await $.turn.start({ text: 'hi', turnId })
+  await $.turn.complete({ ...DONE, turnId })
+}
+
+test('the agents screen shows the context block after a turn', async ($, on) => {
+  contextEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    const text = await paneText(ui)
+    expect(text).toContain('ctx 84.2k/200k 42%')
+    expect(text).toContain('█'.repeat(40))
+    expect(text).toContain('overhead 31.4k')
+    expect(text).toContain('messages 52.8k')
+    expect(text).toContain('dead weight 11.6k')
+    await ui.unmount()
+  }
+})
+
+test('a called MCP server is not dead weight', async ($, on) => {
+  contextEngine(on)
+  await $.tool.call({ tool: 'mcp__figma__get' } as never)
+  await turn($, 't1')
+  const ui = await mountPane($, 'terminal')
+  const text = await paneText(ui)
+  expect(text).toContain('dead weight 1.8k')
+  await ui.unmount()
+})
+
+test('a usage with no breakdown draws no context block', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).not.toContain('overhead')
+    await ui.unmount()
+  }
+})
+
+test('the context button opens the context screen and back returns', async ($, on) => {
+  contextEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).not.toContain('share(%)')
+    await ui.press({ key: 'context' })
+    const text = await paneText(ui)
+    // The press read a full breakdown.
+    expect(text).toContain('full')
+    expect(text).toContain('ctx 84.2k/200k 42%')
+    expect(text).toContain('overhead 31.4k')
+    expect(text).toContain('16% of window')
+    expect(text).toContain('share(%)')
+    expect(text).toContain('▸ MCP tools')
+    expect(text).toContain('14.2k')
+    expect(text).toContain('45%')
+    // The model of the test has no price.
+    expect(text).toContain('—')
+    expect(text).toContain('dead weight 11.6k')
+    expect(text).toContain('figma')
+    // The agents table is not on this screen.
+    expect(text).not.toContain('No agents yet.')
+
+    await ui.press({ key: 'recount' })
+    expect(await paneText(ui)).toContain('share(%)')
+
+    await ui.press({ key: 'back' })
+    expect(await ui.find({ key: 'context' })).toBeDefined()
+    expect(await paneText(ui)).not.toContain('share(%)')
+    await ui.unmount()
+  }
+})
+
+test('a category row opens and closes its items', async ($, on) => {
+  contextEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'context' })
+    expect(await paneText(ui)).not.toContain('figma · 2 tools')
+    await ui.press({ key: 'cat:MCP tools' })
+    const open = await paneText(ui)
+    expect(open).toContain('▾ MCP tools')
+    expect(open).toContain('figma · 2 tools')
+    expect(open).toContain('chrome · 1 tools')
+    await ui.press({ key: 'cat:MCP tools' })
+    expect(await paneText(ui)).not.toContain('figma · 2 tools')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the context screen stays one row wide in a narrow pane', async ($, on) => {
+  contextEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 20)
+    await ui.press({ key: 'context' })
+    await ui.press({ key: 'cat:MCP tools' })
+    const widths = (await ui.findAll({ type: 'Box' }))
+      .map((b) => b.props.width)
+      .filter((w): w is number => typeof w === 'number')
+    expect(widths.every((w) => w >= 0)).toBe(true)
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a short rule parts a new prompt from the turn before it', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on, () => [...ROWS, { role: 'user', text: 'Now the words.', toolUses: [] }])
+  await spawn($)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'agent:a1' })
+    expect(await paneText(ui)).toContain('> Now the words.')
+    // The items are a prompt, a tool call, an answer and the new prompt. The first prompt
+    // has no turn before it.
+    expect(await ui.find({ key: 'turn:0' })).toBe(undefined)
+    const rule = await ui.find({ key: 'turn:3' })
+    expect(rule?.props.height).toBe(1)
+    expect(rule?.text).toBe('─'.repeat(12))
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+// Records the messages that the plugin sends, and answers each with `result`.
+const sendEngine = (
+  on: Parameters<typeof mock.store>[0],
+  result: () => object = () => ({ isDelivered: true }),
+) => {
+  const sent: { to: string; text: string }[] = []
+  on('session.send', (_$, e) => {
+    sent.push({ to: JSON.stringify(e.to), text: e.text })
+    return result() as never
+  })
+  return sent
+}
+
+test('the message button of an agent opens a field, and Enter sends its text', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  const sent = sendEngine(on)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect((await ui.find({ key: 'msg:a1' }))?.props.label).toBe('» message')
+    expect(await ui.find({ key: 'say:a1' })).toBeUndefined()
+    await ui.press({ key: 'msg:a1' })
+    expect((await ui.find({ key: 'say:a1' }))?.type).toBe('Input')
+    await ui.input({ key: 'say:a1', text: 'stop after this file' })
+    expect(sent.at(-1)?.text).toBe('stop after this file')
+    expect(sent.at(-1)?.to).toContain('a1')
+    // A sent message closes the field.
+    expect(await ui.find({ key: 'say:a1' })).toBeUndefined()
+    await ui.unmount()
+  }
+  expect(sent).toHaveLength(2)
+})
+
+test('a message that is not sent shows the reason and keeps its text', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  sendEngine(on, () => ({
+    isDelivered: false,
+    reason: 'The server-side auto mode classifier gave no verdict for SendMessage',
+  }))
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    if ((await ui.find({ key: 'say:a1' })) === undefined) await ui.press({ key: 'msg:a1' })
+    await ui.input({ key: 'say:a1', text: 'hello' })
+    expect(await paneText(ui)).toContain('not sent: add "SendMessage" to permissions.allow')
+    expect((await ui.find({ key: 'say:a1' }))?.props.value).toBe('hello')
+    // An empty message is not sent, and it leaves the reason of the last one.
+    await ui.input({ key: 'say:a1', text: '  ' })
+    await ui.unmount()
+  }
+})
+
+test('the stop button stops a running agent on its second press', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  const stops: unknown[] = []
+  engine(on, undefined, (e) => {
+    stops.push(e)
+    return { result: {} as never, text: 'ok' }
+  })
+  paneEngine(on)
+  await spawn($)
+  await spawn($)
+  await completeAgent($, 'a2')
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    // An agent that does not run has no stop button.
+    expect(await ui.find({ key: 'stop:a2' })).toBeUndefined()
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+    await ui.press({ key: 'stop:a1' })
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop?')
+    expect(stops).toHaveLength(surface === 'terminal' ? 0 : 1)
+    await ui.press({ key: 'stop:a1' })
+    expect(stops.at(-1)).toMatchObject({ tool: 'TaskStop', task_id: 'a1' })
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+    await ui.unmount()
+  }
+  expect(stops).toHaveLength(2)
+})
+
+test('a narrow pane draws the control buttons as icons', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 24)
+    expect((await ui.find({ key: 'msg:a1' }))?.props.label).toBe('»')
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■')
+    await ui.unmount()
+  }
+})
+
+test('the transcript screen has a message field and a stop button', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  const sent = sendEngine(on)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'agent:a1' })
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+    // The message button opens the field as the last row of the header.
+    expect(await ui.find({ type: 'Input' })).toBeUndefined()
+    await ui.press({ key: 'msg:a1' })
+    expect(await ui.findAll({ type: 'Input' })).toHaveLength(1)
+    if (surface === 'terminal') {
+      // The terminal draws the field out of the flow, over a row that the header keeps for it.
+      const float = await ui.find({ key: 'sayfloat' })
+      expect(float?.props.position).toBe('absolute')
+      expect((await ui.find({ key: 'sayspace' }))?.props.height).toBe(1)
+    }
+    await ui.input({ key: 'say:a1', text: 'one more thing' })
+    expect(sent.at(-1)?.text).toBe('one more thing')
+    // The field stays on the transcript screen, empty.
+    expect((await ui.find({ key: 'say:a1' }))?.props.value).toBe('')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the bar of a scrolled transcript has the message and the stop buttons', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  const stops: unknown[] = []
+  engine(on, undefined, (e) => {
+    stops.push(e)
+    return { result: {} as never, text: 'ok' }
+  })
+  paneEngine(on)
+  await spawn($)
+
+  let ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  await ui.unmount()
+  ui = await mountPane($, 'terminal', true, 80, 12)
+  expect((await ui.find({ key: 'sticky:msg:a1' }))?.props.label).toBe('» message')
+  expect((await ui.find({ key: 'sticky:stop:a1' }))?.props.label).toBe('■ stop')
+  await ui.press({ key: 'sticky:stop:a1' })
+  expect((await ui.find({ key: 'sticky:stop:a1' }))?.props.label).toBe('■ stop?')
+  await ui.press({ key: 'sticky:stop:a1' })
+  expect(stops.at(-1)).toMatchObject({ tool: 'TaskStop', task_id: 'a1' })
+  // The controls are a row of their own, below the row of the back button.
+  expect((await ui.find({ key: 'sticky:controls' }))?.type).toBe('Box')
+  // The message button opens the field below the two rows of the bar. It is the box of the
+  // header's field at another row: the field keeps its place in the tree, and so its focus.
+  expect(await ui.find({ type: 'Input' })).toBeUndefined()
+  await ui.press({ key: 'sticky:msg:a1' })
+  expect(await ui.findAll({ type: 'Input' })).toHaveLength(1)
+  expect((await ui.find({ key: 'sayfloat' }))?.props).toMatchObject({
+    position: 'absolute',
+    top: 12,
+  })
+  await ui.press({ key: 'sticky:msg:a1' })
+  expect(await ui.find({ type: 'Input' })).toBeUndefined()
+  await ui.unmount()
+  // A narrow bar draws them as icons.
+  ui = await mountPane($, 'terminal', true, 20, 12)
+  expect((await ui.find({ key: 'sticky:msg:a1' }))?.props.label).toBe('»')
+  await ui.press({ key: 'back' })
+  await ui.unmount()
+})
+
+test('a running agent counts its run before the run ends', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect((await cellOf(ui, 'runs:a1')).trim()).toContain('1')
+    await ui.press({ key: 'agent:a1' })
+    expect(await paneText(ui)).toContain('1 run')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a stop that the engine refuses shows the reason, and no stop is a tool call of the session', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  let isDenied = true
+  engine(on, undefined, () =>
+    isDenied ? { deny: 'TaskStop is not allowed.' } : { result: {} as never, text: 'ok' },
+  )
+  paneEngine(on)
+  await spawn($)
+
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'stop:a1' })
+  await ui.press({ key: 'stop:a1' })
+  expect(await paneText(ui)).toContain('not stopped: TaskStop is not allowed.')
+  isDenied = false
+  await ui.press({ key: 'stop:a1' })
+  await ui.press({ key: 'stop:a1' })
+  expect(await paneText(ui)).not.toContain('not stopped')
+  await ui.unmount()
+  expect(await settled($, clock)).toContain('⌘ calls 0')
+})
+
+test('the message field of the tree closes when the transcript opens', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'msg:a1' })
+  await ui.press({ key: 'agent:a1' })
+  await ui.press({ key: 'back' })
+  expect(await ui.find({ key: 'say:a1' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the end of a stopped tool call, after the end of the run, does not run the agent again', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  let release: () => void = () => {}
+  const held = new Promise<void>((r) => {
+    release = r
+  })
+  engine(on, undefined, async () => {
+    await held
+    return { result: {} as never, text: 'Exit code 137', isError: true }
+  })
+  paneEngine(on)
+  await spawn($)
+  const call = $.tool.call({ tool: 'Bash', command: 'sleep 40', agentId: 'a1' } as never)
+  await new Promise((r) => setTimeout(r, 10))
+  await $.turn.complete({ ...DONE, isAborted: true, reason: 'aborted', agentId: 'a1' } as never)
+  release()
+  await call
+
+  const ui = await mountPane($, 'terminal')
+  expect(await marks(ui)).toMatchObject([STOPPED])
+  expect((await cellOf(ui, 'runs:a1')).trim()).toContain('1')
+  expect(await ui.find({ key: 'stop:a1' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a stop button forgets its question when the agent ends', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  const stops: unknown[] = []
+  engine(on, undefined, (e) => {
+    if ((e as { tool: string }).tool === 'TaskStop') stops.push(e)
+    return { result: {} as never, text: 'ok' }
+  })
+  paneEngine(on)
+  on('turn.step', stepHook(null) as never)
+  await spawn($)
+
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'stop:a1' })
+  await completeAgent($, 'a1')
+  // The agent runs again: the first press asks again.
+  await runStep($, { ...STEP, agentId: 'a1' } as never)
+  expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+  await ui.press({ key: 'stop:a1' })
+  expect(stops).toHaveLength(0)
+  await ui.unmount()
+})
+
+test('a tool call of a loop that the session does not list adds no agent', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  // An inner loop of the engine: it raises tool calls under an id, with no spawn and no step.
+  await $.tool.call({ tool: 'Read', file_path: 'a.md', agentId: 'ghost' } as never)
+
+  const ui = await mountPane($, 'terminal')
+  expect(await ui.find({ key: 'agent:a1' })).toBeDefined()
+  expect(await ui.find({ key: 'agent:ghost' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the message button of the bar asks for the keyboard when the pane does not hold it', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  const calls = paneEngine(on)
+  await spawn($)
+
+  // The agent runs, and the transcript is scrolled: the bar has the two controls.
+  let ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  await ui.unmount()
+  // A click presses a button of a pane that does not hold the keyboard.
+  ui = await mountPane($, 'terminal', false, 80, 12)
+  expect((await ui.find({ key: 'sticky:stop:a1' }))?.props.label).toBe('■ stop')
+  const before = calls.opens
+  await ui.press({ key: 'sticky:msg:a1' })
+  expect(calls.opens).toBe(before + 1)
+  expect(calls.isOpenFocused).toBe(true)
+  // The field is there to take the focus.
+  expect((await ui.find({ key: 'say:a1' }))?.type).toBe('Input')
+  await ui.unmount()
+})
+
+test('a tool call that starts after the end of a run does not run the agent again', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  await $.turn.complete({ ...DONE, isAborted: true, reason: 'aborted', agentId: 'a1' } as never)
+  // A call that was in the queue of the stopped step. Only a step starts a run.
+  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+
+  const ui = await mountPane($, 'terminal')
+  expect(await marks(ui)).toMatchObject([STOPPED])
+  expect((await cellOf(ui, 'runs:a1')).trim()).toContain('1')
   await ui.unmount()
 })

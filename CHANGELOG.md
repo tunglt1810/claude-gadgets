@@ -9,6 +9,23 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+### [0.6.0] - 2026-10-07
+
+Tested on Claude Code 2.1.292.
+
+#### Added
+
+- The agents screen shows the context length of the main loop, a bar of what fills the window, and the tokens of the overhead and of the messages.
+- A context screen shows the overhead by category, its estimated cost and the MCP servers that the session did not call.
+- An open agent row has a `» message` button, which opens a field that sends a message to the agent, and a `■ stop` button, which stops a running agent on its second press.
+- The transcript screen has the two buttons, also in the bar of a scrolled transcript.
+
+#### Changed
+
+- A transcript has a short rule before each new prompt.
+- A tool call of an inner loop of the engine no longer adds an agent with no name to the list.
+- The runs of an agent count each run when it starts, a stopped run too.
+
 ### [0.5.1] - 2026-10-07
 
 Tested on Claude Code 2.1.292.

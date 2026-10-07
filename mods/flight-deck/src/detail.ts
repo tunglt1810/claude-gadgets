@@ -1,10 +1,8 @@
 import type { AgentEntry, Cell } from '../types'
-import { cellText } from './cell'
+import { dotted, rowWidth as width } from './cell'
 import { cut } from './clip'
 import { shortModel } from './dashboard'
 import { contextColor } from './window'
-
-const SEP = '·'
 
 // The cells of the row below an agent's row: the model, the effort and the context length,
 // a dot between them. The pane draws them with one cell between cells, so the row is as
@@ -22,10 +20,8 @@ export const detailCells = (a: AgentEntry, room: number): Cell[] => {
         ? []
         : [{ text: '', ctx: { ...ctx, isFull }, color: contextColor(ctx) }]),
     ]
-    return parts.flatMap((p, i) => (i === 0 ? [p] : [{ text: SEP, dim: true }, p]))
+    return dotted(parts)
   }
-  const width = (cells: Cell[]) =>
-    cells.reduce((n, c) => n + cellText(c, 0, 0).length, 0) + cells.length - 1
   const model = a.model === undefined ? undefined : shortModel(a.model)
   const wide = build(model, true, true)
   if (width(wide) <= room) return wide

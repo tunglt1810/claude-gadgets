@@ -37,6 +37,10 @@ export type Snapshot = {
   // `usd` is the growth of the ledger cost that no step holds, over the turns that called it.
   // `base` is that rest at the start of the turn; `pending` marks a call not settled yet.
   advisor: { calls: number; ms: number; usd: number; base: number; model?: string; pending?: true }
+  // The steps of the main loop that had a usage: each one read the overhead from the cache.
+  steps: number
+  // The wire names of the MCP tools that a loop called, each name one time.
+  mcpCalls: string[]
   mainModel?: string
 }
 
@@ -68,15 +72,17 @@ export type Shown = { sessionId: string | null; tweens: Record<keyof Counts, Twe
 // The tweens of the named values of one session: the costs of the dashboard.
 export type NamedShown = { sessionId: string | null; tweens: Record<string, Tween> }
 
-// One subagent of the session, as the pane lists it. `runs` counts completed runs: a
-// message to a completed agent starts it again under the same id. `stopped` is a run that
-// ended with no answer: killed, failed or aborted.
+// One subagent of the session, as the pane lists it. `runs` counts started runs, the one that
+// runs too: a message to an ended agent starts it again under the same id. `stopped` is a run
+// that ended with no answer: killed, failed or aborted.
 export type AgentEntry = {
   id: string
   parentId?: string
   type?: string
   description?: string
   name?: string
+  // The address of a teammate in its team: what the TaskStop tool takes for it.
+  teammateId?: string
   // The model and the effort of the agent's latest step.
   model?: string
   effort?: string
@@ -114,7 +120,11 @@ export type Transcript =
 
 // What the pane shows. `agentId` null is the agent tree; `expanded` holds the tool_use ids
 // of the open tool calls; `collapsedAgents` the ids of the agents whose detail row is closed (a row is open at first);
-// `isWrapped` draws a transcript's long text on several rows.
+// `isWrapped` draws a transcript's long text on several rows. `isContext` puts the context
+// screen in place of the tree; `openCategories` holds the names of its open category rows.
+// `compose` is the agent whose message field is open on the tree; `stopAsk` the agent whose
+// stop button waits for its second press; `controlError` the message or the stop that the engine refused, with the
+// reason; `sent` counts the messages that the pane sent off, so each one draws the pane again.
 export type PaneView = {
   isOpen: boolean
   isWrapped: boolean
@@ -122,6 +132,12 @@ export type PaneView = {
   expanded: string[]
   collapsedAgents: string[]
   transcript: Transcript | null
+  isContext: boolean
+  openCategories: string[]
+  compose: string | null
+  stopAsk: string | null
+  controlError: { agentId: string; reason: string } | null
+  sent: number
 }
 
 // What a pane button does.
@@ -130,7 +146,13 @@ export type PaneAction =
   | { kind: 'expand'; agentId: string }
   | { kind: 'back' }
   | { kind: 'wrap' }
+  | { kind: 'context' }
+  | { kind: 'recount' }
+  | { kind: 'category'; name: string }
   | { kind: 'tool'; toolUseId: string }
+  | { kind: 'compose'; agentId: string }
+  | { kind: 'stop'; agentId: string }
+  | { kind: 'send'; agentId: string; text: string }
 
 // One cell of a pane row that is not a button: a text, a turning mark (`spin`), or a time that
 // counts up from `since` after the text. A right-aligned cell is padded to `width`.
@@ -170,6 +192,59 @@ export type PaneData = {
   entries: Registry
   stats: Snapshot | null
   dashboard: Dashboard | null
+  // The context of the main loop, on the tree screen; null with no sample.
+  context: ContextView | null
+}
+
+// One item below a category of the context: an MCP server (`count` is its loaded tools), a
+// memory file, a skill or a custom agent.
+export type ContextGroup = { name: string; tokens: number; count?: number }
+
+// One category of the overhead, with its items; a category with no list has none.
+export type ContextCategoryRow = { name: string; tokens: number; items: ContextGroup[] }
+
+// What the mod keeps of one `$.session.usage({ breakdown })` reply. `threshold` is the count
+// at which auto-compaction starts, null when it is off. `servers` holds the loaded tools of
+// each MCP server by their wire names.
+export type ContextSample = {
+  detail: 'summary' | 'full'
+  tokens: number
+  window: number
+  threshold: number | null
+  // The room that auto-compaction keeps: the buffer rows of the breakdown.
+  buffer: number
+  // The tokens are a local estimate: the session has no response of the API yet.
+  isEstimate: boolean
+  categories: ContextCategoryRow[]
+  servers: { name: string; tokens: number; tools: string[] }[]
+}
+
+// The context of one session: its latest sample, the tokens of the first sample after the
+// start or a compaction (`base`), and the main turns that ended since then.
+export type ContextState = {
+  sessionId: string | null
+  sample: ContextSample | null
+  base: number | null
+  turns: number
+}
+
+// What the pane draws of a context. `overhead` is the categories, `messages` the rest of the
+// tokens, `buffer` the room that auto-compaction keeps. `carryUsd` is the estimated cost of
+// reading tokens from the cache at each of `steps` steps; null for a model with no price.
+export type ContextView = {
+  detail: 'summary' | 'full'
+  tokens: number
+  window: number
+  overhead: number
+  messages: number
+  buffer: number
+  perTurn: number | null
+  turnsLeft: number | null
+  steps: number
+  carryUsd: number | null
+  categories: (ContextCategoryRow & { carryUsd: number | null })[]
+  unused: ContextGroup[]
+  deadWeight: number
 }
 
 declare module 'claude-code' {
@@ -181,6 +256,7 @@ declare module 'claude-code' {
       agents: Agents
       pane: PaneView
       paneData: PaneData
+      context: ContextState
       paneShown: NamedShown
       // Where the pane's window is about to be: the offset of the latest scroll, and the
       // offset the pane was drawn with when the scroll was asked for.

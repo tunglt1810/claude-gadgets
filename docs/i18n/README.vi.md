@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `66934e4`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `128e223`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -39,12 +39,33 @@ Tuỳ chọn `cacheTtl` của `flight-deck` nhận `5m` (mặc định) hoặc `
 - Bấm vào một agent để xem transcript của nó. Bấm vào một lần gọi tool để xem input và kết quả của nó.
 - Mỗi hàng agent có một hàng chi tiết và một nút mở rộng. Hàng chi tiết mở sẵn, và nút này ẩn hoặc hiện nó. Hàng chi tiết hiển thị model, effort và độ dài context của agent (`ctx 182.4k/1M 18%`). Màu là xanh lá dưới 50%, vàng từ 50% và đỏ từ 80%.
 - Màn hình transcript hiển thị cùng độ dài context đó bên dưới tiêu đề.
+- Một hàng agent đang mở có hai nút điều khiển. `» message` mở một ô nhập: gõ tin nhắn rồi bấm Enter để gửi cho agent. Một agent đã hoàn thành sẽ chạy lại. `■ stop` dừng một agent đang chạy ở lần bấm thứ hai.
+- Màn hình transcript có hai nút đó trên thanh công cụ, và trên thanh luôn nằm trong tầm nhìn khi cuộn. `» message` mở ô nhập tin nhắn ở hàng cuối của header, và ô đó luôn nằm trong tầm nhìn bên dưới thanh kia khi transcript đang cuộn.
 - Pane vẫn hiển thị một agent sau khi agent đó hoàn thành, sau khi một tin nhắn mới khởi chạy lại nó, và sau `--resume`.
 
 Giới hạn:
 
 - Một agent đã khởi chạy trước khi mod được nạp thì không có trong danh sách.
+- Ở auto mode, engine không gửi tin nhắn từ pane. Hãy thêm `"SendMessage"` vào `permissions.allow` trong settings. Rule này cũng cho model gửi tin nhắn mà không qua kiểm tra.
+- `» message` chỉ đưa con trỏ vào ô nhập khi prompt của session đang trống. Khi prompt có chữ, hãy bấm vào ô nhập.
+- Mỗi câu trả lời của một agent, và mỗi lần stop, làm vòng lặp chính chạy một turn: engine gửi cho nó một thông báo.
 - Engine không cho một mod đọc các agent của một lần chạy workflow. Một teammate chạy trong pane terminal riêng cũng vậy. Pane hiển thị thông báo từ chối của engine.
+
+## Màn hình context
+
+Pane hiển thị những gì đang chiếm context window của vòng lặp chính.
+
+- Bên dưới dashboard, một khối hiển thị độ dài context (`ctx 84.2k/200k 42%`), một thanh và ba tổng số. Thanh hiển thị overhead bằng màu của độ dài context, messages bằng sắc đậm hơn của màu đó, rồi phần còn trống và phần mà auto-compaction giữ lại bằng hai màu xám.
+- Overhead là nội dung mà mỗi request mang theo trước cuộc hội thoại: system prompt, các tool, các file memory và các skill.
+- Bấm `context` để xem overhead theo từng category. Bấm vào một category có dấu `▸` để xem các MCP server, các file memory hoặc các skill của nó.
+- `carry($)` là ước lượng chi phí của overhead trong session này: số token của nó, nhân với số step của vòng lặp chính và với giá cache read.
+- `dead weight` liệt kê các MCP server có tool đã nạp mà session chưa gọi.
+- Màn hình mở ra với một lần đếm đầy đủ. Lần đếm này gửi một request token-count cho mỗi tool và mỗi file memory. Bấm `recount` để đếm lại.
+
+Giới hạn:
+
+- Các con số là của vòng lặp chính. Engine không cho breakdown context của một subagent.
+- Một tool nạp theo yêu cầu thì không nằm trong window, nên không nằm trong overhead.
 
 ## Thêm một mod
 

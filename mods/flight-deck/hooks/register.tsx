@@ -3,6 +3,8 @@ import { atom, read, update } from 'claude-code'
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
+import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
+import { sendFailure, stopFailure } from '../src/control'
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
@@ -21,6 +23,7 @@ import {
   restored,
   spawned,
   stopped,
+  stopTarget,
   taskNotice,
   tuned,
 } from '../src/registry'
@@ -49,7 +52,16 @@ import {
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
 import { contextTargets, contextTokens, contextWindow } from '../src/window'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
-import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
+import type {
+  Agents,
+  ContextState,
+  Meter,
+  PaneAction,
+  PaneData,
+  PaneView,
+  Registry,
+  Transcript,
+} from '../types'
 
 type Api = EngineInterface
 type Ttls = { main: Ttl; agent: Ttl }
@@ -84,10 +96,25 @@ const initialPane: PaneView = {
   expanded: [],
   collapsedAgents: [],
   transcript: null,
+  isContext: false,
+  openCategories: [],
+  compose: null,
+  stopAsk: null,
+  controlError: null,
+  sent: 0,
 }
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
-const initialData: PaneData = { sessionId: null, entries: {}, stats: null, dashboard: null }
+const initialData: PaneData = {
+  sessionId: null,
+  entries: {},
+  stats: null,
+  dashboard: null,
+  context: null,
+}
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
+// The context of the main loop: the latest breakdown that an event read, and its growth.
+const initialContext: ContextState = { sessionId: null, sample: null, base: null, turns: 0 }
+const contextAtom = atom({ plugin: 'flight-deck', key: 'context' } as const, initialContext)
 // The dashboard's costs and the context lengths as the terminal draws them: a changed number
 // runs to its new value.
 const initialPaneShown: NamedShown = { sessionId: null, tweens: {} }
@@ -100,6 +127,8 @@ const paneScroll = atom(
   { plugin: 'flight-deck', key: 'paneScroll' } as const,
   null as { offset: number; seen: number } | null,
 )
+// The rows above the pane body on the terminal: the title and the empty row below it.
+const TITLE_ROWS = 2
 // The offset the pane was last drawn with. Kept here, not in state: a render hook does not
 // write state.
 let drawnOffset = 0
@@ -162,6 +191,8 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     byModel: s.byModel,
     costByModel: s.costByModel,
     advisor: s.advisor,
+    steps: s.steps,
+    mcpCalls: s.mcpCalls,
     ...(s.mainModel === undefined ? {} : { mainModel: s.mainModel }),
   })
 }
@@ -178,13 +209,15 @@ async function loadAgents($: Api, id: string): Promise<void> {
     await $.clock.now(),
   )
   await update($, agents, (c) => (c.sessionId === id ? c : { sessionId: id, entries }))
+  // Another session: the pane keeps only what is not of a session.
   await update($, pane, (c) => ({
-    ...c,
-    agentId: null,
-    expanded: [],
-    collapsedAgents: [],
-    transcript: null,
+    ...initialPane,
+    isOpen: c.isOpen,
+    isWrapped: c.isWrapped,
+    sent: c.sent ?? 0,
   }))
+  for (const key of Object.keys(drafts)) delete drafts[key]
+  wantedFocus = null
   await syncPane($)
 }
 
@@ -194,12 +227,15 @@ async function syncPane($: Api): Promise<void> {
   const id = await $.session.id()
   const reg = await read($, agents)
   const view = await read($, pane)
+  const snap = await currentMeter($)
+  const ctx = await read($, contextAtom)
   const next = paneData(
     id,
     reg.sessionId === id ? reg.entries : {},
     view.agentId,
-    await currentMeter($),
+    snap,
     await $.clock.now(),
+    ctx.sessionId === id ? contextView(ctx, snap) : null,
   )
   const cur = await read($, shownData)
   if (JSON.stringify(cur) !== JSON.stringify(next)) await update($, shownData, () => next)
@@ -216,22 +252,122 @@ async function syncPane($: Api): Promise<void> {
   startFrames($)
 }
 
+// Counts the context samples that were asked for: a reply knows from it if it is the newest.
+let contextSeq = 0
+// The count of the newest sample that is kept.
+let sampleSeq = 0
+// The main steps at the start of the latest turn, with its session: a turn with no step grows
+// no context.
+let turnSteps = { id: '', steps: 0 }
+// The turns with a step whose end gave no sample: the next sample of a turn end counts them.
+let missedTurns = 0
+
+// Keeps the breakdown of a usage reply as the context sample of the session `id`, and says
+// if it did: a reply with no breakdown or no window is no sample, and it changes nothing.
+// `isTurnEnd` counts a turn of the growth, and `missed` the turns whose end gave no sample.
+async function recordContext(
+  $: Api,
+  id: string,
+  context: UsageContext,
+  detail: 'summary' | 'full',
+  isTurnEnd: boolean,
+  seq: number,
+  missed = 0,
+): Promise<boolean> {
+  const sample = sampleOf(context, detail)
+  if (sample === null) return false
+  await update($, contextAtom, (c) => sampled(c, id, sample, isTurnEnd, missed))
+  sampleSeq = Math.max(sampleSeq, seq)
+  return true
+}
+
+// Reads a breakdown and draws it. A `full` one sends a token-count request for each tool and
+// each memory file: only a press asks for it.
+async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void> {
+  const id = await $.session.id()
+  const seq = ++contextSeq
+  const usage = await $.session.usage({ breakdown: detail })
+  if ((await $.session.id()) !== id) return
+  let context: UsageContext = usage.context
+  if (seq !== contextSeq) {
+    // A newer sample came while this reply was on its way. An estimate is dropped. A full
+    // count is slow and costs requests: its lists are kept, with the tokens of the newer
+    // sample.
+    const newer = (await read($, contextAtom)).sample
+    if (detail !== 'full') return
+    // The kept sample is newer than this count only when a later request gave it.
+    if (sampleSeq > seq && newer !== null && !newer.isEstimate)
+      context = { ...context, tokens: newer.tokens }
+  }
+  await recordContext($, id, context, detail, false, seq)
+  await syncPane($)
+}
+
+// The longest that a press waits on a full count before another count can start.
+const COUNT_WAIT_MS = 60_000
+// A full count sends many requests: a press while one is on its way starts no other.
+let isCounting = false
+async function countFull($: Api): Promise<void> {
+  if (isCounting) return
+  isCounting = true
+  try {
+    // A count that fails leaves the summary on the screen. A count that does not end must
+    // not stop each later count: the wait has an end.
+    await Promise.race([
+      measureContext($, 'full').catch(() => undefined),
+      $.clock.sleep(COUNT_WAIT_MS),
+    ])
+  } finally {
+    isCounting = false
+  }
+}
+
 // The engine's list merged in (it has the agents that raised no spawn), then one registry
 // change, then stored. The change comes last: an event outranks a stale status in the list.
 async function trackAgent(
   $: Api,
   id: string,
   change: (r: Registry, at: number) => Registry,
+  isTailLater = false,
 ): Promise<void> {
   await loadAgents($, id)
   const at = await $.clock.now()
   const list = await $.agent.list()
+  const before = JSON.stringify((await read($, agents)).entries)
   const next = await update($, agents, (c) =>
     c.sessionId === id ? { ...c, entries: change(merged(c.entries, list, at), at) } : c,
   )
-  if (next.sessionId === id) await $.store.set(agentsKey(id), next.entries)
-  await syncPane($)
-  startSpinner($)
+  // An unchanged registry is not stored again: most events of a running agent change
+  // nothing. The pane is still drawn: the caller can have changed the numbers of the meter.
+  const tail = async () => {
+    if (next.sessionId === id && JSON.stringify(next.entries) !== before) {
+      // The newest registry is stored: a tail that runs late must not store an older one.
+      const newest = await read($, agents)
+      if (newest.sessionId === id) await $.store.set(agentsKey(id), newest.entries)
+    }
+    await syncPane($)
+    startSpinner($)
+  }
+  // A caller that the engine waits for takes only the change of the registry.
+  if (isTailLater) void tail().catch(() => undefined)
+  else await tail()
+}
+
+// Marks an agent as running before its step goes on. Only a step starts a run: a tool call
+// of a stopped step can start after the end of the run. The engine waits for this hook, so
+// only the registry changes before the step: the store and the pane come after it. A failure
+// of the mod's own record must not stop the work of the agent.
+async function markAgent($: Api, agentId: string): Promise<void> {
+  try {
+    const session = await ensureLoaded($)
+    // Most steps are of an agent that runs already: nothing to mark, and no list to read.
+    const cur = await read($, agents)
+    const known = cur.sessionId === session ? cur.entries[agentId] : undefined
+    if (known?.status === 'running' && known.runs > 0) return
+    await trackAgent($, session, (r, t) => ran(r, agentId, t), true)
+  } catch {
+    // The next step of the agent marks it.
+  }
 }
 
 // Reads one agent's transcript into the pane. A result for an agent that is no longer on
@@ -259,7 +395,14 @@ async function focusAfter($: Api, key: string, change: () => Promise<void>): Pro
 
 async function openAgent($: Api, agentId: string): Promise<void> {
   await focusAfter($, 'back', async () => {
-    await update($, pane, (c) => ({ ...c, agentId, expanded: [], transcript: null }))
+    await update($, pane, (c) => ({
+      ...c,
+      agentId,
+      expanded: [],
+      transcript: null,
+      compose: null,
+      controlError: null,
+    }))
     await syncPane($)
   })
   await loadTranscript($, agentId)
@@ -275,15 +418,220 @@ async function refreshViewed($: Api, agentId: string): Promise<void> {
 async function backToTree($: Api): Promise<void> {
   const from = (await read($, pane)).agentId
   await focusAfter($, `agent:${from}`, async () => {
-    await update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
+    await update($, pane, (c) => ({
+      ...c,
+      agentId: null,
+      expanded: [],
+      transcript: null,
+      compose: null,
+      controlError: null,
+    }))
     await syncPane($)
   })
 }
 
+// The context screen, with the focus on its back button. The press asks for the full
+// breakdown: the summary of the last turn is on the screen until it comes.
+async function openContext($: Api): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isContext: true }))
+  })
+  // The count is slow: the press does not wait for it. A full count that is on the screen is
+  // of this context: the end of a turn puts a summary in its place. `recount` counts again.
+  if ((await read($, contextAtom)).sample?.detail !== 'full') void countFull($)
+}
+
+// Back to the tree, with the focus on the button that opened the context screen.
+async function closeContext($: Api): Promise<void> {
+  await focusAfter($, 'context', async () => {
+    await update($, pane, (c) => ({ ...c, isContext: false }))
+  })
+}
+
+// Changes the pane only when the change gives another state: each write draws the pane again,
+// and a desktop drops a click on a button that a redraw replaced.
+async function patchPane($: Api, change: (c: PaneView) => PaneView): Promise<void> {
+  const cur = await read($, pane)
+  if (JSON.stringify(change(cur)) === JSON.stringify(cur)) return
+  await update($, pane, change)
+}
+
+// The reason on the screen without the one of `agentId`: the reason of another agent stays.
+const ownErrorGone = (c: PaneView, agentId: string): PaneView['controlError'] =>
+  c.controlError?.agentId === agentId ? null : c.controlError
+
+// The text of each message field as the person typed it, by agent. Kept here, not in state:
+// a write to state on each key would draw the pane again.
+const drafts: Record<string, string> = {}
+// The agents that have a message on its way.
+const sending = new Set<string>()
+// The agents that a stop of the pane is on its way to: the `tool.call` hook of the mod sees
+// each stop, and it is not a tool call of the session.
+const ownStops = new Set<string>()
+// The task that a TaskStop call names.
+const taskOf = (e: object): string =>
+  'task_id' in e && typeof e.task_id === 'string' ? e.task_id : ''
+
+// Sends the text of a message field to an agent, as the SendMessage tool does. The engine
+// starts an ended agent again. A message that is not sent stays in its field, with the reason.
+async function sendMessage($: Api, agentId: string, text: string): Promise<void> {
+  // A second Enter while the message is on its way sends nothing.
+  if (text.trim() === '' || sending.has(agentId)) return
+  sending.add(agentId)
+  let session: string
+  let res: { isDelivered: true } | { isDelivered: false; reason?: string }
+  try {
+    session = await $.session.id()
+    // The field is empty while the message is on its way: text that the person types then is
+    // a new message, not more of the sent one.
+    delete drafts[agentId]
+    await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
+    res = await $.session
+      .send({ to: { agentId }, text })
+      .catch((err: unknown) => ({ isDelivered: false as const, reason: String(err) }))
+  } finally {
+    sending.delete(agentId)
+  }
+  // The session changed while the message was on its way: the pane is of another session.
+  if ((await $.session.id()) !== session) return
+  if (res.isDelivered) {
+    // The field and the reason of another agent stay.
+    const close = () =>
+      patchPane($, (c) => ({
+        ...c,
+        // The field of the tree closes. The field of the transcript screen stays for the
+        // next message.
+        compose: c.compose === agentId && c.agentId !== agentId ? null : c.compose,
+        controlError: ownErrorGone(c, agentId),
+      }))
+    // The field of the tree leaves the screen with the focus in it: the focus goes to the
+    // message button of the agent first.
+    const shown = await read($, pane)
+    if (shown.compose === agentId && shown.agentId !== agentId)
+      await focusAfter($, `msg:${agentId}`, async () => {
+        await close()
+      })
+    else await close()
+    return refreshViewed($, agentId)
+  }
+  // The text comes back to the field, unless the person typed a new one.
+  if (drafts[agentId] === undefined) drafts[agentId] = text
+  await update($, pane, (c) => ({
+    ...c,
+    controlError: { agentId, reason: sendFailure(res.reason) },
+  }))
+}
+
+// The first press of a stop button asks, the second stops the agent as the TaskStop tool
+// does. The notification of the engine then draws the agent stopped.
+async function stopAgent($: Api, agentId: string): Promise<void> {
+  if ((await read($, pane)).stopAsk !== agentId) {
+    await update($, pane, (c) => ({ ...c, stopAsk: agentId }))
+    return
+  }
+  await update($, pane, (c) => ({ ...c, stopAsk: null }))
+  const task = stopTarget((await read($, agents)).entries, agentId)
+  ownStops.add(task)
+  let reason: string | null
+  try {
+    const res = await $.tool.call({ tool: 'TaskStop', task_id: task })
+    reason = res.deny !== undefined ? res.deny : res.isError ? (res.text ?? '') : null
+  } catch (err) {
+    reason = String(err)
+  } finally {
+    ownStops.delete(task)
+  }
+  // A stop that worked takes back the reason of this agent only.
+  await patchPane($, (c) => ({
+    ...c,
+    controlError:
+      reason !== null ? { agentId, reason: stopFailure(reason) } : ownErrorGone(c, agentId),
+  }))
+}
+
+// The wait before the next focus move to a message field: the move after it is at four times
+// this wait.
+const REFOCUS_MS = 80
+
+// The field that the later focus moves go to, or null when the person chose another place.
+let wantedFocus: string | null = null
+
+// Puts the focus in the message field of an agent, so the person can type at once. The
+// pressed button stays on the screen, and the engine can give it the ring back when the
+// press ends: a second move comes a short time after the press.
+async function focusField($: Api, agentId: string): Promise<void> {
+  const key = `say:${agentId}`
+  wantedFocus = key
+  // A later move does nothing after the person moved the focus or pressed another button.
+  const move = async (): Promise<{ deny?: string }> =>
+    wantedFocus === key ? $.ui.focus({ requestId: PANE_ID, key }).catch(() => ({})) : {}
+  const first = await move()
+  // A click presses a button of a pane that does not hold the keyboard, and the engine then
+  // refuses each focus move. The pane asks for the keyboard as it does when it opens.
+  // Limit: the surface gives the keyboard only while the prompt of the session is empty. With
+  // text in the prompt the field gets no focus, and the person must click the field.
+  if (!isPaneFocused || first.deny !== undefined) {
+    await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true }).catch(() => undefined)
+  }
+  // The pane holds the keyboard a short time after it asked: a live log gave a refused move
+  // 11 ms after the request, and a move that landed 80 ms after it.
+  $.clock.after(REFOCUS_MS, move)
+  $.clock.after(REFOCUS_MS * 4, move)
+}
+
+// A stop button that waits for its second press forgets the question when its agent ends.
+async function forgetStop($: Api, agentId: string): Promise<void> {
+  if ((await read($, pane)).stopAsk !== agentId) return
+  await update($, pane, (c) => (c.stopAsk === agentId ? { ...c, stopAsk: null } : c))
+}
+
+// Opens the message field of an agent with the focus in it, or closes it: below the agent's
+// row on the tree, as the last row of the header on the transcript screen.
+async function toggleCompose($: Api, agentId: string): Promise<void> {
+  const cur = await read($, pane)
+  if (cur.compose === agentId) {
+    wantedFocus = null
+    await patchPane($, (c) => ({ ...c, compose: null, controlError: ownErrorGone(c, agentId) }))
+    return
+  }
+  await focusAfter($, `say:${agentId}`, async () => {
+    await update($, pane, (c) => ({
+      ...c,
+      compose: agentId,
+      controlError: ownErrorGone(c, agentId),
+    }))
+  })
+  await focusField($, agentId)
+}
+
 // What a pane button does, from its press or from the click that gave the pane the focus.
 async function act($: Api, action: PaneAction): Promise<void> {
+  if (action.kind !== 'compose') wantedFocus = null
+  if (action.kind === 'stop') return stopAgent($, action.agentId)
+  // Any other press takes back the question of a stop button.
+  if ((await read($, pane)).stopAsk != null) await update($, pane, (c) => ({ ...c, stopAsk: null }))
+  if (action.kind === 'compose') return toggleCompose($, action.agentId)
+  if (action.kind === 'send') return sendMessage($, action.agentId, action.text)
   if (action.kind === 'open') return openAgent($, action.agentId)
-  if (action.kind === 'back') return backToTree($)
+  if (action.kind === 'back')
+    // State of an older shape (a hot reload) has no flag.
+    return (await read($, pane)).isContext === true ? closeContext($) : backToTree($)
+  if (action.kind === 'context') return openContext($)
+  if (action.kind === 'recount') {
+    void countFull($)
+    return
+  }
+  if (action.kind === 'category') {
+    // A category with no items has no rows to open: a click that only gave the pane the
+    // focus gets here too.
+    const rows = (await read($, shownData)).context?.categories ?? []
+    if ((rows.find((r) => r.name === action.name)?.items.length ?? 0) === 0) return
+    await update($, pane, (c) => ({
+      ...c,
+      openCategories: toggled(c.openCategories, action.name),
+    }))
+    return
+  }
   if (action.kind === 'wrap') {
     const next = await update($, pane, (c) => ({ ...c, isWrapped: !c.isWrapped }))
     return $.store.set(WRAP_KEY, next.isWrapped)
@@ -311,6 +659,7 @@ let isPaneFocused = true
 async function togglePane($: Api): Promise<boolean> {
   const cur = await read($, pane)
   if (cur.isOpen) {
+    wantedFocus = null
     await update($, pane, (c) => ({ ...c, isOpen: false }))
     await $.ui.close({ id: PANE_ID })
     return false
@@ -322,6 +671,9 @@ async function togglePane($: Api): Promise<boolean> {
   // The pane takes the keyboard: a click on a pane without it only focuses.
   await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true })
   startSpinner($)
+  // After the pane is open: a usage call that fails leaves the pane and its state as one.
+  // A summary breakdown estimates locally: it sends no request.
+  await measureContext($, 'summary').catch(() => undefined)
   return true
 }
 
@@ -470,6 +822,9 @@ export const register: Register = (on, options) => {
       startTimer($, (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl))
     }
     try {
+      // The agent runs from the start of its step. The end of a step does not say so: the end
+      // of a stopped step can come after the end of the run.
+      if (runner !== undefined) await markAgent($, runner)
       const res = yield* next(e)
       const id = await ensureLoaded($)
       await stamp($)
@@ -500,6 +855,7 @@ export const register: Register = (on, options) => {
                     0) + stepCost,
               },
         advisor: advised(c.advisor, res.serverToolUses ?? [], advisorModel),
+        steps: c.steps + (isMain && res.usage !== null ? 1 : 0),
         // An agent with no `agent.spawn` (a skill that runs in a subagent) is counted here.
         agents: c.agents + (e.agentId === undefined || e.agentId in c.byAgent ? 0 : 1),
         totals: addUsage(c.totals, res.usage),
@@ -531,9 +887,7 @@ export const register: Register = (on, options) => {
                   isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')),
                 ),
               }
-        await trackAgent($, id, (r, t) =>
-          tuned(ran(r, agentId, t), agentId, e.model, effort, context),
-        )
+        await trackAgent($, id, (r) => tuned(r, agentId, e.model, effort, context))
       } else {
         // The dashboard's numbers changed.
         await syncPane($)
@@ -546,6 +900,8 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (e.tool === 'TaskStop' && e.agentId === undefined && ownStops.has(taskOf(e))) return next(e)
+    const loop = e.agentId
     const res = await next(e)
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res
@@ -565,6 +921,10 @@ export const register: Register = (on, options) => {
       added: c.added + diff.added,
       removed: c.removed + diff.removed,
       bg: c.bg + (isBackground ? 1 : 0),
+      mcpCalls:
+        e.tool.startsWith('mcp__') && !c.mcpCalls.includes(e.tool)
+          ? [...c.mcpCalls, e.tool]
+          : c.mcpCalls,
       byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
         ...a,
         tools: a.tools + 1,
@@ -574,9 +934,9 @@ export const register: Register = (on, options) => {
     }))
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
-    const loop = e.agentId
     if (loop !== undefined) {
-      await trackAgent($, id, (r, t) => ran(r, loop, t))
+      // The counts of the agent changed.
+      await syncPane($)
       await refreshViewed($, loop)
     }
     return res
@@ -629,7 +989,9 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
-    await ensureLoaded($)
+    const session = await ensureLoaded($)
+    // The steps at the start of the turn: its end knows from them if the turn had a step.
+    turnSteps = { id: session, steps: (await read($, meter)).steps }
     const at = await stamp($)
     await update($, meter, (c) => ({
       ...c,
@@ -652,6 +1014,7 @@ export const register: Register = (on, options) => {
       await save($, session, nextMeter)
       const end = e.reason === 'answer' ? completed : stopped
       await trackAgent($, session, (r, t) => end(r, agentId, t))
+      await forgetStop($, agentId)
       await refreshViewed($, agentId)
       return next(e)
     }
@@ -659,7 +1022,29 @@ export const register: Register = (on, options) => {
     const at = await stamp($)
     // The steps of the turn are counted, and the ledger holds them: read it now and settle the
     // cost of the advisor, before a side request of the idle time (a prompt suggestion) grows it.
-    const usd = (await $.session.usage()).cost?.usd
+    // The same reply gives the context as it is at the end of the turn.
+    // A breakdown that fails must not keep the turn open: the plain reply has the cost.
+    const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => $.session.usage())
+    const usd = usage.cost?.usd
+    // A turn with no step of the main loop (an abort before the first response) is no turn
+    // of the context growth.
+    // A turn whose start the mod did not see (a hot reload) counts as a turn.
+    const hadStep = turnSteps.id !== id || (await read($, meter)).steps > turnSteps.steps
+    // A reply that gives no sample makes no request in flight stale, and its turn is counted
+    // by the next sample of a turn end.
+    const isKept = await recordContext(
+      $,
+      id,
+      usage.context,
+      'summary',
+      hadStep,
+      contextSeq + 1,
+      missedTurns,
+    )
+    if (isKept) {
+      contextSeq++
+      missedTurns = 0
+    } else if (hadStep) missedTurns++
     const nextMeter = await update($, meter, (c) => {
       const ended = { ...c, ...endTurn(c, at), ...(usd === undefined ? {} : { costUsd: usd }) }
       return mainTurns(ended) > 0 || stepsInFlight > 0
@@ -683,6 +1068,7 @@ export const register: Register = (on, options) => {
       const at = await stamp($)
       await update($, meter, (c) => ({ ...c, ...endRun(c, notice.id, at) }))
       await trackAgent($, session, (r, t) => ended(r, notice.id, notice.status, t))
+      await forgetStop($, notice.id)
     }
     return res
   })
@@ -693,6 +1079,8 @@ export const register: Register = (on, options) => {
   on('ui.focus', async ($, e, next) => {
     // Read before `next`: landing the ring draws the pane focused.
     const wasFocused = isPaneFocused
+    // The person moved the focus: no later move of the mod takes it back.
+    if (e.origin.kind === 'person') wantedFocus = null
     const res = await next(e)
     const element = e.element
     const isClick =
@@ -730,7 +1118,10 @@ export const register: Register = (on, options) => {
 
   // The person can close the pane with the engine's mark: the button follows.
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE_ID) await update($, pane, (c) => ({ ...c, isOpen: false }))
+    if (e.id === PANE_ID) {
+      wantedFocus = null
+      await update($, pane, (c) => ({ ...c, isOpen: false }))
+    }
     return next(e)
   })
 
@@ -751,7 +1142,7 @@ export const register: Register = (on, options) => {
     const ui = $.ui.resolve(e)
     const pad = e.surface === 'terminal' ? 1 : 0
     // The rows above the pane body on the terminal: the title and the empty row below it.
-    const above = e.surface === 'terminal' ? 2 : 0
+    const above = e.surface === 'terminal' ? TITLE_ROWS : 0
     // The offset of a scroll event is newer than the pane's own until the engine gives the
     // pane another offset: that one is then the newest (the window can move with no event).
     const asked = await read($, paneScroll)
@@ -769,6 +1160,8 @@ export const register: Register = (on, options) => {
         view={await read($, pane)}
         stats={isCurrent ? data.stats : null}
         dashboard={isCurrent ? data.dashboard : null}
+        // State of an older shape (a hot reload) has no context.
+        context={isCurrent ? (data.context ?? null) : null}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -784,6 +1177,16 @@ export const register: Register = (on, options) => {
         onBack={() => act($, { kind: 'back' })}
         onWrap={() => act($, { kind: 'wrap' })}
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
+        onContext={() => act($, { kind: 'context' })}
+        onRecount={() => act($, { kind: 'recount' })}
+        onCategory={(name) => act($, { kind: 'category', name })}
+        drafts={drafts}
+        onCompose={(agentId) => act($, { kind: 'compose', agentId })}
+        onStop={(agentId) => act($, { kind: 'stop', agentId })}
+        onDraft={(agentId, text) => {
+          drafts[agentId] = text
+        }}
+        onSend={(agentId, text) => act($, { kind: 'send', agentId, text })}
       />
     )
     if (pad === 0) return body

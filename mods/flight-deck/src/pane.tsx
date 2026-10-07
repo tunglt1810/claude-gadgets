@@ -2,6 +2,7 @@ import type { Elements } from 'claude-code'
 import type {
   AgentEntry,
   Cell,
+  ContextView,
   Dashboard,
   PaneView,
   Registry,
@@ -10,9 +11,11 @@ import type {
 } from '../types'
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
+import { barSegments, contextHead, contextSummary, overheadHead } from './context'
+import { controlLabels } from './control'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
-import { formatDuration } from './format'
+import { formatDuration, formatTokens, formatUsd } from './format'
 import { statSegments } from './layout'
 import { PALETTE } from './palette'
 import { agentTitle, modelLabel, workedMs } from './registry'
@@ -30,6 +33,8 @@ type Props = {
   stats: Snapshot | null
   // The session's cost and a row per model, above the agents table.
   dashboard: Dashboard | null
+  // The context of the main loop, below the dashboard; null with no sample.
+  context: ContextView | null
   // The dashboard's costs and the tokens of each context as they are on screen, by name, where
   // the pane is drawn on each frame (the terminal). Absent on a desktop: a cell runs to its
   // new number by itself.
@@ -50,6 +55,15 @@ type Props = {
   onBack: () => void
   onWrap: () => void
   onTool: (toolUseId: string) => void
+  onContext: () => void
+  onRecount: () => void
+  onCategory: (name: string) => void
+  // The text of each message field as the person typed it, by agent.
+  drafts: Record<string, string>
+  onCompose: (agentId: string) => void
+  onStop: (agentId: string) => void
+  onDraft: (agentId: string, text: string) => void
+  onSend: (agentId: string, text: string) => void
 }
 
 // The most lines of a tool call's input, and of its result, that the pane draws.
@@ -67,8 +81,12 @@ const OPEN_CHILD = ' [open]'
 const BACK = '← agents'
 // The terminal draws a button as `[ label ]`.
 const BUTTON_CHROME = 4
+// The rows of the bar of a scrolled transcript: the back button's row and the controls' row.
+const STICKY_ROWS = 2
 // The least room that the bar of a scrolled transcript keeps for the agent's name.
 const MIN_STICKY_NAME = 8
+// The columns that the toolbar of a transcript keeps for its back and wrap buttons.
+const TOOLBAR_USED = BACK.length + BUTTON_CHROME + 1 + 'wrap off'.length + BUTTON_CHROME + 1
 // A tool call by its outcome: its mark and the color of the mark. A finished call is dim at
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const
@@ -88,6 +106,18 @@ const RECENCY_TONE = { active: PALETTE.green, recent: PALETTE.yellow } as const
 const RUNS_WIDTH = 7
 // The characters of a terminal's rule: more than the columns of a pane.
 const RULE_LENGTH = 600
+// The characters of the rule between two turns of a transcript: shorter than a table's rule,
+// so it does not read as the end of the header.
+const TURN_RULE_LENGTH = 12
+// The button of the context screen, and the button that reads its breakdown again.
+const CONTEXT = 'context'
+const RECOUNT = 'recount'
+// The columns of the context screen: a count of tokens fits `123.4k`, a share its header
+// `share(%)`, a carry cost its header `carry($)`, a count of tools its header.
+const TOKENS_WIDTH = 7
+const SHARE_WIDTH = 8
+const CARRY_WIDTH = 8
+const TOOLS_WIDTH = 7
 
 // The tone of a cell: dim, or a color.
 type Tone = Pick<Cell, 'dim' | 'color'>
@@ -132,6 +162,7 @@ export const AgentPane = ({
   view,
   stats,
   dashboard,
+  context,
   shownUsd,
   spin,
   now,
@@ -143,6 +174,14 @@ export const AgentPane = ({
   onBack,
   onWrap,
   onTool,
+  onContext,
+  onRecount,
+  onCategory,
+  drafts,
+  onCompose,
+  onStop,
+  onDraft,
+  onSend,
 }: Props) => {
   const { Box, Text, Button, Code, Markdown } = ui
   const viewed = view.agentId
@@ -207,12 +246,45 @@ export const AgentPane = ({
     ) : (
       oneRow(key, label, button, true)
     )
+  // A row of real buttons of the terminal shows one row: the layout wraps a label in a narrow
+  // pane, and the rows below must keep their place.
+  const oneRowOnly = isClient ? {} : { height: 1, overflow: 'hidden' as const }
   // A line across the terminal's pane: it is longer than a pane, and its box shows one row of it.
   const line = (key: string) => (
     <Box key={key} height={1} overflow="hidden">
       <Text dimColor>{'─'.repeat(RULE_LENGTH)}</Text>
     </Box>
   )
+
+  // The reason of a message or a stop that the engine refused, below the controls of the agent.
+  const controlError = (key: string, id: string) =>
+    view.controlError?.agentId === id ? (
+      <Text key={key} color={PALETTE.red} wrap="truncate">
+        {view.controlError.reason}
+      </Text>
+    ) : null
+  // The message field of an agent. It has no placeholder: text that an input method composes
+  // (Vietnamese on macOS) is not in the field yet, so the engine draws the placeholder below it.
+  // Enter sends the text. Only the terminal and a desktop draw a field.
+  // The field takes its whole row: `width` cells on a desktop, where no box grows.
+  const say = (id: string, width: number) =>
+    'Input' in ui ? (
+      <Box
+        key={`saybox:${id}`}
+        flexDirection="column"
+        {...(isClient ? { width, flexShrink: 0 } : { flexGrow: 1, flexShrink: 1 })}
+      >
+        <ui.Input
+          key={`say:${id}`}
+          label="›"
+          value={drafts[id] ?? ''}
+          submitLabel="send"
+          autoFocus
+          onInput={(text) => onDraft(id, text)}
+          onSubmit={(text) => onSend(id, text)}
+        />
+      </Box>
+    ) : null
 
   // A context cell with the tokens that are on screen, where the pane draws each frame.
   const shownCtx = (agentId: string, c: Cell): Cell => {
@@ -297,11 +369,208 @@ export const AgentPane = ({
       )
     }
 
+    // The bar of a context: one text, in a box of one row that cuts it. Its length is a
+    // fixed count of cells, so no box here takes a width from `columns`.
+    const bar = (key: string, c: ContextView) => (
+      <Box key={key} height={1} flexShrink={1} overflow="hidden">
+        <Text wrap="truncate">
+          {barSegments(c).map((s, i) => (
+            <Text key={String(i)} color={s.color}>
+              {s.text}
+            </Text>
+          ))}
+        </Text>
+      </Box>
+    )
+    // A row of cells with one cell between them.
+    const cells = (key: string, row: Cell[]) => (
+      <Box key={key} flexDirection="row" alignItems="center" gap={1} overflow="hidden">
+        {row.map((c, i) => cell(`${key}:${i}`, c))}
+      </Box>
+    )
+    // The context of the main loop: its length, the bar of the window and the totals. A
+    // Button takes no color, so the context length is a cell after the button.
+    const contextBlock = () =>
+      context === null ? null : (
+        <Box key="ctxblock" flexDirection="column">
+          <Box
+            key="ctx:row"
+            flexDirection="row"
+            alignItems="center"
+            gap={1}
+            overflow="hidden"
+            {...oneRowOnly}
+          >
+            <Button key="context" label={CONTEXT} onPress={onContext} />
+            {contextHead(context, columns - CONTEXT.length - BUTTON_CHROME - 1).map((c, i) =>
+              cell(`ctx:head:${i}`, c),
+            )}
+          </Box>
+          {bar('ctx:bar', context)}
+          {cells('ctx:sum', contextSummary(context))}
+          {rule('ctx:rule')}
+        </Box>
+      )
+
+    // The first cell of a row that is not pressed. On a desktop it is a button that does
+    // nothing: a desktop draws a button's label after a margin of its own, so only a button
+    // starts where the category buttons start.
+    const quiet = (key: string, text: string, width: number) =>
+      restBox(
+        `${key}:box`,
+        width,
+        text,
+        isClient ? (
+          <Button key={key} plain dimColor label={text} onPress={() => {}} />
+        ) : (
+          rest(key, text, width, { dim: true })
+        ),
+      )
+    const num = (key: string, text: string, width: number, tone: Tone = {}) =>
+      cell(key, { text, ...tone, width, align: 'right' })
+
+    // The context screen: the overhead by category, what it costs to carry, and the MCP
+    // servers that the session did not call.
+    const contextScreen = () => {
+      const nameWidth = Math.max(
+        MIN_MODEL,
+        columns - (TOKENS_WIDTH + 1) - (SHARE_WIDTH + 1) - (CARRY_WIDTH + 1),
+      )
+      const serverWidth = Math.max(MIN_MODEL, columns - (TOOLS_WIDTH + 1) - (TOKENS_WIDTH + 1))
+      const titleWidth = Math.max(
+        1,
+        columns -
+          (BACK.length + BUTTON_CHROME + 1) -
+          ('summary'.length + 1) -
+          (RECOUNT.length + BUTTON_CHROME + 1),
+      )
+      // State of an older shape (a hot reload) has no list.
+      const open = view.openCategories ?? []
+      return (
+        <Box flexDirection="column">
+          <Box key="ctx:toolbar" flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
+            <Button key="back" label={BACK} onPress={onBack} />
+            {rest('ctx:title', CONTEXT, titleWidth, { bold: true })}
+            {context !== null && cell('ctx:detail', { text: context.detail, dim: true })}
+            <Button key="recount" label={RECOUNT} onPress={onRecount} />
+          </Box>
+          {context === null ? (
+            <Text key="ctx:none" dimColor>
+              No context yet.
+            </Text>
+          ) : (
+            <Box key="ctx:body" flexDirection="column">
+              {cells('ctx:head', contextHead(context, columns))}
+              {bar('ctx:bar', context)}
+              {rule('ctx:rule')}
+              {cells('ovh:head', overheadHead(context))}
+              <Box key="ovh:cols" flexDirection="row" alignItems="center" gap={1}>
+                {quiet('head:cat', '  category', nameWidth)}
+                {head('head:tokens', 'tokens', TOKENS_WIDTH, 'right')}
+                {head('head:share', 'share(%)', SHARE_WIDTH, 'right')}
+                {head('head:carry', 'carry($)', CARRY_WIDTH, 'right')}
+              </Box>
+              {context.categories.map((r) => {
+                const isOpen = open.includes(r.name)
+                // A category with no items has no mark, and its press does nothing.
+                const mark = r.items.length === 0 ? ' ' : isOpen ? '▾' : '▸'
+                const label = cut(`${mark} ${r.name}`, nameWidth)
+                const pct =
+                  context.overhead > 0 ? Math.round((r.tokens / context.overhead) * 100) : 0
+                return (
+                  <Box key={`catrow:${r.name}`} flexDirection="column">
+                    <Box flexDirection="row" alignItems="center" gap={1}>
+                      {restBox(
+                        `catbox:${r.name}`,
+                        nameWidth,
+                        label,
+                        <Button
+                          key={`cat:${r.name}`}
+                          plain
+                          label={label}
+                          onPress={r.items.length === 0 ? () => {} : () => onCategory(r.name)}
+                        />,
+                      )}
+                      {num(`catnum:tokens:${r.name}`, formatTokens(r.tokens), TOKENS_WIDTH)}
+                      {num(`catnum:share:${r.name}`, `${pct}%`, SHARE_WIDTH, {
+                        color: shareColor(pct),
+                      })}
+                      {num(
+                        `catnum:carry:${r.name}`,
+                        r.carryUsd === null ? '—' : `≈${formatUsd(r.carryUsd)}`,
+                        CARRY_WIDTH,
+                      )}
+                    </Box>
+                    {isOpen &&
+                      r.items.map((it, i) => (
+                        <Box
+                          key={`itemrow:${r.name}:${String(i)}`}
+                          flexDirection="row"
+                          alignItems="center"
+                          gap={1}
+                        >
+                          {quiet(
+                            `item:${r.name}:${String(i)}`,
+                            cut(
+                              `    ${it.name}${it.count === undefined ? '' : ` · ${it.count} tools`}`,
+                              nameWidth,
+                            ),
+                            nameWidth,
+                          )}
+                          {num(
+                            `itemnum:${r.name}:${String(i)}`,
+                            formatTokens(it.tokens),
+                            TOKENS_WIDTH,
+                            { dim: true },
+                          )}
+                        </Box>
+                      ))}
+                  </Box>
+                )
+              })}
+              {context.unused.length > 0 && (
+                <Box key="dead" flexDirection="column">
+                  {rule('dead:rule')}
+                  {cell('dead:head', {
+                    text: `dead weight ${formatTokens(context.deadWeight)}`,
+                    bold: true,
+                  })}
+                  <Box key="dead:cols" flexDirection="row" gap={1}>
+                    {rest('dead:head:server', 'server', serverWidth, { dim: true })}
+                    {head('dead:head:tools', 'tools', TOOLS_WIDTH, 'right')}
+                    {head('dead:head:tokens', 'tokens', TOKENS_WIDTH, 'right')}
+                  </Box>
+                  {context.unused.map((s) => (
+                    <Box key={`dead:${s.name}`} flexDirection="row" gap={1}>
+                      {rest(`dead:name:${s.name}`, s.name, serverWidth)}
+                      {num(`dead:tools:${s.name}`, String(s.count ?? 0), TOOLS_WIDTH, {
+                        dim: true,
+                      })}
+                      {num(`dead:tokens:${s.name}`, formatTokens(s.tokens), TOKENS_WIDTH)}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+        </Box>
+      )
+    }
+    // State of an older shape (a hot reload) has no flag.
+    if (view.isContext === true) return contextScreen()
+
+    const labels = (id: string, room: number) => controlLabels(room, view.stopAsk === id)
+    // A plain button of a control row, on one row of the terminal.
+    const control = (key: string, label: string, onPress: () => void) => {
+      const button = <Button key={key} plain label={label} onPress={onPress} />
+      return isClient ? button : oneRow(`${key}:box`, label, button)
+    }
     const rows = treeRows(entries)
     if (rows.length === 0)
       return (
         <Box flexDirection="column">
           {board()}
+          {contextBlock()}
           <Text dimColor>No agents yet.</Text>
         </Box>
       )
@@ -314,6 +583,7 @@ export const AgentPane = ({
     return (
       <Box flexDirection="column">
         {board()}
+        {contextBlock()}
         <Box key="head" flexDirection="row" gap={1}>
           {/* Built as a row is, a mark and a box of the name's width: a desktop sizes a box
               and a cell in different units, so only the same parts line up. */}
@@ -346,6 +616,7 @@ export const AgentPane = ({
           const inset = depth * 2 + MARK_WIDTH + 1 + EXPAND_WIDTH + 1
           const detail = isOpen ? detailCells(agent, columns - inset) : []
           const label = cut(name(agent), nameWidth)
+          const ctl = labels(agent.id, columns - inset)
           const ctx = detail.find((c) => c.ctx !== undefined)
           // The cells before the context as one text; its last dot parts it from the context.
           const lead = detail
@@ -417,6 +688,30 @@ export const AgentPane = ({
                   {ctx !== undefined && cell(`detail:ctx:${agent.id}`, shownCtx(agent.id, ctx))}
                 </Box>
               )}
+              {isOpen && (
+                // The controls of the agent, built as the detail row is: a message to it, and
+                // a stop while it runs.
+                <Box key={`controlrow:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
+                  {depth > 0 && (
+                    <Box key={`control:indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />
+                  )}
+                  {cell(`control:mark:${agent.id}`, { text: '', width: MARK_WIDTH })}
+                  <Box key={`control:expand:${agent.id}`} width={EXPAND_WIDTH} flexShrink={0} />
+                  {control(`msg:${agent.id}`, ctl.message, () => onCompose(agent.id))}
+                  {agent.status === 'running' &&
+                    control(`stop:${agent.id}`, ctl.stop, () => onStop(agent.id))}
+                </Box>
+              )}
+              {isOpen && view.compose === agent.id && (
+                <Box key={`sayrow:${agent.id}`} flexDirection="row" paddingLeft={inset}>
+                  {say(agent.id, Math.max(1, columns - inset))}
+                </Box>
+              )}
+              {isOpen && (
+                <Box key={`errrow:${agent.id}`} paddingLeft={inset}>
+                  {controlError(`err:${agent.id}`, agent.id)}
+                </Box>
+              )}
             </Box>
           )
         })}
@@ -425,12 +720,24 @@ export const AgentPane = ({
   }
 
   const item = (it: TranscriptItem, i: number) => {
-    if (it.kind === 'prompt')
-      return (
+    if (it.kind === 'prompt') {
+      const prompt = (
         <Text key={String(i)} color={PALETTE.cyan} wrap={isWrapped ? 'wrap' : 'truncate'}>
           {isWrapped ? `> ${it.text}` : cut(`> ${it.text}`, isClient ? columns : Infinity)}
         </Text>
       )
+      // A short rule parts a new prompt from the turn before it.
+      return i === 0 ? (
+        prompt
+      ) : (
+        <Box key={String(i)} flexDirection="column">
+          <Box key={`turn:${i}`} height={1} overflow="hidden">
+            <Text dimColor>{'─'.repeat(TURN_RULE_LENGTH)}</Text>
+          </Box>
+          {prompt}
+        </Box>
+      )
+    }
     if (it.kind === 'text') return <Markdown key={String(i)} text={it.text} />
     if (it.kind === 'answer')
       return (
@@ -518,7 +825,22 @@ export const AgentPane = ({
     agent?.context === undefined ? null : contextFit(agent.context, columns - metaUsed)
   // The engine scrolls the pane as one tree, so the header goes out of view. A bar out of the
   // flow, at the first row that the window shows, keeps the back button, the agent and its
-  // context in view. It has a background: it lies over a row of the transcript.
+  // context in view. Its second row has the controls of the agent. It has a background: it
+  // lies over two rows of the transcript.
+  // The controls of the agent, with words where `room` has cells for them.
+  const controls = (prefix: string, room: number) => {
+    const ctl = controlLabels(room, view.stopAsk === viewed)
+    return [
+      <Button
+        key={`${prefix}msg:${viewed}`}
+        label={ctl.message}
+        onPress={() => onCompose(viewed)}
+      />,
+      agent?.status === 'running' && (
+        <Button key={`${prefix}stop:${viewed}`} label={ctl.stop} onPress={() => onStop(viewed)} />
+      ),
+    ]
+  }
   const stickyRoom = columns - (BACK.length + BUTTON_CHROME + 1) - (MARK_WIDTH + 1)
   const stickyCtx =
     agent?.context === undefined
@@ -532,34 +854,75 @@ export const AgentPane = ({
       top={top}
       left={0}
       width={isClient ? columns : '100%'}
-      flexDirection="row"
-      alignItems="center"
-      gap={1}
+      flexDirection="column"
       backgroundColor={PALETTE.strip}
     >
-      <Button key={`${key}:back`} label={BACK} onPress={onBack} />
-      {agent !== undefined && cell(`${key}:mark`, agentMark(agent))}
-      {rest(`${key}:title`, agent === undefined ? viewed : name(agent), stickyName, {
-        bold: true,
-        color: agent?.status === 'running' ? TONE.running : PALETTE.fg,
-      })}
-      {stickyCtx !== null &&
-        agent?.context !== undefined &&
-        cell(
-          `${key}:ctx`,
-          shownCtx(agent.id, {
-            text: '',
-            ctx: { ...agent.context, isFull: stickyCtx === contextText(agent.context, true) },
-            color: contextColor(agent.context),
-          }),
-        )}
+      <Box key={`${key}:head`} flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
+        <Button key={`${key}:back`} label={BACK} onPress={onBack} />
+        {agent !== undefined && cell(`${key}:mark`, agentMark(agent))}
+        {rest(`${key}:title`, agent === undefined ? viewed : name(agent), stickyName, {
+          bold: true,
+          color: agent?.status === 'running' ? TONE.running : PALETTE.fg,
+        })}
+        {stickyCtx !== null &&
+          agent?.context !== undefined &&
+          cell(
+            `${key}:ctx`,
+            shownCtx(agent.id, {
+              text: '',
+              ctx: { ...agent.context, isFull: stickyCtx === contextText(agent.context, true) },
+              color: contextColor(agent.context),
+            }),
+          )}
+      </Box>
+      <Box key={`${key}:controls`} flexDirection="row" gap={1} {...oneRowOnly}>
+        {controls(`${key}:`, columns)}
+      </Box>
+    </Box>
+  )
+  // The message field, which the message button opens, and the reason of a refused message
+  // or stop. They are the last rows of the header, and they stay in view below the bar of a
+  // scrolled transcript: the terminal draws the cursor of a field that is out of the window at
+  // the last row of the screen.
+  //
+  // The terminal draws them in one box out of the flow, at the header's rows or below the
+  // bar. The box keeps its place in the tree at each scroll, so the field keeps its focus. The
+  // header keeps empty rows for it. A desktop scrolls by the pixel and has no bar: the box
+  // is in the flow of the header there.
+  const isComposing = view.compose === viewed
+  const fieldRows = (isComposing ? 1 : 0) + (view.controlError?.agentId === viewed ? 1 : 0)
+  // The rows of the header above the field: the toolbar, the title, the meta row, the stats.
+  const headRows = 2 + (agent === undefined ? 0 : 1) + (stats === null ? 0 : 1)
+  const field = (
+    <Box
+      key="sayfloat"
+      flexDirection="column"
+      {...(isClient
+        ? {}
+        : {
+            position: 'absolute' as const,
+            left: 0,
+            width: '100%' as const,
+            // Below the bar, and never above its own row of the header: with a scroll of a row
+            // or two, that row is still in the window.
+            top: scrollTop > 0 ? Math.max(headRows, scrollTop + STICKY_ROWS) : headRows,
+            ...(scrollTop > 0 ? { backgroundColor: PALETTE.strip } : {}),
+          })}
+    >
+      {isComposing && (
+        <Box key="sayrow" flexDirection="row">
+          {say(viewed, columns)}
+        </Box>
+      )}
+      {controlError('err', viewed)}
     </Box>
   )
   return (
     <Box flexDirection="column" position="relative">
       {/* The toolbar: real buttons (`[ label ]` on the terminal, native ones on desktop), so
-          they read as controls beside the transcript's plain rows. */}
-      <Box flexDirection="row" gap={1}>
+          they read as controls beside the transcript's plain rows. The terminal wraps a label
+          in a narrow pane: the toolbar shows one row of it, so the rows below keep their place. */}
+      <Box flexDirection="row" gap={1} {...oneRowOnly}>
         <Button key="back" label={BACK} onPress={onBack} />
         <Button
           key="wrap"
@@ -567,6 +930,7 @@ export const AgentPane = ({
           label={`wrap ${isWrapped ? 'on' : 'off'}`}
           onPress={onWrap}
         />
+        {controls('', columns - TOOLBAR_USED)}
       </Box>
       <Box key="title" flexDirection="row" alignItems="center" gap={1}>
         {agent !== undefined && cell('mark', agentMark(agent))}
@@ -613,6 +977,7 @@ export const AgentPane = ({
           ))}
         </Text>
       )}
+      {isClient ? field : fieldRows > 0 && <Box key="sayspace" height={fieldRows} />}
       {/* Parts the header (toolbar and title) from the transcript below it. */}
       {isClient ? (
         <Text key="rule" dimColor wrap="truncate">
@@ -622,6 +987,10 @@ export const AgentPane = ({
         line('rule')
       )}
       {body()}
+      {/* After the body: a later part is drawn over an earlier part. Before the bars: they come
+          and go, and a part that changes its place among its siblings is a new part, which
+          loses the focus. */}
+      {!isClient && field}
       {scrollTop > 0 && sticky('sticky', scrollTop)}
       {/* The engine moves the window after this drawing: until then the row it shows has a bar
           too, so no drawing is without a bar at its top. */}

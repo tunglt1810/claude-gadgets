@@ -9,6 +9,7 @@ import {
   restored,
   spawned,
   stopped,
+  stopTarget,
   taskNotice,
   tuned,
 } from './registry'
@@ -21,7 +22,7 @@ test('spawn adds a running entry with its data', () => {
     type: 'Explore',
     description: 'find x',
     status: 'running',
-    runs: 0,
+    runs: 1,
     startedAt: 100,
     endedAt: null,
   })
@@ -34,7 +35,7 @@ test('a step before the spawn makes one entry that the spawn fills', () => {
   expect(r.a1?.type).toBe('Explore')
 })
 
-test('complete sets idle, counts the run and stamps the end', () => {
+test('complete sets idle, keeps the count of the run and stamps the end', () => {
   const r = completed(spawned({}, 'a1', 100, {}), 'a1', 200)
   expect(r.a1).toMatchObject({ status: 'idle', runs: 1, endedAt: 200 })
 })
@@ -42,9 +43,18 @@ test('complete sets idle, counts the run and stamps the end', () => {
 test('a second run counts again', () => {
   let r = completed(spawned({}, 'a1', 100, {}), 'a1', 200)
   r = ran(r, 'a1', 300)
-  expect(r.a1?.status).toBe('running')
+  // The run is counted when it starts, and each later event of it counts nothing.
+  expect(r.a1).toMatchObject({ status: 'running', runs: 2 })
+  r = ran(r, 'a1', 350)
+  expect(r.a1?.runs).toBe(2)
   r = completed(r, 'a1', 400)
   expect(r.a1).toMatchObject({ status: 'idle', runs: 2, endedAt: 400 })
+})
+
+test('a second end of one run counts nothing', () => {
+  // The notification of the engine can come before the turn.complete of the run.
+  const noticed = ended(spawned({}, 'a1', 100, {}), 'a1', 'completed', 200)
+  expect(completed(noticed, 'a1', 250).a1).toMatchObject({ status: 'idle', runs: 1 })
 })
 
 test('merge adds an agent seen only in the list and fills absent fields', () => {
@@ -81,15 +91,15 @@ test('agentsKey names the store key of a session', () => {
   expect(agentsKey('S1')).toBe('agents:S1')
 })
 
-test('stop sets stopped and stamps the end, without a run', () => {
+test('stop sets stopped and stamps the end, and keeps the count of the run', () => {
   const r = stopped(spawned({}, 'a1', 100, {}), 'a1', 200)
-  expect(r.a1).toMatchObject({ status: 'stopped', runs: 0, endedAt: 200 })
+  expect(r.a1).toMatchObject({ status: 'stopped', runs: 1, endedAt: 200 })
   expect(stopped({}, 'a2', 300).a2).toMatchObject({ status: 'stopped', startedAt: 300 })
 })
 
 test('an event after a stop runs the agent again', () => {
   const r = ran(stopped(spawned({}, 'a1', 100, {}), 'a1', 200), 'a1', 300)
-  expect(r.a1?.status).toBe('running')
+  expect(r.a1).toMatchObject({ status: 'running', runs: 2 })
 })
 
 test('a notification ends a known agent only', () => {
@@ -181,4 +191,38 @@ test('parseRegistry loads an entry with no context and ignores a bad one', () =>
     const raw = { a1: { ...old.a1, context: bad } }
     expect(parseRegistry(raw).a1).toEqual(old.a1)
   }
+})
+
+test('a late completed notification does not end an agent that runs again', () => {
+  // The notification of a run can come after a message started the agent again.
+  const again = ran(completed(spawned({}, 'a1', 100, {}), 'a1', 200), 'a1', 300)
+  const r = ended(again, 'a1', 'completed', 350)
+  expect(r.a1).toMatchObject({ status: 'running', runs: 2 })
+  expect(ran(r, 'a1', 400).a1?.runs).toBe(2)
+})
+
+test('parseRegistry reads a record of an older version, with no run, as one started run', () => {
+  const old = { a1: { id: 'a1', status: 'stopped', runs: 0, startedAt: 1, endedAt: 2 } }
+  expect(parseRegistry(old).a1?.runs).toBe(1)
+})
+
+test('a completed notification ends a first run whose turn.complete the mod did not see', () => {
+  // An agent in its first run has no earlier run that a late notification can be of.
+  const r = ended(spawned({}, 'a1', 100, {}), 'a1', 'completed', 200)
+  expect(r.a1).toMatchObject({ status: 'idle', runs: 1, endedAt: 200 })
+})
+
+test('a running entry of an older version, with no run, counts its run at the next step', () => {
+  // The live registry after a hot reload from a version that counted a run at its end.
+  const old = { a1: { id: 'a1', status: 'running' as const, runs: 0, startedAt: 1, endedAt: null } }
+  expect(ran(old, 'a1', 50).a1?.runs).toBe(1)
+})
+
+test('a teammate keeps the address that TaskStop takes', () => {
+  // TaskStop takes a teammate by its address in the team, not by its id.
+  const r = merged({}, [{ id: 't1', status: 'running', teammateId: 'ana@core' }], 100)
+  expect(r.t1?.teammateId).toBe('ana@core')
+  expect(parseRegistry(JSON.parse(JSON.stringify(r))).t1?.teammateId).toBe('ana@core')
+  expect(stopTarget(r, 't1')).toBe('ana@core')
+  expect(stopTarget(spawned({}, 'a1', 100, {}), 'a1')).toBe('a1')
 })

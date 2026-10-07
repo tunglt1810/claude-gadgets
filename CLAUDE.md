@@ -54,6 +54,8 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 
 ## UI
 
+The styling rules (palette, tones, number formats, glyphs, tables) are in [docs/design-system.md](docs/design-system.md). Read it before a change to drawn text.
+
 - No emoji in drawn text: they are double width and misalign the row. Use single-width characters. The one exception is the pane title: its row has no columns.
 - Size a band to `e.props.bodyColumns` and keep it to one row; drop parts instead of wrapping.
 - `AbovePrompt` is raised on terminal and desktop only; `Pane` on every surface.

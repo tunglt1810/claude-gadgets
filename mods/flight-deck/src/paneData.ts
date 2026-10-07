@@ -1,4 +1,4 @@
-import type { PaneData, Registry, Snapshot } from '../types'
+import type { ContextView, PaneData, Registry, Snapshot } from '../types'
 import { agentView } from './agents'
 import { dashboard } from './dashboard'
 
@@ -12,14 +12,16 @@ export const paneData = (
   viewed: string | null,
   snap: Snapshot,
   now: number,
+  context: ContextView | null,
 ): PaneData => {
   if (viewed === null)
-    return { sessionId, entries, stats: null, dashboard: dashboard(snap, entries, now) }
+    return { sessionId, entries, stats: null, dashboard: dashboard(snap, entries, now), context }
   const agent = entries[viewed]
   return {
     sessionId,
     entries: agent === undefined ? {} : { [viewed]: agent },
     stats: agentView(snap, viewed),
     dashboard: null,
+    context: null,
   }
 }

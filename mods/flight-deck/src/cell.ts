@@ -27,3 +27,11 @@ export const cellText = (
           : `${c.text}${formatDuration(now - c.since)}`
   return c.align === 'right' && c.width !== undefined ? base.padStart(c.width) : base
 }
+
+// Cells with a dim dot between them.
+export const dotted = (parts: Cell[]): Cell[] =>
+  parts.flatMap((p, i) => (i === 0 ? [p] : [{ text: '·', dim: true }, p]))
+
+// The width of a row of cells that the pane draws with one cell between its cells.
+export const rowWidth = (cells: Cell[]): number =>
+  cells.reduce((n, c) => n + cellText(c, 0, 0).length, 0) + Math.max(0, cells.length - 1)

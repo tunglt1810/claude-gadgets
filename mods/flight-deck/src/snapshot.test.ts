@@ -1,5 +1,12 @@
 import { expect, test } from 'claude-code/testing'
-import { emptySnapshot, isComplete, parseSnapshot, storeKey, touchSessions } from './snapshot'
+import {
+  emptySnapshot,
+  isComplete,
+  parseSnapshot,
+  storeKey,
+  touchSessions,
+  UNKNOWN_CALLS,
+} from './snapshot'
 
 test('storeKey is per session id', () => {
   expect(storeKey('abc')).toBe('session:abc')
@@ -36,6 +43,8 @@ test('parseSnapshot keeps valid data', () => {
     byModel: { 'claude-opus-5-5': { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 } },
     costByModel: { 'claude-opus-5-5': 0.5 },
     advisor: { calls: 2, ms: 900, usd: 0.5, base: 0.25, model: 'opus', pending: true },
+    steps: 7,
+    mcpCalls: ['mcp__a__b'],
     mainModel: 'claude-opus-5-5',
   }
   expect(parseSnapshot(JSON.parse(JSON.stringify(s)))).toEqual(s)
@@ -93,4 +102,28 @@ test('isComplete: state written before spawn counts and per-agent data existed i
   expect(isComplete(noAgents)).toBe(false)
   const { bg: _bg, ...noBg } = emptySnapshot()
   expect(isComplete(noBg)).toBe(false)
+})
+
+test('parseSnapshot gives a 0.5.1 snapshot no steps, and its MCP calls are not known', () => {
+  const s = parseSnapshot({ tools: 3 })
+  expect(s.steps).toBe(0)
+  expect(s.mcpCalls).toEqual([UNKNOWN_CALLS])
+})
+
+test('parseSnapshot keeps the steps and only the names that are strings', () => {
+  const s = parseSnapshot({ steps: 4, mcpCalls: ['mcp__a__b', 7, null] })
+  expect(s.steps).toBe(4)
+  expect(s.mcpCalls).toEqual(['mcp__a__b'])
+})
+
+test('isComplete refuses a state with no steps or no MCP calls', () => {
+  expect(isComplete(emptySnapshot())).toBe(true)
+  expect(isComplete({ ...emptySnapshot(), steps: undefined } as never)).toBe(false)
+  expect(isComplete({ ...emptySnapshot(), mcpCalls: undefined } as never)).toBe(false)
+})
+
+test('a stored snapshot with no list of MCP calls marks the calls as unknown', () => {
+  const { mcpCalls: _, ...old } = emptySnapshot()
+  expect(parseSnapshot(old).mcpCalls).toEqual([UNKNOWN_CALLS])
+  expect(parseSnapshot(emptySnapshot()).mcpCalls).toEqual([])
 })
