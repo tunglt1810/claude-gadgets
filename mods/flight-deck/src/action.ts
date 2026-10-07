@@ -4,7 +4,8 @@ import type { PaneAction, Transcript } from '../types'
 // the plugin as this key, not as a press. A child agent's button is keyed by its tool call, so
 // the open transcript gives the agent. A key that is not a pane button is null.
 export const focusAction = (element: string, transcript: Transcript | null): PaneAction | null => {
-  if (element === 'back' || element === 'wrap') return { kind: element }
+  if (element === 'back' || element === 'wrap' || element === 'context' || element === 'recount')
+    return { kind: element }
   const [kind, id] = [
     element.slice(0, element.indexOf(':')),
     element.slice(element.indexOf(':') + 1),
@@ -15,6 +16,8 @@ export const focusAction = (element: string, transcript: Transcript | null): Pan
   // An agent's name, and the button of its detail row.
   if (kind === 'agent' || kind === 'detail') return { kind: 'open', agentId: id }
   if (kind === 'expand') return { kind: 'expand', agentId: id }
+  // A category row of the context screen.
+  if (kind === 'cat') return { kind: 'category', name: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }
   if (kind !== 'child' || transcript === null || !('items' in transcript)) return null
   const item = transcript.items.find((it) => it.kind === 'tool' && it.id === id)

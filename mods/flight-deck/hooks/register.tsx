@@ -94,6 +94,8 @@ const initialPane: PaneView = {
   expanded: [],
   collapsedAgents: [],
   transcript: null,
+  isContext: false,
+  openCategories: [],
 }
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
 const initialData: PaneData = {
@@ -205,6 +207,8 @@ async function loadAgents($: Api, id: string): Promise<void> {
     expanded: [],
     collapsedAgents: [],
     transcript: null,
+    isContext: false,
+    openCategories: [],
   }))
   await syncPane($)
 }
@@ -327,10 +331,37 @@ async function backToTree($: Api): Promise<void> {
   })
 }
 
+// The context screen, with the focus on its back button. The press asks for the full
+// breakdown: the summary of the last turn is on the screen until it comes.
+async function openContext($: Api): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isContext: true }))
+  })
+  await measureContext($, 'full')
+}
+
+// Back to the tree, with the focus on the button that opened the context screen.
+async function closeContext($: Api): Promise<void> {
+  await focusAfter($, 'context', async () => {
+    await update($, pane, (c) => ({ ...c, isContext: false }))
+  })
+}
+
 // What a pane button does, from its press or from the click that gave the pane the focus.
 async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'open') return openAgent($, action.agentId)
-  if (action.kind === 'back') return backToTree($)
+  if (action.kind === 'back')
+    // State of an older shape (a hot reload) has no flag.
+    return (await read($, pane)).isContext === true ? closeContext($) : backToTree($)
+  if (action.kind === 'context') return openContext($)
+  if (action.kind === 'recount') return measureContext($, 'full')
+  if (action.kind === 'category') {
+    await update($, pane, (c) => ({
+      ...c,
+      openCategories: toggled(c.openCategories, action.name),
+    }))
+    return
+  }
   if (action.kind === 'wrap') {
     const next = await update($, pane, (c) => ({ ...c, isWrapped: !c.isWrapped }))
     return $.store.set(WRAP_KEY, next.isWrapped)
@@ -842,6 +873,9 @@ export const register: Register = (on, options) => {
         onBack={() => act($, { kind: 'back' })}
         onWrap={() => act($, { kind: 'wrap' })}
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
+        onContext={() => act($, { kind: 'context' })}
+        onRecount={() => act($, { kind: 'recount' })}
+        onCategory={(name) => act($, { kind: 'category', name })}
       />
     )
     if (pad === 0) return body

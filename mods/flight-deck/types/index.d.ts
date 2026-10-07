@@ -118,7 +118,8 @@ export type Transcript =
 
 // What the pane shows. `agentId` null is the agent tree; `expanded` holds the tool_use ids
 // of the open tool calls; `collapsedAgents` the ids of the agents whose detail row is closed (a row is open at first);
-// `isWrapped` draws a transcript's long text on several rows.
+// `isWrapped` draws a transcript's long text on several rows. `isContext` puts the context
+// screen in place of the tree; `openCategories` holds the names of its open category rows.
 export type PaneView = {
   isOpen: boolean
   isWrapped: boolean
@@ -126,6 +127,8 @@ export type PaneView = {
   expanded: string[]
   collapsedAgents: string[]
   transcript: Transcript | null
+  isContext: boolean
+  openCategories: string[]
 }
 
 // What a pane button does.
@@ -134,6 +137,9 @@ export type PaneAction =
   | { kind: 'expand'; agentId: string }
   | { kind: 'back' }
   | { kind: 'wrap' }
+  | { kind: 'context' }
+  | { kind: 'recount' }
+  | { kind: 'category'; name: string }
   | { kind: 'tool'; toolUseId: string }
 
 // One cell of a pane row that is not a button: a text, a turning mark (`spin`), or a time that

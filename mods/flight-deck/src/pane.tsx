@@ -11,10 +11,10 @@ import type {
 } from '../types'
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
-import { barSegments, contextHead, contextSummary } from './context'
+import { barSegments, contextHead, contextSummary, overheadHead } from './context'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
-import { formatDuration } from './format'
+import { formatDuration, formatTokens, formatUsd } from './format'
 import { statSegments } from './layout'
 import { PALETTE } from './palette'
 import { agentTitle, modelLabel, workedMs } from './registry'
@@ -54,6 +54,9 @@ type Props = {
   onBack: () => void
   onWrap: () => void
   onTool: (toolUseId: string) => void
+  onContext: () => void
+  onRecount: () => void
+  onCategory: (name: string) => void
 }
 
 // The most lines of a tool call's input, and of its result, that the pane draws.
@@ -92,6 +95,15 @@ const RECENCY_TONE = { active: PALETTE.green, recent: PALETTE.yellow } as const
 const RUNS_WIDTH = 7
 // The characters of a terminal's rule: more than the columns of a pane.
 const RULE_LENGTH = 600
+// The button of the context screen, and the button that reads its breakdown again.
+const CONTEXT = 'context'
+const RECOUNT = 'recount'
+// The columns of the context screen: a count of tokens fits `123.4k`, a share its header
+// `share(%)`, a carry cost its header `carry($)`, a count of tools its header.
+const TOKENS_WIDTH = 7
+const SHARE_WIDTH = 8
+const CARRY_WIDTH = 8
+const TOOLS_WIDTH = 7
 
 // The tone of a cell: dim, or a color.
 type Tone = Pick<Cell, 'dim' | 'color'>
@@ -148,6 +160,9 @@ export const AgentPane = ({
   onBack,
   onWrap,
   onTool,
+  onContext,
+  onRecount,
+  onCategory,
 }: Props) => {
   const { Box, Text, Button, Code, Markdown } = ui
   const viewed = view.agentId
@@ -324,16 +339,169 @@ export const AgentPane = ({
         {row.map((c, i) => cell(`${key}:${i}`, c))}
       </Box>
     )
-    // The context of the main loop: its length, the bar of the window and the totals.
+    // The context of the main loop: its length, the bar of the window and the totals. A
+    // Button takes no color, so the context length is a cell after the button.
     const contextBlock = () =>
       context === null ? null : (
         <Box key="ctxblock" flexDirection="column">
-          {cells('ctx:head', contextHead(context, columns))}
+          <Box key="ctx:row" flexDirection="row" alignItems="center" gap={1} overflow="hidden">
+            <Button key="context" label={CONTEXT} onPress={onContext} />
+            {contextHead(context, columns - CONTEXT.length - BUTTON_CHROME - 1).map((c, i) =>
+              cell(`ctx:head:${i}`, c),
+            )}
+          </Box>
           {bar('ctx:bar', context)}
           {cells('ctx:sum', contextSummary(context))}
           {rule('ctx:rule')}
         </Box>
       )
+
+    // The first cell of a row that is not pressed. On a desktop it is a button that does
+    // nothing: a desktop draws a button's label after a margin of its own, so only a button
+    // starts where the category buttons start.
+    const quiet = (key: string, text: string, width: number) =>
+      restBox(
+        `${key}:box`,
+        width,
+        text,
+        isClient ? (
+          <Button key={key} plain dimColor label={text} onPress={() => {}} />
+        ) : (
+          rest(key, text, width, { dim: true })
+        ),
+      )
+    const num = (key: string, text: string, width: number, tone: Tone = {}) =>
+      cell(key, { text, ...tone, width, align: 'right' })
+
+    // The context screen: the overhead by category, what it costs to carry, and the MCP
+    // servers that the session did not call.
+    const contextScreen = () => {
+      const nameWidth = Math.max(
+        MIN_MODEL,
+        columns - (TOKENS_WIDTH + 1) - (SHARE_WIDTH + 1) - (CARRY_WIDTH + 1),
+      )
+      const serverWidth = Math.max(MIN_MODEL, columns - (TOOLS_WIDTH + 1) - (TOKENS_WIDTH + 1))
+      const titleWidth = Math.max(
+        1,
+        columns -
+          (BACK.length + BUTTON_CHROME + 1) -
+          ('summary'.length + 1) -
+          (RECOUNT.length + BUTTON_CHROME + 1),
+      )
+      // State of an older shape (a hot reload) has no list.
+      const open = view.openCategories ?? []
+      return (
+        <Box flexDirection="column">
+          <Box key="ctx:toolbar" flexDirection="row" alignItems="center" gap={1}>
+            <Button key="back" label={BACK} onPress={onBack} />
+            {rest('ctx:title', CONTEXT, titleWidth, { bold: true })}
+            {context !== null && cell('ctx:detail', { text: context.detail, dim: true })}
+            <Button key="recount" label={RECOUNT} onPress={onRecount} />
+          </Box>
+          {context === null ? (
+            <Text key="ctx:none" dimColor>
+              No context yet.
+            </Text>
+          ) : (
+            <Box key="ctx:body" flexDirection="column">
+              {cells('ctx:head', contextHead(context, columns))}
+              {bar('ctx:bar', context)}
+              {rule('ctx:rule')}
+              {cells('ovh:head', overheadHead(context))}
+              <Box key="ovh:cols" flexDirection="row" alignItems="center" gap={1}>
+                {quiet('head:cat', '  category', nameWidth)}
+                {head('head:tokens', 'tokens', TOKENS_WIDTH, 'right')}
+                {head('head:share', 'share(%)', SHARE_WIDTH, 'right')}
+                {head('head:carry', 'carry($)', CARRY_WIDTH, 'right')}
+              </Box>
+              {context.categories.map((r) => {
+                const isOpen = open.includes(r.name)
+                // A category with no items has no mark, and its press does nothing.
+                const mark = r.items.length === 0 ? ' ' : isOpen ? '▾' : '▸'
+                const label = cut(`${mark} ${r.name}`, nameWidth)
+                const pct =
+                  context.overhead > 0 ? Math.round((r.tokens / context.overhead) * 100) : 0
+                return (
+                  <Box key={`catrow:${r.name}`} flexDirection="column">
+                    <Box flexDirection="row" alignItems="center" gap={1}>
+                      {restBox(
+                        `catbox:${r.name}`,
+                        nameWidth,
+                        label,
+                        <Button
+                          key={`cat:${r.name}`}
+                          plain
+                          label={label}
+                          onPress={r.items.length === 0 ? () => {} : () => onCategory(r.name)}
+                        />,
+                      )}
+                      {num(`catnum:tokens:${r.name}`, formatTokens(r.tokens), TOKENS_WIDTH)}
+                      {num(`catnum:share:${r.name}`, `${pct}%`, SHARE_WIDTH, {
+                        color: shareColor(pct),
+                      })}
+                      {num(
+                        `catnum:carry:${r.name}`,
+                        r.carryUsd === null ? '—' : `≈${formatUsd(r.carryUsd)}`,
+                        CARRY_WIDTH,
+                      )}
+                    </Box>
+                    {isOpen &&
+                      r.items.map((it, i) => (
+                        <Box
+                          key={`itemrow:${r.name}:${String(i)}`}
+                          flexDirection="row"
+                          alignItems="center"
+                          gap={1}
+                        >
+                          {quiet(
+                            `item:${r.name}:${String(i)}`,
+                            cut(
+                              `    ${it.name}${it.count === undefined ? '' : ` · ${it.count} tools`}`,
+                              nameWidth,
+                            ),
+                            nameWidth,
+                          )}
+                          {num(
+                            `itemnum:${r.name}:${String(i)}`,
+                            formatTokens(it.tokens),
+                            TOKENS_WIDTH,
+                            { dim: true },
+                          )}
+                        </Box>
+                      ))}
+                  </Box>
+                )
+              })}
+              {context.unused.length > 0 && (
+                <Box key="dead" flexDirection="column">
+                  {rule('dead:rule')}
+                  {cell('dead:head', {
+                    text: `dead weight ${formatTokens(context.deadWeight)}`,
+                    bold: true,
+                  })}
+                  <Box key="dead:cols" flexDirection="row" gap={1}>
+                    {rest('dead:head:server', 'server', serverWidth, { dim: true })}
+                    {head('dead:head:tools', 'tools', TOOLS_WIDTH, 'right')}
+                    {head('dead:head:tokens', 'tokens', TOKENS_WIDTH, 'right')}
+                  </Box>
+                  {context.unused.map((s) => (
+                    <Box key={`dead:${s.name}`} flexDirection="row" gap={1}>
+                      {rest(`dead:name:${s.name}`, s.name, serverWidth)}
+                      {num(`dead:tools:${s.name}`, String(s.count ?? 0), TOOLS_WIDTH, {
+                        dim: true,
+                      })}
+                      {num(`dead:tokens:${s.name}`, formatTokens(s.tokens), TOKENS_WIDTH)}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+        </Box>
+      )
+    }
+    // State of an older shape (a hot reload) has no flag.
+    if (view.isContext === true) return contextScreen()
 
     const rows = treeRows(entries)
     if (rows.length === 0)

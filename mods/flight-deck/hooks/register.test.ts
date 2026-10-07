@@ -2397,3 +2397,72 @@ test('a usage with no breakdown draws no context block', async ($, on) => {
     await ui.unmount()
   }
 })
+
+test('the context button opens the context screen and back returns', async ($, on) => {
+  contextEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).not.toContain('share(%)')
+    await ui.press({ key: 'context' })
+    const text = await paneText(ui)
+    // The press read a full breakdown.
+    expect(text).toContain('full')
+    expect(text).toContain('ctx 84.2k/200k 42%')
+    expect(text).toContain('overhead 31.4k')
+    expect(text).toContain('16% of window')
+    expect(text).toContain('share(%)')
+    expect(text).toContain('▸ MCP tools')
+    expect(text).toContain('14.2k')
+    expect(text).toContain('45%')
+    // The model of the test has no price.
+    expect(text).toContain('—')
+    expect(text).toContain('dead weight 11.6k')
+    expect(text).toContain('figma')
+    // The agents table is not on this screen.
+    expect(text).not.toContain('No agents yet.')
+
+    await ui.press({ key: 'recount' })
+    expect(await paneText(ui)).toContain('share(%)')
+
+    await ui.press({ key: 'back' })
+    expect(await ui.find({ key: 'context' })).toBeDefined()
+    expect(await paneText(ui)).not.toContain('share(%)')
+    await ui.unmount()
+  }
+})
+
+test('a category row opens and closes its items', async ($, on) => {
+  contextEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'context' })
+    expect(await paneText(ui)).not.toContain('figma · 2 tools')
+    await ui.press({ key: 'cat:MCP tools' })
+    const open = await paneText(ui)
+    expect(open).toContain('▾ MCP tools')
+    expect(open).toContain('figma · 2 tools')
+    expect(open).toContain('chrome · 1 tools')
+    await ui.press({ key: 'cat:MCP tools' })
+    expect(await paneText(ui)).not.toContain('figma · 2 tools')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the context screen stays one row wide in a narrow pane', async ($, on) => {
+  contextEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 20)
+    await ui.press({ key: 'context' })
+    await ui.press({ key: 'cat:MCP tools' })
+    const widths = (await ui.findAll({ type: 'Box' }))
+      .map((b) => b.props.width)
+      .filter((w): w is number => typeof w === 'number')
+    expect(widths.every((w) => w >= 0)).toBe(true)
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})

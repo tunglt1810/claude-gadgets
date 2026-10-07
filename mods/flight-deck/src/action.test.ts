@@ -36,3 +36,13 @@ test('toggled adds an absent id and removes a present one', () => {
   // A pane state of an older shape (a hot reload) has no list.
   expect(toggled(undefined, 'a1')).toEqual(['a1'])
 })
+
+test('focusAction reads the keys of the context screen', () => {
+  expect(focusAction('context', null)).toEqual({ kind: 'context' })
+  expect(focusAction('recount', null)).toEqual({ kind: 'recount' })
+  expect(focusAction('cat:MCP tools', null)).toEqual({ kind: 'category', name: 'MCP tools' })
+  // A header and an item row are buttons that do nothing.
+  expect(focusAction('head:cat', null)).toBeNull()
+  expect(focusAction('item:MCP tools:0', null)).toBeNull()
+  expect(focusAction('cat:', null)).toBeNull()
+})
