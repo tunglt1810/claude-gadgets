@@ -78,7 +78,7 @@ The text is `Auto mode did not review this <tool> call: <input>. Run it?`.
 
 - The chip of the question is `No verdict`. It separates this question from a question of the model.
 - The input is JSON. Thus a line break shows as `\n`.
-- Each other control character, format character and space that is not the ASCII space shows as its code point, for example `\u{202e}`. A terminal hides or obeys such a character.
+- Each other character that is not printable ASCII shows as its code point, for example `\u{202e}`. A terminal hides or obeys a control character, and a letter of a different script can look like an ASCII letter.
 - The question shows the input whole. The user approves only what the question shows.
 - When the shown text is longer than 2000 characters, the mod asks no question and the denial stays.
 
@@ -208,5 +208,6 @@ The test kit cannot prove these points. Do them when the classifier next gives n
 - A tool that the classifier approved can fail and print a phrase of section 4.2. The mod then asks the question, or a rule runs the call a second time. The second run is the same call.
 - A deny after `next(e)` makes the engine write one dim line to the transcript.
 - A no-verdict state can last: a classifier transcript that is too long gives no verdict for each call. During that time a rule runs each match with no review.
+- Text that is not ASCII, such as Vietnamese, is hard to read in the question, because each such character shows as a code point.
 - The list of wrappers is not complete. A wrapper that is not in the list gets a prefix.
 - A tool rule is wide: `Write` runs each write. A Bash rule does not limit the words after the subcommand. The question shows the rule before the user approves it.

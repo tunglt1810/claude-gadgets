@@ -55,8 +55,10 @@ test('the question shows each hidden character as its code point', () => {
   expect(text).toContain('a\\u{202e}b\\u{200b}c\\u{7f}d\\u{9b}e\\u{a0}f')
 })
 
-test('the question keeps a letter that is not ASCII', () => {
-  expect(question('Write', '{"content":"tiếng Việt"}')).toContain('tiếng Việt')
+test('the question shows a letter that is not ASCII as its code point: it can look like an ASCII one', () => {
+  // U+0456 is a Cyrillic letter that a terminal draws as the Latin `i`.
+  expect(question('Bash', '{"command":"g\u0456t push"}')).toContain('g\\u{456}t push')
+  expect(question('Write', '{"content":"e\u0301"}')).toContain('e\\u{301}')
 })
 
 test('a rejection of the user is not found', () => {

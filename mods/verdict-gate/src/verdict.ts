@@ -13,16 +13,17 @@ export const isNoVerdict = (text: string): boolean =>
 
 const MAX_DETAIL = 2000
 
-// A control, a format (bidi, zero width) or a space character that is not the ASCII space:
-// a terminal hides it, obeys it or draws it as a space.
-const HIDDEN = /[\p{C}\p{Z}]/gu
+// Each character that is not printable ASCII: a terminal hides a control or a format
+// character (bidi, zero width), and a letter of a different script can look like an ASCII
+// one. The `u` flag makes one match of a character outside the BMP.
+const HIDDEN = /[^\x20-\x7e]/gu
 
 const visible = (text: string): string =>
-  text.replace(HIDDEN, (c) => (c === ' ' ? c : `\\u{${(c.codePointAt(0) ?? 0).toString(16)}}`))
+  text.replace(HIDDEN, (c) => `\\u{${(c.codePointAt(0) ?? 0).toString(16)}}`)
 
 // The user approves what the question shows, so it shows the whole input (`detail`, as
 // JSON) or there is no question. JSON shows a line break as written (`\n`), and each
-// other hidden character shows as its code point.
+// other character that is not printable ASCII shows as its code point.
 export const question = (tool: string, detail: string): string | undefined => {
   const shown = visible(detail)
   if (shown.length > MAX_DETAIL) return undefined
