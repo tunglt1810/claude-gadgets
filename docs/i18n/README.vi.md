@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `4a52585`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `3b07001`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -50,7 +50,7 @@ Giới hạn:
 
 Pane hiển thị những gì đang chiếm context window của vòng lặp chính.
 
-- Bên dưới dashboard, một khối hiển thị độ dài context (`ctx 84.2k/200k 42%`), một thanh và ba tổng số. Trong thanh, `█` là overhead, `▄` là messages, `▁` là phần còn trống và `▂` là phần mà auto-compaction giữ lại.
+- Bên dưới dashboard, một khối hiển thị độ dài context (`ctx 84.2k/200k 42%`), một thanh và ba tổng số. Thanh hiển thị overhead bằng màu của độ dài context, messages bằng sắc đậm hơn của màu đó, rồi phần còn trống và phần mà auto-compaction giữ lại bằng hai màu xám.
 - Overhead là nội dung mà mỗi request mang theo trước cuộc hội thoại: system prompt, các tool, các file memory và các skill.
 - Bấm `context` để xem overhead theo từng category. Bấm vào một category có dấu `▸` để xem các MCP server, các file memory hoặc các skill của nó.
 - `carry($)` là ước lượng chi phí của overhead trong session này: số token của nó, nhân với số step của vòng lặp chính và với giá cache read.
