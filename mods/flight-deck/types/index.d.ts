@@ -72,9 +72,9 @@ export type Shown = { sessionId: string | null; tweens: Record<keyof Counts, Twe
 // The tweens of the named values of one session: the costs of the dashboard.
 export type NamedShown = { sessionId: string | null; tweens: Record<string, Tween> }
 
-// One subagent of the session, as the pane lists it. `runs` counts completed runs: a
-// message to a completed agent starts it again under the same id. `stopped` is a run that
-// ended with no answer: killed, failed or aborted.
+// One subagent of the session, as the pane lists it. `runs` counts started runs, the one that
+// runs too: a message to an ended agent starts it again under the same id. `stopped` is a run
+// that ended with no answer: killed, failed or aborted.
 export type AgentEntry = {
   id: string
   parentId?: string

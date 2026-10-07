@@ -21,7 +21,7 @@ test('spawn adds a running entry with its data', () => {
     type: 'Explore',
     description: 'find x',
     status: 'running',
-    runs: 0,
+    runs: 1,
     startedAt: 100,
     endedAt: null,
   })
@@ -34,7 +34,7 @@ test('a step before the spawn makes one entry that the spawn fills', () => {
   expect(r.a1?.type).toBe('Explore')
 })
 
-test('complete sets idle, counts the run and stamps the end', () => {
+test('complete sets idle, keeps the count of the run and stamps the end', () => {
   const r = completed(spawned({}, 'a1', 100, {}), 'a1', 200)
   expect(r.a1).toMatchObject({ status: 'idle', runs: 1, endedAt: 200 })
 })
@@ -42,8 +42,16 @@ test('complete sets idle, counts the run and stamps the end', () => {
 test('a second run counts again', () => {
   let r = completed(spawned({}, 'a1', 100, {}), 'a1', 200)
   r = ran(r, 'a1', 300)
-  expect(r.a1?.status).toBe('running')
+  // The run is counted when it starts, and each later event of it counts nothing.
+  expect(r.a1).toMatchObject({ status: 'running', runs: 2 })
+  r = ran(r, 'a1', 350)
+  expect(r.a1?.runs).toBe(2)
   r = completed(r, 'a1', 400)
+  expect(r.a1).toMatchObject({ status: 'idle', runs: 2, endedAt: 400 })
+})
+
+test('an end with no event of the run before it counts the run', () => {
+  const r = completed(completed(spawned({}, 'a1', 100, {}), 'a1', 200), 'a1', 400)
   expect(r.a1).toMatchObject({ status: 'idle', runs: 2, endedAt: 400 })
 })
 
@@ -81,15 +89,15 @@ test('agentsKey names the store key of a session', () => {
   expect(agentsKey('S1')).toBe('agents:S1')
 })
 
-test('stop sets stopped and stamps the end, without a run', () => {
+test('stop sets stopped and stamps the end, and keeps the count of the run', () => {
   const r = stopped(spawned({}, 'a1', 100, {}), 'a1', 200)
-  expect(r.a1).toMatchObject({ status: 'stopped', runs: 0, endedAt: 200 })
+  expect(r.a1).toMatchObject({ status: 'stopped', runs: 1, endedAt: 200 })
   expect(stopped({}, 'a2', 300).a2).toMatchObject({ status: 'stopped', startedAt: 300 })
 })
 
 test('an event after a stop runs the agent again', () => {
   const r = ran(stopped(spawned({}, 'a1', 100, {}), 'a1', 200), 'a1', 300)
-  expect(r.a1?.status).toBe('running')
+  expect(r.a1).toMatchObject({ status: 'running', runs: 2 })
 })
 
 test('a notification ends a known agent only', () => {

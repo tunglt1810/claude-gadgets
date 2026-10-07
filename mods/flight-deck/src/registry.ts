@@ -19,7 +19,7 @@ export const agentsKey = (sessionId: string): string => `agents:${sessionId}`
 const blank = (id: string, at: number): AgentEntry => ({
   id,
   status: 'running',
-  runs: 0,
+  runs: 1,
   startedAt: at,
   endedAt: null,
 })
@@ -41,10 +41,15 @@ export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>
 })
 
 // An event of the agent's loop: the agent runs. Its first event can come before the spawn.
-export const ran = (r: Registry, id: string, at: number): Registry => ({
-  ...r,
-  [id]: { ...(r[id] ?? blank(id, at)), status: 'running' },
-})
+// The first event after an end starts a run, and the run is counted then.
+export const ran = (r: Registry, id: string, at: number): Registry => {
+  const a = r[id]
+  if (a === undefined) return { ...r, [id]: blank(id, at) }
+  return {
+    ...r,
+    [id]: { ...a, status: 'running', runs: a.runs + (a.status === 'running' ? 0 : 1) },
+  }
+}
 
 // An agent as the pane and the band name it: its type, then what it does.
 export const agentTitle = (a: AgentEntry): string =>
@@ -56,7 +61,9 @@ export const workedMs = (a: AgentEntry, now: number): number =>
 
 export const completed = (r: Registry, id: string, at: number): Registry => {
   const a = r[id] ?? blank(id, at)
-  return { ...r, [id]: { ...a, status: 'idle', runs: a.runs + 1, endedAt: at } }
+  // An end with no event of the run before it: the run is counted here.
+  const runs = a.runs + (a.status === 'running' ? 0 : 1)
+  return { ...r, [id]: { ...a, status: 'idle', runs, endedAt: at } }
 }
 
 // The model and the effort of a known agent's latest step: a step without effort clears it.
@@ -86,7 +93,7 @@ export const tuned = (
 export const modelLabel = (a: AgentEntry | undefined): string | undefined =>
   a?.model === undefined ? undefined : [a.model, a.effort].filter((x) => x !== undefined).join(' ')
 
-// A run that ended with no answer. It is not counted in `runs`.
+// A run that ended with no answer. Its start counted it in `runs`.
 export const stopped = (r: Registry, id: string, at: number): Registry => ({
   ...r,
   [id]: { ...(r[id] ?? blank(id, at)), status: 'stopped', endedAt: at },
@@ -94,8 +101,7 @@ export const stopped = (r: Registry, id: string, at: number): Registry => ({
 
 export type TaskStatus = 'completed' | 'failed' | 'killed'
 
-// A task notification of a known agent. `completed` does not count a run: the agent's
-// turn.complete counted it already. Another background task's notification changes nothing.
+// A task notification of a known agent. No end counts a run: its start counted it. Another background task's notification changes nothing.
 export const ended = (r: Registry, id: string, status: TaskStatus, at: number): Registry => {
   const a = r[id]
   if (a === undefined) return r

@@ -45,7 +45,7 @@ test('dashboard keeps a model with no price, its cost unknown', () => {
   r = tuned(r, 'a1', 'mystery-1', undefined)
   const snap = { ...emptySnapshot(), byModel: { 'mystery-1': MTOK } }
   expect(dashboard(snap, r, 5000).rows).toEqual([
-    { model: 'mystery-1', costUsd: null, workMs: 5000, runs: 0 },
+    { model: 'mystery-1', costUsd: null, workMs: 5000, runs: 1 },
   ])
 })
 

@@ -23,6 +23,7 @@ Tested on Claude Code 2.1.292.
 #### Changed
 
 - A transcript has a short rule before each new prompt.
+- The runs of an agent count a run when it starts, not when it ends. A stopped run stays in the count.
 
 ### [0.5.1] - 2026-10-07
 

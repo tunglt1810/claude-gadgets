@@ -1269,9 +1269,9 @@ test('an aborted run of an agent draws it stopped', async ($, on) => {
     const ui = await mountPane($, surface)
     expect(await marks(ui)).toMatchObject([STOPPED])
     expect((await ui.find({ key: 'agent:a1' }))?.props.dimColor).toBe(true)
-    // An aborted run is not counted.
+    // A run is counted at its start: an aborted run stays counted.
     await ui.press({ key: 'agent:a1' })
-    expect(await paneText(ui)).toContain('0 runs')
+    expect(await paneText(ui)).toContain('1 run')
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
@@ -2646,4 +2646,21 @@ test('the bar of a scrolled transcript has the message and the stop buttons', as
   expect((await ui.find({ key: 'sticky:msg:a1' }))?.props.label).toBe('»')
   await ui.press({ key: 'back' })
   await ui.unmount()
+})
+
+test('a running agent counts its run before the run ends', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect((await cellOf(ui, 'runs:a1')).trim()).toContain('1')
+    await ui.press({ key: 'agent:a1' })
+    expect(await paneText(ui)).toContain('1 run')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
 })
