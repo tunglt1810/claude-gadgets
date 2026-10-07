@@ -38,7 +38,7 @@ bun run check      # biome + tsc + claude plugin validate + claude plugin test
 - Each agent row has a detail row, open at first, and an expand button that hides or shows it. The detail row shows the model, the effort and the context length of the agent (`ctx 182.4k/1M 18%`). The color is green below 50%, yellow from 50% and red from 80%.
 - The transcript screen shows the same context length below the title.
 - An open agent row has two controls. `» message` opens a field: type a message and press Enter to send it to the agent. An agent that completed starts again. `■ stop` stops a running agent on its second press.
-- The transcript screen has the two buttons in its toolbar, and in the bar that stays in view while it scrolls. Its message field is after the last item, or in that bar while the transcript is scrolled: `» message` puts the focus there.
+- The transcript screen has the two buttons in its toolbar, and in the bar that stays in view while it scrolls. `» message` opens the message field as the last row of the header, and the field stays in view below that bar while the transcript is scrolled.
 - The pane shows an agent after it completes, after a new message starts it again, and after `--resume`.
 
 Limits:

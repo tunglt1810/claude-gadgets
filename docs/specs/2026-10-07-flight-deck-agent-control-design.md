@@ -50,12 +50,13 @@ An open agent row has a control row below its detail row.
 
 ### 3.3 Transcript screen
 
-- The toolbar has the `» message` button, and the `■ stop` button while the agent runs, with the same two presses. The bar of a scrolled transcript has the two buttons too, with the keys `sticky:msg:<id>` and `sticky:stop:<id>`.
-- `» message` puts the focus in the message field. When the field is after the last item, the pane scrolls to it first. A field out of the window takes no focus: the keys then go to the prompt of the session.
-- The bar has three rows: the back button, the agent and its context, then the two buttons, then the message field. A reason of a refused message or stop is a fourth row.
-- On the terminal, the message field is in the bar while the transcript is scrolled, and after the last item when it is not. The terminal draws the cursor of a field that is out of the window at the last row of the screen, so the field stays in the window. A desktop has no bar: its field is after the last item.
+- The toolbar has the `» message` button, and the `■ stop` button while the agent runs, with the same two presses. The bar of a scrolled transcript has a second row with the two buttons, with the keys `sticky:msg:<id>` and `sticky:stop:<id>`.
+- `» message` opens the message field as the last row of the header, with the focus in it. A second press closes it. The field stays open after a sent message.
+- A reason of a refused message or stop is a row below the field.
+- While the transcript is scrolled, the field and the reason are below the two rows of the bar. The terminal draws the cursor of a field that is out of the window at the last row of the screen, so the field stays in the window.
+- The terminal draws the field in one box out of the flow. Its `top` is the row of the header, or the row below the bar. The box keeps its place in the tree at each scroll, so the field keeps its focus. The header keeps empty rows for the box.
+- A desktop scrolls by the pixel and has no bar: the field is in the flow of the header.
 - The two buttons of the toolbar are icons when the pane has less than 51 columns. The two buttons of the bar are icons when it has less than 25.
-- The message field is after the last item of the transcript. The engine gives no height of the pane, so no row stays at the end of the pane.
 
 ## 4. Design
 

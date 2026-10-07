@@ -2608,9 +2608,16 @@ test('the transcript screen has a message field and a stop button', async ($, on
     const ui = await mountPane($, surface)
     await ui.press({ key: 'agent:a1' })
     expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
-    // The message button moves the focus to the field: it opens no second field.
+    // The message button opens the field as the last row of the header.
+    expect(await ui.find({ type: 'Input' })).toBeUndefined()
     await ui.press({ key: 'msg:a1' })
     expect(await ui.findAll({ type: 'Input' })).toHaveLength(1)
+    if (surface === 'terminal') {
+      // The terminal draws the field out of the flow, over a row that the header keeps for it.
+      const float = await ui.find({ key: 'sayfloat' })
+      expect(float?.props.position).toBe('absolute')
+      expect((await ui.find({ key: 'sayspace' }))?.props.height).toBe(1)
+    }
     await ui.input({ key: 'say:a1', text: 'one more thing' })
     expect(sent.at(-1)?.text).toBe('one more thing')
     // The field stays on the transcript screen, empty.
@@ -2643,11 +2650,17 @@ test('the bar of a scrolled transcript has the message and the stop buttons', as
   expect(stops.at(-1)).toMatchObject({ tool: 'TaskStop', task_id: 'a1' })
   // The controls are a row of their own, below the row of the back button.
   expect((await ui.find({ key: 'sticky:controls' }))?.type).toBe('Box')
-  // The message field is in the bar while the transcript is scrolled, so it is in the window:
-  // a field out of the window leaves its cursor at the last row of the screen.
-  expect((await ui.find({ key: 'sticky:say' }))?.type).toBe('Box')
+  // The message button opens the field below the two rows of the bar. It is the box of the
+  // header's field at another row: the field keeps its place in the tree, and so its focus.
+  expect(await ui.find({ type: 'Input' })).toBeUndefined()
+  await ui.press({ key: 'sticky:msg:a1' })
   expect(await ui.findAll({ type: 'Input' })).toHaveLength(1)
-  expect(await ui.find({ key: 'sayrow' })).toBeUndefined()
+  expect((await ui.find({ key: 'sayfloat' }))?.props).toMatchObject({
+    position: 'absolute',
+    top: 12,
+  })
+  await ui.press({ key: 'sticky:msg:a1' })
+  expect(await ui.find({ type: 'Input' })).toBeUndefined()
   await ui.unmount()
   // A narrow bar draws them as icons.
   ui = await mountPane($, 'terminal', true, 20, 12)

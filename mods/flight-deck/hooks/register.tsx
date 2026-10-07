@@ -399,6 +399,7 @@ async function backToTree($: Api): Promise<void> {
       agentId: null,
       expanded: [],
       transcript: null,
+      compose: null,
       controlError: null,
     }))
     await syncPane($)
@@ -460,12 +461,15 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
     const close = () =>
       update($, pane, (c) => ({
         ...c,
-        compose: c.compose === agentId ? null : c.compose,
+        // The field of the tree closes. The field of the transcript screen stays for the
+        // next message.
+        compose: c.compose === agentId && c.agentId !== agentId ? null : c.compose,
         controlError: ownErrorGone(c, agentId),
       }))
     // The field of the tree leaves the screen with the focus in it: the focus goes to the
     // message button of the agent first.
-    if ((await read($, pane)).compose === agentId)
+    const shown = await read($, pane)
+    if (shown.compose === agentId && shown.agentId !== agentId)
       await focusAfter($, `msg:${agentId}`, async () => {
         await close()
       })
@@ -542,22 +546,10 @@ async function forgetStop($: Api, agentId: string): Promise<void> {
   await update($, pane, (c) => (c.stopAsk === agentId ? { ...c, stopAsk: null } : c))
 }
 
-// Opens the message field of an agent's row with the focus in it, or closes it. The transcript
-// screen always has its field: the focus goes there.
+// Opens the message field of an agent with the focus in it, or closes it: below the agent's
+// row on the tree, as the last row of the header on the transcript screen.
 async function toggleCompose($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
-  if (cur.agentId === agentId) {
-    // A scrolled transcript of the terminal has the field in its bar, in the window. With no
-    // scroll the field is after the last item: the window goes there first. A field out of
-    // the window takes no focus, and the keys then go to the prompt of the session.
-    const isInBar = isPaneOnTerminal && drawnOffset > TITLE_ROWS
-    if (!isInBar)
-      await $.ui
-        .scroll({ in: PANE_ID, to: { key: `say:${agentId}` }, block: 'end' })
-        .catch(() => ({}))
-    await focusField($, agentId)
-    return
-  }
   if (cur.compose === agentId) {
     await update($, pane, (c) => ({ ...c, compose: null, controlError: ownErrorGone(c, agentId) }))
     return

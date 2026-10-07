@@ -81,6 +81,8 @@ const OPEN_CHILD = ' [open]'
 const BACK = '← agents'
 // The terminal draws a button as `[ label ]`.
 const BUTTON_CHROME = 4
+// The rows of the bar of a scrolled transcript: the back button's row and the controls' row.
+const STICKY_ROWS = 2
 // The least room that the bar of a scrolled transcript keeps for the agent's name.
 const MIN_STICKY_NAME = 8
 // The columns that the toolbar of a transcript keeps for its back and wrap buttons.
@@ -838,7 +840,7 @@ export const AgentPane = ({
       ? null
       : contextFit(agent.context, stickyRoom - MIN_STICKY_NAME - 1)
   const stickyName = Math.max(1, stickyRoom - (stickyCtx === null ? 0 : stickyCtx.length + 1))
-  const sticky = (key: string, top: number, hasField = false) => (
+  const sticky = (key: string, top: number) => (
     <Box
       key={key}
       position="absolute"
@@ -869,14 +871,41 @@ export const AgentPane = ({
       <Box key={`${key}:controls`} flexDirection="row" gap={1}>
         {controls(`${key}:`, columns - 1)}
       </Box>
-      {/* The message field, in the bar of the window's own row only: a field has one place
-          in a drawing. */}
-      {hasField && (
-        <Box key={`${key}:say`} flexDirection="row">
-          {say(viewed, columns, false)}
+    </Box>
+  )
+  // The message field, which the message button opens, and the reason of a refused message
+  // or stop. They are the last rows of the header, and they stay in view below the bar of a
+  // scrolled transcript: the terminal draws the cursor of a field that is out of the window at
+  // the last row of the screen.
+  //
+  // The terminal draws them in one box out of the flow, at the header's rows or below the
+  // bar. The box keeps its place in the tree at each scroll, so the field keeps its focus. The
+  // header keeps empty rows for it. A desktop scrolls by the pixel and has no bar: the box
+  // is in the flow of the header there.
+  const isComposing = view.compose === viewed
+  const fieldRows = (isComposing ? 1 : 0) + (view.controlError?.agentId === viewed ? 1 : 0)
+  // The rows of the header above the field: the toolbar, the title, the meta row, the stats.
+  const headRows = 2 + (agent === undefined ? 0 : 1) + (stats === null ? 0 : 1)
+  const field = (
+    <Box
+      key="sayfloat"
+      flexDirection="column"
+      {...(isClient
+        ? {}
+        : {
+            position: 'absolute' as const,
+            left: 0,
+            width: '100%' as const,
+            top: scrollTop > 0 ? scrollTop + STICKY_ROWS : headRows,
+            ...(scrollTop > 0 ? { backgroundColor: PALETTE.strip } : {}),
+          })}
+    >
+      {isComposing && (
+        <Box key="sayrow" flexDirection="row">
+          {say(viewed, columns, true)}
         </Box>
       )}
-      {hasField && controlError(`${key}:err`, viewed)}
+      {controlError('err', viewed)}
     </Box>
   )
   return (
@@ -893,7 +922,6 @@ export const AgentPane = ({
         />
         {controls('', columns - TOOLBAR_USED)}
       </Box>
-      {controlError('err', viewed)}
       <Box key="title" flexDirection="row" alignItems="center" gap={1}>
         {agent !== undefined && cell('mark', agentMark(agent))}
         {rest('title', agent === undefined ? viewed : name(agent), titleWidth, {
@@ -939,6 +967,7 @@ export const AgentPane = ({
           ))}
         </Text>
       )}
+      {isClient ? field : fieldRows > 0 && <Box key="sayspace" height={fieldRows} />}
       {/* Parts the header (toolbar and title) from the transcript below it. */}
       {isClient ? (
         <Text key="rule" dimColor wrap="truncate">
@@ -948,22 +977,15 @@ export const AgentPane = ({
         line('rule')
       )}
       {body()}
-      {/* After the transcript: the engine gives no height of the pane, so no row stays at its
-          end. A scrolled transcript has the field in its bar: the terminal draws the cursor
-          of a field that is out of the window at the last row of the screen. */}
-      {scrollTop === 0 && (
-        <Box key="sayrow" flexDirection="row">
-          {say(viewed, columns, false)}
-        </Box>
-      )}
-      {scrollTop === 0 && controlError('err:end', viewed)}
-      {scrollTop > 0 && sticky('sticky', scrollTop, true)}
+      {scrollTop > 0 && sticky('sticky', scrollTop)}
       {/* The engine moves the window after this drawing: until then the row it shows has a bar
           too, so no drawing is without a bar at its top. */}
       {scrollFrom !== undefined &&
         scrollFrom > 0 &&
         scrollFrom !== scrollTop &&
         sticky('stickyfrom', scrollFrom)}
+      {/* After the body and the bars: a later part is drawn over an earlier part. */}
+      {!isClient && field}
     </Box>
   )
 }
