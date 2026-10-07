@@ -4,7 +4,14 @@ import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
-import { isNoVerdict, isOpenAsk, isPaneSend, sendFailure, stopFailure } from '../src/control'
+import {
+  isNoVerdict,
+  isOpenAsk,
+  isPaneSend,
+  PLUGIN,
+  sendFailure,
+  stopFailure,
+} from '../src/control'
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
@@ -1163,14 +1170,15 @@ export const register: Register = (on, options) => {
   // that a closure makes, the engine runs no hook of the mod, and the `tool.check` hook
   // above then cannot let the message through (a live session showed both).
   on('ui.input', async ($, e, next) => {
-    if (e.requestId !== PANE_ID || e.kind !== 'submit' || !e.element.startsWith('say:'))
-      return next(e)
+    const isField = e.plugin === PLUGIN && e.requestId === PANE_ID && e.element.startsWith('say:')
+    if (!isField || e.kind !== 'submit') return next(e)
     await act($, { kind: 'send', agentId: e.element.slice('say:'.length), text: e.value })
     return { element: e.element, value: e.value }
   })
 
   on('ui.press', async ($, e, next) => {
-    if (e.requestId !== PANE_ID || !e.element.startsWith('allow:')) return next(e)
+    const isAllow = e.plugin === PLUGIN && e.requestId === PANE_ID && e.element.startsWith('allow:')
+    if (!isAllow) return next(e)
     await act($, { kind: 'allow', agentId: e.element.slice('allow:'.length) })
     return { element: e.element }
   })

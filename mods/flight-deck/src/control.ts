@@ -31,7 +31,8 @@ export const isOpenAsk = (verdict: {
   verdict.hook === undefined &&
   verdict.ceiling === undefined
 
-const PLUGIN = 'flight-deck'
+// The name of the mod, as the engine gives it for an element and for the origin of a call.
+export const PLUGIN = 'flight-deck'
 
 // Whether a SendMessage call is a message of the pane: the mod made the call (`plugin`, the
 // origin of the dispatch), from the main loop, to an agent of `sending`. A call of the model
