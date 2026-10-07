@@ -143,7 +143,7 @@ Rule: use single-width, text-presentation characters only. Do not use an emoji. 
 | `◷ ` | Work time of an agent in the pane. The agents table has no icon in its time column. | `CLOCK` in `pane.tsx` |
 | `─` | Rule that closes a table | `line` and `rule` in `pane.tsx` |
 | `─` × 12, dim | Short rule before each new prompt of a transcript | `TURN_RULE_LENGTH` in `pane.tsx` |
-| `█`, `▓`, `░`, `▒` | The parts of the context bar: overhead, messages, free room, compact buffer | `barSegments` in `context.ts` |
+| `█`, `▄`, `▁`, `▂` | The parts of the context bar: overhead, messages, free room, compact buffer | `barSegments` in `context.ts` |
 | `← agents` | Back label | `BACK` in `pane.tsx` |
 
 All agent marks and spinner frames are eight-dot braille glyphs. One font draws them at one size. Every mark has a width of two cells (`MARK_WIDTH`).
@@ -243,9 +243,10 @@ Source: `barCells` and `barSegments` in `mods/flight-deck/src/context.ts`, `bar`
 The pane has one bar: the context window of the main loop. The band has no bar.
 
 - The bar has 40 cells (`BAR_CELLS`). It takes no width from the pane.
-- Each cell is a block element. A desktop draws the block elements at one width.
-- `█` is the overhead and `▓` is the messages. Both have the color of the context tone.
-- `░` is the free room and `▒` is the compact buffer. Both are dim.
+- Each cell is a lower block element (`▁` to `█`). These characters stand on one line and have one width on each surface.
+- Do not use a shade character (U+2591 to U+2593). A surface draws it from a different font, and it is some pixels off from a block.
+- `█` (full height) is the overhead and `▄` (half height) is the messages. Both have the color of the context tone.
+- `▁` (one eighth) is the free room and `▂` (two eighths) is the compact buffer. Both are dim.
 - An overhead of more than 0 tokens has one cell at least.
 - The bar is one `Text` with a `Text` for each segment, in a `Box` with `height={1}` and `overflow="hidden"`.
 

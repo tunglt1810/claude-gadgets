@@ -228,7 +228,7 @@ test('barCells shares 40 cells between the parts of the window', () => {
 test('barSegments draws the used parts in the context tone and the rest with no color', () => {
   const segs = barSegments(view())
   expect(segs.map((s) => s.text).join('')).toBe(
-    `${'█'.repeat(6)}${'▓'.repeat(11)}${'░'.repeat(16)}${'▒'.repeat(7)}`,
+    `${'█'.repeat(6)}${'▄'.repeat(11)}${'▁'.repeat(16)}${'▂'.repeat(7)}`,
   )
   // 42 percent: the `ok` tone.
   expect(segs.map((s) => s.color)).toEqual([PALETTE.green, PALETTE.green, undefined, undefined])

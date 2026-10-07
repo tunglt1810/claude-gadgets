@@ -162,16 +162,19 @@ export const barCells = (
 
 export type BarSegment = { text: string; color?: string }
 
-// The bar as segments of block characters, which a desktop draws at one width. The used
+// The bar as segments of lower block characters: one family of glyphs that stand on one
+// line, so the segments line up on each surface (a shade character is from another font
+// there, a few pixels off). The height of a segment tells its part: full for the overhead,
+// half for the messages, a low line for the free room and for the compact buffer. The used
 // parts have the color of the context tone; a part with no color is drawn dim.
 export const barSegments = (v: ContextView): BarSegment[] => {
   const c = barCells(v)
   const color = contextColor(v)
   const segs: BarSegment[] = [
     { text: '█'.repeat(c.overhead), color },
-    { text: '▓'.repeat(c.messages), color },
-    { text: '░'.repeat(c.free) },
-    { text: '▒'.repeat(c.buffer) },
+    { text: '▄'.repeat(c.messages), color },
+    { text: '▁'.repeat(c.free) },
+    { text: '▂'.repeat(c.buffer) },
   ]
   return segs.filter((s) => s.text !== '')
 }

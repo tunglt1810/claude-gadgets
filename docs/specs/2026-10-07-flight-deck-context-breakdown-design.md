@@ -112,7 +112,7 @@ The block is below the dashboard on the agents screen. It is absent when the ses
 
 ```
 [ context ]  ctx 84.2k/200k 42% · +3.1k/turn · ≈26 turns to compact
-██████▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒
+██████▄▄▄▄▄▄▄▄▄▄▄▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▂▂▂▂▂
 overhead 31.4k · messages 52.8k · dead weight 11.6k
 ────────────────────────────────────────────────────────
 ```
@@ -126,9 +126,9 @@ overhead 31.4k · messages 52.8k · dead weight 11.6k
 
 The bar is a new element. `docs/design-system.md` gets these rules.
 
-- The bar has 40 cells. Each cell is one character of the block elements, because a desktop draws them at one width.
-- `█` is the overhead and `▓` is the messages. Both have the context tone color.
-- `░` is the free room and `▒` is the compact buffer. Both are dim.
+- The bar has 40 cells. Each cell is a lower block element (`▁` to `█`). These characters stand on one line on each surface. A shade character does not: version 0.6.0 used shades at first, and they were some pixels off.
+- `█` (full height) is the overhead and `▄` (half height) is the messages. Both have the context tone color.
+- `▁` (one eighth) is the free room and `▂` (two eighths) is the compact buffer. Both are dim.
 - An overhead of more than 0 tokens has at least one cell.
 - The bar is one `Text` with a `Text` for each segment. It is in a box of one row that cuts it. The box takes no width from `bodyColumns`.
 
@@ -137,7 +137,7 @@ The bar is a new element. `docs/design-system.md` gets these rules.
 ```
 [ ← agents ]  context                      full  [ recount ]
 ctx 84.2k/200k 42% · +3.1k/turn · ≈26 turns to compact
-██████▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒
+██████▄▄▄▄▄▄▄▄▄▄▄▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▂▂▂▂▂
 ────────────────────────────────────────────────────────
 overhead 31.4k · 16% of window · ≈$0.42 over 38 steps
   category                      tokens share(%) carry($)
