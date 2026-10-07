@@ -23,7 +23,7 @@ Tested on Claude Code 2.1.292.
 #### Changed
 
 - A transcript has a short rule before each new prompt.
-- A tool call of an inner loop of the engine no longer adds an agent with no name to the list.
+- A tool call of an inner loop of the engine no longer adds an agent with no name to the list. A row of that kind from an earlier version goes away.
 - The runs of an agent count a run when it starts, not when it ends. A stopped run stays in the count.
 
 ### [0.5.1] - 2026-10-07

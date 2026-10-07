@@ -1386,7 +1386,8 @@ test('an agent row and its title show how long the agent worked', async ($, on) 
   mock.store(on, {})
   engine(on)
   paneEngine(on)
-  await spawn($)
+  // The spawn names the agent, as each real spawn does: an old entry with no data is dropped.
+  await $.agent.spawn({ prompt: 'p', description: 'work' } as never)
   await clock.advance(65_000)
 
   const terminal = await mountPane($, 'terminal')

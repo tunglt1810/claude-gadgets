@@ -20,6 +20,7 @@ import {
   merged,
   modelLabel,
   parseRegistry,
+  pruned,
   ran,
   restored,
   spawned,
@@ -287,7 +288,9 @@ async function trackAgent(
   const at = await $.clock.now()
   const list = await $.agent.list()
   const next = await update($, agents, (c) =>
-    c.sessionId === id ? { ...c, entries: change(merged(c.entries, list, at), at) } : c,
+    c.sessionId === id
+      ? { ...c, entries: change(pruned(merged(c.entries, list, at), list, at), at) }
+      : c,
   )
   if (next.sessionId === id) await $.store.set(agentsKey(id), next.entries)
   await syncPane($)
