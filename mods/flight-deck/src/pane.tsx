@@ -260,7 +260,16 @@ export const AgentPane = ({
 
   const allow = (id: string) => {
     const button = <Button key={`allow:${id}`} label={ALLOW_LABEL} onPress={() => onAllow(id)} />
-    return isClient ? button : oneRow(`allowbox:${id}`, ALLOW_LABEL, button)
+    // A real button of the terminal: its box has room for the label and the `[ ]` around it.
+    return isClient ? (
+      button
+    ) : (
+      <Box key={`allowbox:${id}`} flexShrink={1} overflow="hidden">
+        <Box width={ALLOW_LABEL.length + BUTTON_CHROME} flexShrink={0}>
+          {button}
+        </Box>
+      </Box>
+    )
   }
   // The reason of a message or a stop that the engine refused, below the controls of the agent.
   // A message that auto mode did not judge has a button there: it lets the messages of the

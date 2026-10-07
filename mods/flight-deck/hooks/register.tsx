@@ -395,6 +395,7 @@ async function focusAfter($: Api, key: string, change: () => Promise<void>): Pro
 }
 
 async function openAgent($: Api, agentId: string): Promise<void> {
+  answersToShow.clear()
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({
       ...c,
@@ -417,6 +418,7 @@ async function refreshViewed($: Api, agentId: string): Promise<void> {
 
 // Back to the tree, with the focus on the row of the agent that was open.
 async function backToTree($: Api): Promise<void> {
+  answersToShow.clear()
   const from = (await read($, pane)).agentId
   await focusAfter($, `agent:${from}`, async () => {
     await update($, pane, (c) => ({
@@ -478,7 +480,7 @@ const taskOf = (e: object): string =>
 
 // The agents whose transcript got a message of the pane: the window goes to the answer.
 // An agent leaves the set when its run ends or stops, and all leave it when the person
-// moves the window: the person then reads another place.
+// moves the window or goes to another screen: the person then reads another place.
 const answersToShow = new Set<string>()
 
 // Moves the window of the transcript of `agentId` to its end, when that transcript is on
@@ -497,13 +499,17 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   sending.add(agentId)
   let session: string
   let res: { isDelivered: true } | { isDelivered: false; reason?: string }
+  // Whether this message put its agent in `answersToShow`: a message that is not sent
+  // takes back only that.
+  let isAdded = false
   try {
     session = await $.session.id()
     // The field is empty while the message is on its way: text that the person types then is
     // a new message, not more of the sent one.
     delete drafts[agentId]
     // Before the send: the run that answers can end before the send comes back.
-    if ((await read($, pane)).agentId === agentId) answersToShow.add(agentId)
+    isAdded = (await read($, pane)).agentId === agentId && !answersToShow.has(agentId)
+    if (isAdded) answersToShow.add(agentId)
     await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
     res = await $.session
       .send({ to: { agentId }, text })
@@ -537,7 +543,7 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
     await showEnd($, agentId)
     return
   }
-  answersToShow.delete(agentId)
+  if (isAdded) answersToShow.delete(agentId)
   // The text comes back to the field, unless the person typed a new one.
   if (drafts[agentId] === undefined) drafts[agentId] = text
   // Auto mode did not judge the message: the pane asks the person once. With the answer
@@ -553,6 +559,8 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
 // message that waits in the field goes. The button leaves the screen: the focus goes to the
 // field first, when the field of the agent is on the screen.
 async function allowSend($: Api, agentId: string): Promise<void> {
+  // With no message in the field (a hot reload emptied it), the press does nothing.
+  if ((drafts[agentId] ?? '').trim() === '') return
   await $.store.set(ALLOW_KEY, true)
   const clear = () => patchPane($, (c) => ({ ...c, controlError: ownErrorGone(c, agentId) }))
   if ((await read($, pane)).compose === agentId) await focusAfter($, `say:${agentId}`, clear)
@@ -1072,7 +1080,8 @@ export const register: Register = (on, options) => {
       await forgetStop($, agentId)
       await refreshViewed($, agentId)
       // The engine does not wait for the move of the window.
-      if (answersToShow.delete(agentId)) void showEnd($, agentId).catch(() => undefined)
+      if (answersToShow.delete(agentId) && e.reason === 'answer')
+        void showEnd($, agentId).catch(() => undefined)
       return next(e)
     }
     const id = await ensureLoaded($)
@@ -1148,6 +1157,22 @@ export const register: Register = (on, options) => {
       if (action !== null) await act($, action)
     }
     return res
+  })
+
+  // A message goes from these two hooks, not from the closure of its element: for a call
+  // that a closure makes, the engine runs no hook of the mod, and the `tool.check` hook
+  // above then cannot let the message through (a live session showed both).
+  on('ui.input', async ($, e, next) => {
+    if (e.requestId !== PANE_ID || e.kind !== 'submit' || !e.element.startsWith('say:'))
+      return next(e)
+    await act($, { kind: 'send', agentId: e.element.slice('say:'.length), text: e.value })
+    return { element: e.element, value: e.value }
+  })
+
+  on('ui.press', async ($, e, next) => {
+    if (e.requestId !== PANE_ID || !e.element.startsWith('allow:')) return next(e)
+    await act($, { kind: 'allow', agentId: e.element.slice('allow:'.length) })
+    return { element: e.element }
   })
 
   on('ui.scroll', async ($, e, next) => {
