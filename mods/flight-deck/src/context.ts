@@ -6,7 +6,7 @@ import type {
   ContextView,
   Snapshot,
 } from '../types'
-import { dotted as joined, rowWidth as widthOf } from './cell'
+import { dotted, rowWidth } from './cell'
 import { formatTokens, formatUsd } from './format'
 import { PALETTE } from './palette'
 import { readPrice } from './price'
@@ -214,16 +214,16 @@ export const contextHead = (v: ContextView, room: number): Cell[] => {
   const left: Cell[] =
     v.turnsLeft === null ? [] : [{ text: `≈${v.turnsLeft} turns to compact`, dim: true }]
   const rows = [
-    joined([ctx(true), ...growth, ...left]),
-    joined([ctx(true), ...growth]),
+    dotted([ctx(true), ...growth, ...left]),
+    dotted([ctx(true), ...growth]),
     [ctx(true)],
   ]
-  return rows.find((cells) => widthOf(cells) <= room) ?? [ctx(false)]
+  return rows.find((cells) => rowWidth(cells) <= room) ?? [ctx(false)]
 }
 
 // The totals below the bar of the agents screen.
 export const contextSummary = (v: ContextView): Cell[] =>
-  joined([
+  dotted([
     { text: `overhead ${formatTokens(v.overhead)}`, dim: true },
     { text: `messages ${formatTokens(v.messages)}`, dim: true },
     ...(v.deadWeight > 0 ? [{ text: `dead weight ${formatTokens(v.deadWeight)}`, dim: true }] : []),
@@ -231,7 +231,7 @@ export const contextSummary = (v: ContextView): Cell[] =>
 
 // The headline of the overhead table: its tokens, its share of the window and its carry cost.
 export const overheadHead = (v: ContextView): Cell[] =>
-  joined([
+  dotted([
     { text: `overhead ${formatTokens(v.overhead)}`, bold: true },
     { text: `${Math.round((v.overhead / v.window) * 100)}% of window`, dim: true },
     ...(v.carryUsd === null

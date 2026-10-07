@@ -313,13 +313,17 @@ async function trackAgent(
 async function markAgent(
   $: Api,
   agentId: string,
+  kind: 'step' | 'call',
   change: (r: Registry, at: number) => Registry,
 ): Promise<void> {
   try {
     const session = await ensureLoaded($)
     // Most events are of an agent that runs already: nothing to mark, and no list to read.
     const cur = await read($, agents)
-    if (cur.sessionId === session && cur.entries[agentId]?.status === 'running') return
+    const known = cur.sessionId === session ? cur.entries[agentId] : undefined
+    if (known?.status === 'running') return
+    // A call under an id that is no known agent marks nothing: an inner loop of the engine.
+    if (kind === 'call' && cur.sessionId === session && known === undefined) return
     await trackAgent($, session, change)
   } catch {
     // The next event of the agent marks it.
@@ -746,7 +750,7 @@ export const register: Register = (on, options) => {
     try {
       // The agent runs from the start of its step. The end of a step does not say so: the end
       // of a stopped step can come after the end of the run.
-      if (runner !== undefined) await markAgent($, runner, (r, t) => ran(r, runner, t))
+      if (runner !== undefined) await markAgent($, runner, 'step', (r, t) => ran(r, runner, t))
       const res = yield* next(e)
       const id = await ensureLoaded($)
       await stamp($)
@@ -828,7 +832,7 @@ export const register: Register = (on, options) => {
     const loop = e.agentId
     // The agent runs from the start of its call. The end of a call does not say so: the end
     // of a stopped call can come after the end of the run.
-    if (loop !== undefined) await markAgent($, loop, (r, t) => called(r, loop, t))
+    if (loop !== undefined) await markAgent($, loop, 'call', (r, t) => called(r, loop, t))
     const res = await next(e)
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res

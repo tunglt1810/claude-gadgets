@@ -29,17 +29,20 @@ const priceOf = (model: string) => {
   return id === undefined ? undefined : PRICES[id]
 }
 
+// The cache read price of a price row: its own, or a tenth of the input price.
+const readOf = (p: { input: number; read?: number }): number => p.read ?? p.input * 0.1
+
 // The cache read price of a model in US dollars per million tokens, or null with no price.
 export const readPrice = (model: string): number | null => {
   const p = priceOf(model)
-  return p === undefined ? null : (p.read ?? p.input * 0.1)
+  return p === undefined ? null : readOf(p)
 }
 
 // The estimated cost of a model's tokens, or null for a model with no price.
 export const costOf = (model: string, t: Totals, ttl: Ttl = '5m'): number | null => {
   const p = priceOf(model)
-  const read = readPrice(model)
-  if (p === undefined || read === null) return null
+  if (p === undefined) return null
+  const read = readOf(p)
   return (
     (t.input * p.input +
       t.output * p.output +
