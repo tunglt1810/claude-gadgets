@@ -66,6 +66,22 @@ Limits:
 - The numbers are for the main loop. The engine gives no breakdown of the context of a subagent.
 - A tool that loads on demand is not in the window, and thus not in the overhead.
 
+## No-verdict question
+
+`verdict-gate` is for auto mode. Load it with `claude --plugin-dir mods/verdict-gate`.
+
+When the safety classifier gives no verdict for a tool call, the engine denies the call. The mod then shows a question with the `No verdict` chip and the whole input of the call as JSON. A character that is not printable ASCII shows as its code point (`\u{202e}`).
+
+| Answer | Result |
+| --- | --- |
+| `Run once` | The call runs in the same turn. |
+| `Do not ask again: <rule>` | The call runs. For this session, a later call with the same rule and no verdict runs with no question, and a toast names the rule. |
+| `Do not run` | The denial stays, and the model gets an instruction not to issue the call again. |
+
+A rule is a tool name (`Read`), or a Bash command with its subcommand (`Bash(git push:*)`). A compound command, a command with no subcommand and a command behind a wrapper such as `sudo` or `bash` get no rule. A rule lives in memory until the session or the mod reloads.
+
+A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input longer than 2000 characters gets none.
+
 ## Adding a mod
 
 Run the `/new-mod <name>` skill, or copy `mods/flight-deck` and trim it. Rules the engine enforces: the `types` contract is self-contained (no imports), helpers that take `$` are module-level function declarations, and plugin files link with static `import` only.
