@@ -1,5 +1,5 @@
 import type { Args, EngineInterface, Next, Register } from 'claude-code'
-import { ruleOf, rulesFor } from '../src/rule'
+import { ruleOf } from '../src/rule'
 import { isNoVerdict, question } from '../src/verdict'
 
 const RUN = 'Run once'
@@ -45,11 +45,10 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
     if (denial === undefined || !asked.has(id) || !isNoVerdict(denial)) return res
     const { tool, tool_use_id: _id, ...args } = e
     const known = await sessionRules($)
-    const match = rulesFor(tool, args).find((r) => known.has(r))
-    if (match === undefined) {
+    const rule = ruleOf(tool, args)
+    if (rule === undefined || !known.has(rule)) {
       const text = question(tool, args)
       if (text === undefined) return res
-      const rule = ruleOf(tool, args)
       const offer = rule === undefined ? undefined : REMEMBER + rule
       const options = offer === undefined ? [RUN, REFUSE] : [RUN, offer, REFUSE]
       // A dismissed question, or a run with no user, keeps the engine's denial.
@@ -57,7 +56,7 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
       if (answer === REFUSE) return { deny: 'The user refused this call. Do not issue it again.' }
       if (rule !== undefined && answer === offer) known.add(rule)
       else if (answer !== RUN) return res
-    } else $.ui.toast(`verdict-gate ran ${match} with no review`)
+    } else $.ui.toast(`verdict-gate ran ${rule} with no review`)
     approved.add(id)
     return await next(e)
   } finally {

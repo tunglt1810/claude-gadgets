@@ -103,27 +103,28 @@ When a Bash command has no prefix, the question has only the two options of sect
 
 A simple command has none of these characters: `;` `&` `|` `<` `>` `$` `` ` `` `(` `)` `{` `}` `\`, and no line break. Only a simple command has a prefix.
 
-The prefix is:
+The prefix is the first two words, when both conditions are true:
 
-1. The first word, when it has no `=`.
-2. The first two words, when the second word has only lowercase letters, digits and hyphens, and starts with a letter.
+- The first word has no `=`.
+- The second word is a subcommand: it has only lowercase letters, digits and hyphens, and starts with a letter.
 
-Examples:
+A command with no subcommand has no prefix. One word tells too little about what the command runs.
 
 | Command | Prefix |
 |---|---|
 | `git push origin main` | `git push` |
-| `rm -rf build` | `rm` |
-| `python a.py` | `python` |
-| `FOO=1 make` | none |
+| `bun run check` | `bun run` |
+| `rm -rf build` | none |
+| `bash -c "rm -rf x"` | none |
+| `python a.py` | none |
+| `FOO=1 git push` | none |
 | `git status && rm -rf x` | none |
 
 ### 7.3 Match
 
 A rule applies to a call only when the call has a no-verdict denial (section 4.1). When the classifier gives a verdict, the rule does nothing.
 
-- A tool rule matches each call of that tool.
-- A Bash rule matches a simple command that is the prefix, or that starts with the prefix and a space.
+A call matches a rule when the rule of the call (sections 7.1 and 7.2) is that rule. Thus a compound command matches no rule.
 
 On a match, the mod asks no question:
 
@@ -145,7 +146,7 @@ The 2000-character limit does not apply to a match, because the user approved th
 |---|---|
 | `hooks/register.tsx` | The `tool.check` and `tool.call` hooks, and the sets of asked and approved calls. |
 | `src/verdict.ts` | `isNoVerdict` and `question`. |
-| `src/rule.ts` | `ruleOf` gives the rule that the question offers. `rulesFor` gives each rule that a call matches. |
+| `src/rule.ts` | `ruleOf` gives the rule of a call. |
 
 The mod has no `$.state` value, so it has no types contract.
 
@@ -180,4 +181,5 @@ The test kit cannot prove these points. Do them when the classifier next gives n
 - A new Claude Code release can change the phrases. Then the mod asks no question, and the denial stays.
 - A tool that the classifier approved can fail and print a phrase of section 4.2. The mod then asks the question, or a rule runs the call a second time. The second run is the same call.
 - A deny after `next(e)` makes the engine write one dim line to the transcript.
-- A rule such as `rm` or `python` is wide. The question shows the rule before the user approves it.
+- A no-verdict state can last: a classifier transcript that is too long gives no verdict for each call. During that time a rule runs each match with no review.
+- A tool rule is wide: `Write` runs each write. A Bash rule does not limit the arguments after the subcommand. The question shows the rule before the user approves it.
