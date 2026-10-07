@@ -66,5 +66,8 @@ An open agent row has a control row below its detail row.
 
 ## 5. Limits
 
+- A click presses a button of a pane that does not hold the keyboard, and the engine then refuses a focus move: `that site does not hold the keyboard`. The mod asks for the keyboard as it does when the pane opens (`$.ui.open` with `focus: true`), then moves the focus 80 ms and 320 ms later. A live log gave a refused move 11 ms after the request and a move that landed 80 ms after it.
+- The surface gives the keyboard to the pane only while the prompt of the session is empty. With text in the prompt, the message field gets no focus and the keys go to the prompt. The person must click the field.
+
 - Each answer of an agent, and each stop, costs one turn of the main loop. That is the notification of the engine.
 - A Button takes no color: the stop button is not red.

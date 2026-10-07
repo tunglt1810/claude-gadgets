@@ -2768,3 +2768,26 @@ test('a tool call of a loop that the session does not list adds no agent', async
   expect(await ui.find({ key: 'agent:ghost' })).toBeUndefined()
   await ui.unmount()
 })
+
+test('the message button of the bar asks for the keyboard when the pane does not hold it', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  const calls = paneEngine(on)
+  await spawn($)
+
+  // The agent runs, and the transcript is scrolled: the bar has the two controls.
+  let ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  await ui.unmount()
+  // A click presses a button of a pane that does not hold the keyboard.
+  ui = await mountPane($, 'terminal', false, 80, 12)
+  expect((await ui.find({ key: 'sticky:stop:a1' }))?.props.label).toBe('■ stop')
+  const before = calls.opens
+  await ui.press({ key: 'sticky:msg:a1' })
+  expect(calls.opens).toBe(before + 1)
+  expect(calls.isOpenFocused).toBe(true)
+  // The field is there to take the focus.
+  expect((await ui.find({ key: 'say:a1' }))?.type).toBe('Input')
+  await ui.unmount()
+})

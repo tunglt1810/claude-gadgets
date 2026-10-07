@@ -495,7 +495,8 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
   }))
 }
 
-// The wait before the second focus move to a message field.
+// The wait before the next focus move to a message field: the move after it is at four times
+// this wait.
 const REFOCUS_MS = 80
 
 // Puts the focus in the message field of an agent, so the person can type at once. The
@@ -503,8 +504,18 @@ const REFOCUS_MS = 80
 // press ends: a second move comes a short time after the press.
 async function focusField($: Api, agentId: string): Promise<void> {
   const move = () => $.ui.focus({ requestId: PANE_ID, key: `say:${agentId}` }).catch(() => ({}))
-  await move()
+  const first = await move()
+  // A click presses a button of a pane that does not hold the keyboard, and the engine then
+  // refuses each focus move. The pane asks for the keyboard as it does when it opens.
+  // Limit: the surface gives the keyboard only while the prompt of the session is empty. With
+  // text in the prompt the field gets no focus, and the person must click the field.
+  if (!isPaneFocused || ('deny' in first && first.deny !== undefined)) {
+    await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true }).catch(() => undefined)
+  }
+  // The pane holds the keyboard a short time after it asked: a live log gave a refused move
+  // 11 ms after the request, and a move that landed 80 ms after it.
   $.clock.after(REFOCUS_MS, move)
+  $.clock.after(REFOCUS_MS * 4, move)
 }
 
 // A stop button that waits for its second press forgets the question when its agent ends.
