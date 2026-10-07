@@ -86,7 +86,7 @@ const STICKY_ROWS = 2
 // The least room that the bar of a scrolled transcript keeps for the agent's name.
 const MIN_STICKY_NAME = 8
 // The columns that the toolbar of a transcript keeps for its back and wrap buttons.
-const TOOLBAR_USED = BACK.length + BUTTON_CHROME + 1 + 'wrap off'.length + BUTTON_CHROME + 1 + 1
+const TOOLBAR_USED = BACK.length + BUTTON_CHROME + 1 + 'wrap off'.length + BUTTON_CHROME + 1
 // A tool call by its outcome: its mark and the color of the mark. A finished call is dim at
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const
@@ -264,7 +264,7 @@ export const AgentPane = ({
   // (Vietnamese on macOS) is not in the field yet, so the engine draws the placeholder below it.
   // Enter sends the text. Only the terminal and a desktop draw a field.
   // The field takes its whole row: `width` cells on a desktop, where no box grows.
-  const say = (id: string, width: number, isFocused: boolean) =>
+  const say = (id: string, width: number) =>
     'Input' in ui ? (
       <Box
         key={`saybox:${id}`}
@@ -276,7 +276,7 @@ export const AgentPane = ({
           label="›"
           value={drafts[id] ?? ''}
           submitLabel="send"
-          {...(isFocused ? { autoFocus: true as const } : {})}
+          autoFocus
           onInput={(text) => onDraft(id, text)}
           onSubmit={(text) => onSend(id, text)}
         />
@@ -606,6 +606,7 @@ export const AgentPane = ({
           const inset = depth * 2 + MARK_WIDTH + 1 + EXPAND_WIDTH + 1
           const detail = isOpen ? detailCells(agent, columns - inset) : []
           const label = cut(name(agent), nameWidth)
+          const ctl = labels(agent.id, columns - inset)
           const ctx = detail.find((c) => c.ctx !== undefined)
           // The cells before the context as one text; its last dot parts it from the context.
           const lead = detail
@@ -686,18 +687,14 @@ export const AgentPane = ({
                   )}
                   {cell(`control:mark:${agent.id}`, { text: '', width: MARK_WIDTH })}
                   <Box key={`control:expand:${agent.id}`} width={EXPAND_WIDTH} flexShrink={0} />
-                  {control(`msg:${agent.id}`, labels(agent.id, columns - inset).message, () =>
-                    onCompose(agent.id),
-                  )}
+                  {control(`msg:${agent.id}`, ctl.message, () => onCompose(agent.id))}
                   {agent.status === 'running' &&
-                    control(`stop:${agent.id}`, labels(agent.id, columns - inset).stop, () =>
-                      onStop(agent.id),
-                    )}
+                    control(`stop:${agent.id}`, ctl.stop, () => onStop(agent.id))}
                 </Box>
               )}
               {isOpen && view.compose === agent.id && (
                 <Box key={`sayrow:${agent.id}`} flexDirection="row" paddingLeft={inset}>
-                  {say(agent.id, Math.max(1, columns - inset), true)}
+                  {say(agent.id, Math.max(1, columns - inset))}
                 </Box>
               )}
               {isOpen && (
@@ -869,7 +866,7 @@ export const AgentPane = ({
           )}
       </Box>
       <Box key={`${key}:controls`} flexDirection="row" gap={1}>
-        {controls(`${key}:`, columns - 1)}
+        {controls(`${key}:`, columns)}
       </Box>
     </Box>
   )
@@ -902,7 +899,7 @@ export const AgentPane = ({
     >
       {isComposing && (
         <Box key="sayrow" flexDirection="row">
-          {say(viewed, columns, true)}
+          {say(viewed, columns)}
         </Box>
       )}
       {controlError('err', viewed)}

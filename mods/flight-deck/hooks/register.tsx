@@ -281,8 +281,8 @@ async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void>
     // count is slow and costs requests: its lists are kept, with the tokens of the newer
     // sample.
     const newer = (await read($, contextAtom)).sample
-    if (detail !== 'full' || newer === null || newer.isEstimate) return
-    context = { ...context, tokens: newer.tokens }
+    if (detail !== 'full') return
+    if (newer !== null && !newer.isEstimate) context = { ...context, tokens: newer.tokens }
   }
   await recordContext($, id, context, detail, false)
   await syncPane($)
@@ -319,8 +319,11 @@ async function trackAgent(
   // An unchanged registry is not stored again: most events of a running agent change
   // nothing. The pane is still drawn: the caller can have changed the numbers of the meter.
   const tail = async () => {
-    if (next.sessionId === id && JSON.stringify(next.entries) !== before)
-      await $.store.set(agentsKey(id), next.entries)
+    if (next.sessionId === id && JSON.stringify(next.entries) !== before) {
+      // The newest registry is stored: a tail that runs late must not store an older one.
+      const newest = await read($, agents)
+      if (newest.sessionId === id) await $.store.set(agentsKey(id), newest.entries)
+    }
     await syncPane($)
     startSpinner($)
   }
@@ -422,6 +425,14 @@ async function closeContext($: Api): Promise<void> {
   })
 }
 
+// Changes the pane only when the change gives another state: each write draws the pane again,
+// and a desktop drops a click on a button that a redraw replaced.
+async function patchPane($: Api, change: (c: PaneView) => PaneView): Promise<void> {
+  const cur = await read($, pane)
+  if (JSON.stringify(change(cur)) === JSON.stringify(cur)) return
+  await update($, pane, change)
+}
+
 // The reason on the screen without the one of `agentId`: the reason of another agent stays.
 const ownErrorGone = (c: PaneView, agentId: string): PaneView['controlError'] =>
   c.controlError?.agentId === agentId ? null : c.controlError
@@ -444,6 +455,7 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   // A second Enter while the message is on its way sends nothing.
   if (text.trim() === '' || sending.has(agentId)) return
   sending.add(agentId)
+  const session = await $.session.id()
   let res: { isDelivered: true } | { isDelivered: false; reason?: string }
   try {
     // The field is empty while the message is on its way: text that the person types then is
@@ -456,10 +468,12 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   } finally {
     sending.delete(agentId)
   }
+  // The session changed while the message was on its way: the pane is of another session.
+  if ((await $.session.id()) !== session) return
   if (res.isDelivered) {
     // The field and the reason of another agent stay.
     const close = () =>
-      update($, pane, (c) => ({
+      patchPane($, (c) => ({
         ...c,
         // The field of the tree closes. The field of the transcript screen stays for the
         // next message.
@@ -503,7 +517,7 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
     ownStops.delete(agentId)
   }
   // A stop that worked takes back the reason of this agent only.
-  await update($, pane, (c) => ({
+  await patchPane($, (c) => ({
     ...c,
     controlError:
       reason !== null ? { agentId, reason: stopFailure(reason) } : ownErrorGone(c, agentId),
@@ -552,7 +566,7 @@ async function toggleCompose($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.compose === agentId) {
     wantedFocus = null
-    await update($, pane, (c) => ({ ...c, compose: null, controlError: ownErrorGone(c, agentId) }))
+    await patchPane($, (c) => ({ ...c, compose: null, controlError: ownErrorGone(c, agentId) }))
     return
   }
   await focusAfter($, `say:${agentId}`, async () => {

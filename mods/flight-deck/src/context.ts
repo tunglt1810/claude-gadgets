@@ -96,6 +96,9 @@ export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSa
   }
 }
 
+// The part of the last sample below which a full count is a compaction.
+const COMPACTED = 0.8
+
 // The state with a new sample. The first sample of a session is the base of its growth, and
 // so is an estimate with fewer tokens than the last sample: a compaction. A full count is
 // lower than an estimate of the same context, and its reply can come late, so it starts no
@@ -108,7 +111,11 @@ export const sampled = (
   isTurnEnd: boolean,
 ): ContextState => {
   const last = c.sessionId === id ? c.sample?.tokens : undefined
-  const isCompacted = sample.detail === 'summary' && last !== undefined && sample.tokens < last
+  // A full count can be a little lower than an estimate: only a clear drop is a compaction.
+  const isCompacted =
+    last !== undefined &&
+    sample.tokens < last &&
+    (sample.detail === 'summary' || sample.tokens < last * COMPACTED)
   const isFirstCount = c.sample?.isEstimate === true && !sample.isEstimate
   if (c.sessionId !== id || c.base === null || isCompacted || isFirstCount)
     return { sessionId: id, sample, base: sample.tokens, turns: 0 }
@@ -131,10 +138,12 @@ export const contextView = (
     state.base === null || state.turns === 0
       ? null
       : Math.round((s.tokens - state.base) / state.turns)
+  // A context that is shorter than its base has no growth to show.
+  const growth = perTurn !== null && perTurn > 0 ? perTurn : null
   const turnsLeft =
-    perTurn === null || perTurn <= 0 || s.threshold === null
+    growth === null || s.threshold === null
       ? null
-      : Math.max(0, Math.floor((s.threshold - s.tokens) / perTurn))
+      : Math.max(0, Math.floor((s.threshold - s.tokens) / growth))
   const price = snap.mainModel === undefined ? null : readPrice(snap.mainModel)
   // A session of an older version has no record of its steps and its calls: a carry cost from
   // it is too small, and no server is known as unused.
@@ -152,7 +161,7 @@ export const contextView = (
     messages: s.tokens - overhead,
     // A sample of an older shape (a hot reload) has no buffer.
     buffer: s.threshold === null ? 0 : (s.buffer ?? 0),
-    perTurn,
+    perTurn: growth,
     turnsLeft,
     steps: snap.steps,
     carryUsd: carry(overhead),

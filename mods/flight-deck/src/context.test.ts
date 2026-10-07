@@ -143,9 +143,13 @@ test('sampled starts a base, counts the turns that end, and starts again on a co
   expect(compacted.base).toBe(30000)
   expect(compacted.turns).toBe(0)
   // A full count is lower than an estimate of the same context: it is no compaction.
-  const full = sampled(next, 'S1', { ...SAMPLE, detail: 'full', tokens: 60000 }, false)
+  const full = sampled(next, 'S1', { ...SAMPLE, detail: 'full', tokens: 70000 }, false)
   expect(full.base).toBe(70000)
   expect(full.turns).toBe(1)
+  // A full count far below the last sample is a compaction: the context got much shorter.
+  const cut = sampled(next, 'S1', { ...SAMPLE, detail: 'full', tokens: 30000 }, false)
+  expect(cut.base).toBe(30000)
+  expect(cut.turns).toBe(0)
   // Another session starts again.
   expect(sampled(next, 'S2', SAMPLE, true)).toEqual({
     sessionId: 'S2',
@@ -348,4 +352,10 @@ test('a category with the name of an object method has no items', () => {
     'full',
   )
   expect(odd?.categories).toEqual([{ name: 'constructor', tokens: 10, items: [] }])
+})
+
+test('a context that got shorter since its base shows no growth', () => {
+  const v = contextView(state({ base: 150000, turns: 3 }), SNAP)
+  expect(v?.perTurn).toBeNull()
+  expect(v?.turnsLeft).toBeNull()
 })

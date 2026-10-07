@@ -1,5 +1,6 @@
-// The least room of a control row that draws its buttons with words.
-const WIDE = 24
+// The least room of a control row that draws its buttons with words: two real buttons of the
+// terminal, `[ » message ]` and `[ ■ stop? ]`, with one cell between them.
+const WIDE = 25
 
 // The labels of an agent's control buttons: words in a wide row, icons in a narrow one. A
 // stop button that waits for its second press ends with `?`.

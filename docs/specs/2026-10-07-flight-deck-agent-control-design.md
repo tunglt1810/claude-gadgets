@@ -32,7 +32,7 @@ An open agent row has a control row below its detail row.
 
 - `» message` opens a message field below the control row, with the focus in it. The mod moves the focus two times: at the press, and 80 ms later, because the pressed button stays on the screen. A second press closes the field.
 - `■ stop` is there only while the agent runs. The first press changes the label to `■ stop?`. The second press stops the agent. A press on any other button takes the question back, and so does the end of the agent.
-- A row with less than 24 cells draws the two buttons as `»` and `■` (`■?` for the question).
+- A row with less than 25 cells draws the two buttons as `»` and `■` (`■?` for the question).
 
 ### 3.2 Message field
 
