@@ -262,8 +262,9 @@ let turnSteps = { id: '', steps: 0 }
 // The turns with a step whose end gave no sample: the next sample of a turn end counts them.
 let missedTurns = 0
 
-// Keeps the breakdown of a usage reply as the context sample of the session `id`. A reply
-// with no breakdown changes nothing. `isTurnEnd` counts a turn of the growth.
+// Keeps the breakdown of a usage reply as the context sample of the session `id`, and says
+// if it did: a reply with no breakdown or no window is no sample, and it changes nothing.
+// `isTurnEnd` counts a turn of the growth, and `missed` the turns whose end gave no sample.
 async function recordContext(
   $: Api,
   id: string,
@@ -271,11 +272,13 @@ async function recordContext(
   detail: 'summary' | 'full',
   isTurnEnd: boolean,
   seq: number,
-): Promise<void> {
+  missed = 0,
+): Promise<boolean> {
   const sample = sampleOf(context, detail)
-  if (sample === null) return
-  await update($, contextAtom, (c) => sampled(c, id, sample, isTurnEnd))
+  if (sample === null) return false
+  await update($, contextAtom, (c) => sampled(c, id, sample, isTurnEnd, missed))
   sampleSeq = Math.max(sampleSeq, seq)
+  return true
 }
 
 // Reads a breakdown and draws it. A `full` one sends a token-count request for each tool and
@@ -1027,17 +1030,21 @@ export const register: Register = (on, options) => {
     // of the context growth.
     // A turn whose start the mod did not see (a hot reload) counts as a turn.
     const hadStep = turnSteps.id !== id || (await read($, meter)).steps > turnSteps.steps
-    // A reply with no breakdown is no sample: it makes no request in flight stale.
-    const isSample = usage.context.breakdown !== undefined
-    if (!isSample) missedTurns += hadStep ? 1 : 0
-    else {
-      await recordContext($, id, usage.context, 'summary', hadStep, ++contextSeq)
-      const missed = missedTurns
+    // A reply that gives no sample makes no request in flight stale, and its turn is counted
+    // by the next sample of a turn end.
+    const isKept = await recordContext(
+      $,
+      id,
+      usage.context,
+      'summary',
+      hadStep,
+      contextSeq + 1,
+      missedTurns,
+    )
+    if (isKept) {
+      contextSeq++
       missedTurns = 0
-      // A turn that started no new base takes the turns that gave no sample.
-      if (missed > 0)
-        await update($, contextAtom, (c) => (c.turns > 0 ? { ...c, turns: c.turns + missed } : c))
-    }
+    } else if (hadStep) missedTurns++
     const nextMeter = await update($, meter, (c) => {
       const ended = { ...c, ...endTurn(c, at), ...(usd === undefined ? {} : { costUsd: usd }) }
       return mainTurns(ended) > 0 || stepsInFlight > 0

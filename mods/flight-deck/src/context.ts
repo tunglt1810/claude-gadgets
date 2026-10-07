@@ -103,12 +103,14 @@ const COMPACTED = 0.8
 // so is an estimate with fewer tokens than the last sample: a compaction. A full count is
 // lower than an estimate of the same context, and its reply can come late, so it starts no
 // base. An estimate is higher than the count of the API for the same context, so the first
-// sample of the API after an estimate is a base too. `isTurnEnd` counts a turn.
+// sample of the API after an estimate is a base too. `isTurnEnd` counts a turn, and
+// `missedTurns` the turns before it whose end gave no sample.
 export const sampled = (
   c: ContextState,
   id: string,
   sample: ContextSample,
   isTurnEnd: boolean,
+  missedTurns = 0,
 ): ContextState => {
   const last = c.sessionId === id ? c.sample?.tokens : undefined
   // A full count can be a little lower than an estimate: only a clear drop is a compaction.
@@ -119,7 +121,7 @@ export const sampled = (
   const isFirstCount = c.sample?.isEstimate === true && !sample.isEstimate
   if (c.sessionId !== id || c.base === null || isCompacted || isFirstCount)
     return { sessionId: id, sample, base: sample.tokens, turns: 0 }
-  return { ...c, sample, turns: c.turns + (isTurnEnd ? 1 : 0) }
+  return { ...c, sample, turns: c.turns + (isTurnEnd ? 1 : 0) + missedTurns }
 }
 
 // What the pane draws of a context, or null with no sample. The carry cost prices the

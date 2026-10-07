@@ -359,3 +359,20 @@ test('a context that got shorter since its base shows no growth', () => {
   expect(v?.perTurn).toBeNull()
   expect(v?.turnsLeft).toBeNull()
 })
+
+test('sampled adds the turns that gave no sample, and a new base drops them', () => {
+  const first = sampled(
+    { sessionId: null, sample: null, base: null, turns: 0 },
+    'S1',
+    SAMPLE,
+    false,
+  )
+  // The base is set and no turn is counted yet: two turns ended with no sample before this one.
+  const next = sampled(first, 'S1', { ...SAMPLE, tokens: 90000 }, true, 2)
+  expect(next.turns).toBe(3)
+  // A turn end with no step counts only the turns that gave no sample.
+  expect(sampled(first, 'S1', { ...SAMPLE, tokens: 90000 }, false, 1).turns).toBe(1)
+  // A compaction starts again: the turns before it are not of the new base.
+  const compacted = sampled(next, 'S1', { ...SAMPLE, detail: 'summary', tokens: 20000 }, true, 2)
+  expect(compacted.turns).toBe(0)
+})
