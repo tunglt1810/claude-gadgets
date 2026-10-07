@@ -11,6 +11,7 @@ Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là mộ
 | Mod | Chức năng |
 | --- | --- |
 | `flight-deck` | Một dải phía trên ô nhập. Dải hiển thị token vào, token ra, tỉ lệ cache hit, số lần gọi tool, số subagent và số tác vụ nền đã khởi chạy, thời gian model làm việc, chi phí của session, số dòng mà các tool sửa file đã thay đổi và đồng hồ đếm ngược của prompt cache. Các tổng số gồm cả mọi subagent. Khi transcript của một subagent đang ở trên màn hình, dải hiển thị số liệu của subagent đó và của các agent bên dưới nó. Dữ liệu được giữ lại khi resume. |
+| `verdict-gate` | Dành cho auto mode. Khi safety classifier không đưa ra verdict cho một tool call, một hộp thoại hỏi bạn. Bạn chọn chạy call đó một lần, chạy mọi call cùng loại trong session, hoặc từ chối. Một call mà classifier đánh giá là không an toàn vẫn bị từ chối. |
 
 ## Bộ công cụ
 
@@ -66,6 +67,22 @@ Giới hạn:
 
 - Các con số là của vòng lặp chính. Engine không cho breakdown context của một subagent.
 - Một tool nạp theo yêu cầu thì không nằm trong window, nên không nằm trong overhead.
+
+## Câu hỏi khi không có verdict
+
+`verdict-gate` dành cho auto mode. Nạp mod bằng `claude --plugin-dir mods/verdict-gate`.
+
+Khi safety classifier không đưa ra verdict cho một tool call, engine từ chối call đó. Mod hiện một câu hỏi có chip `No verdict` và toàn bộ input của call ở dạng JSON. Một ký tự không phải ASCII in được hiện thành mã của nó (`\u{202e}`).
+
+| Câu trả lời | Kết quả |
+| --- | --- |
+| `Run once` | Call chạy ngay trong lượt đó. |
+| `Do not ask again: <rule>` | Call chạy. Trong session này, một call sau có cùng rule và không có verdict sẽ chạy mà không hỏi, và một toast nêu tên rule. |
+| `Do not run` | Call vẫn bị từ chối, và model nhận chỉ dẫn không gọi lại call đó. |
+
+Một rule là tên một tool (`Read`), hoặc một lệnh Bash kèm subcommand (`Bash(git push:*)`). Lệnh ghép, lệnh không có subcommand và lệnh đứng sau một wrapper như `sudo` hay `bash` không có rule. Rule nằm trong bộ nhớ cho tới khi session hoặc mod nạp lại.
+
+Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input dài hơn 2000 ký tự cũng không có câu hỏi.
 
 ## Thêm một mod
 

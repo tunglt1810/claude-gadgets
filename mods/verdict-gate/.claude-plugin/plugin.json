@@ -1,0 +1,9 @@
+{
+  "name": "verdict-gate",
+  "version": "0.1.0",
+  "description": "Asks the user to run a tool call that auto mode denied without a verdict",
+  "author": {
+    "name": "bez"
+  },
+  "license": "MIT"
+}
