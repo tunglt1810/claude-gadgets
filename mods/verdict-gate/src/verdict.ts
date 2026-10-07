@@ -1,9 +1,12 @@
-// The words of the engine's denial texts for a call that auto mode did not judge
-// (Claude Code 2.1.292). A judgment of the classifier has none of them.
+// The engine's sentences for a call that auto mode did not judge (Claude Code 2.1.292).
 const NO_VERDICT =
-  /gave no verdict|auto mode classifier|auto mode's safety classifier|auto mode could not evaluate|auto mode cannot determine/
+  /gave no verdict|was not reviewed:|auto mode could not evaluate|auto mode cannot determine the safety of|The API told auto mode's safety classifier/
+// The engine's sentences for a call that the classifier judged. A judgment can quote a
+// phrase of the other set, so it comes first: the denial stays.
+const JUDGMENT =
+  /denied by the Claude Code auto mode classifier|Permission for this action has been denied|judged this action dangerous/
 
-export const isNoVerdict = (text: string): boolean => NO_VERDICT.test(text)
+export const isNoVerdict = (text: string): boolean => !JUDGMENT.test(text) && NO_VERDICT.test(text)
 
 const MAX_DETAIL = 2000
 

@@ -49,15 +49,23 @@ Condition 1 is necessary because a tool that ran can print the same phrases.
 
 ### 4.2 Phrases
 
-The phrases come from the binary of Claude Code 2.1.292:
+The phrases come from the binary of Claude Code 2.1.292. The engine gives a plugin no code for the cause of a denial, so the mod reads the text.
+
+A no-verdict denial has one of these phrases:
 
 - `gave no verdict`
-- `auto mode classifier`
-- `auto mode's safety classifier`
+- `was not reviewed:`
 - `auto mode could not evaluate`
-- `auto mode cannot determine`
+- `auto mode cannot determine the safety of`
+- `The API told auto mode's safety classifier`
 
-A judgment has none of them.
+A judgment has one of these phrases:
+
+- `denied by the Claude Code auto mode classifier`
+- `Permission for this action has been denied`
+- `judged this action dangerous`
+
+A text with a judgment phrase is a judgment, also when it has a phrase of the first list.
 
 ## 5. Question
 
@@ -155,6 +163,7 @@ The test hooks stand for the engine. The `tool.call` hook asks `$.tool.check` fi
 - A match longer than the limit runs.
 - A compound command with a matching start gets a question.
 - A different session id has no rules.
+- A rule does not run a call that the classifier judged.
 - The question has the `No verdict` chip.
 
 ## 10. Checks in a live session
@@ -169,5 +178,6 @@ The test kit cannot prove these points. Do them when the classifier next gives n
 ## 11. Known limits
 
 - A new Claude Code release can change the phrases. Then the mod asks no question, and the denial stays.
+- A tool that the classifier approved can fail and print a phrase of section 4.2. The mod then asks the question, or a rule runs the call a second time. The second run is the same call.
 - A deny after `next(e)` makes the engine write one dim line to the transcript.
 - A rule such as `rm` or `python` is wide. The question shows the rule before the user approves it.

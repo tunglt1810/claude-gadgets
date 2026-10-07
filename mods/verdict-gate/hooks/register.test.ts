@@ -1,7 +1,9 @@
 import { type Engine, expect, type mock, test } from 'claude-code/testing'
 
 const NO_VERDICT =
-  'The auto mode classifier gave no verdict for Bash. You may try the action again once.'
+  'Auto mode classifier gave no verdict for Bash. You may try the action again once.'
+const JUDGMENT =
+  'Permission for this action was denied by the Claude Code auto mode classifier. Reason: it deletes data'
 const CALL = { tool: 'Bash', command: 'git push', tool_use_id: 't1' } as const
 
 // The engine beneath the plugin: each run of a call asks `tool.check` first, as core does.
@@ -19,6 +21,7 @@ const engine = (
     toasts: [] as string[],
     headers: [] as (string | undefined)[],
     session: 'S1',
+    verdict,
   }
   on('session.id', () => ({ value: seen.session }))
   on('ui.toast', (_$, e) => {
@@ -43,7 +46,7 @@ const engine = (
       input: { command: e.command },
       tool_use_id: e.tool_use_id,
     })
-    if (decision !== 'allow') return { result: {} as never, text: verdict, isError: true }
+    if (decision !== 'allow') return { result: {} as never, text: seen.verdict, isError: true }
     seen.runs++
     return { result: {} as never, text: 'ok' }
   })
@@ -101,12 +104,12 @@ test('a call too long to show whole keeps the denial of the engine', async ($, o
 })
 
 test('a judgment of the classifier raises no question', async ($, on) => {
-  const seen = engine($, on, 'Run once', 'Denied: this action deletes data.')
+  const seen = engine($, on, 'Run once', JUDGMENT)
 
   const res = await $.tool.call(CALL)
 
   expect(seen.asks).toHaveLength(0)
-  expect(res.text).toBe('Denied: this action deletes data.')
+  expect(res.text).toBe(JUDGMENT)
 })
 
 test('a tool error with the same words raises no question when no verdict was asked', async ($, on) => {
@@ -186,4 +189,16 @@ test('the question has a chip that separates it from a question of the model', a
   await $.tool.call(CALL)
 
   expect(seen.headers).toEqual(['No verdict'])
+})
+
+test('a remembered rule does not run a call that the classifier judged', async ($, on) => {
+  const seen = engine($, on, REMEMBER)
+
+  await $.tool.call(CALL)
+  seen.verdict = JUDGMENT
+  const res = await $.tool.call({ ...CALL, tool_use_id: 't2' })
+
+  expect(seen.runs).toBe(1)
+  expect(res.text).toBe(JUDGMENT)
+  expect(seen.toasts).toHaveLength(0)
 })
