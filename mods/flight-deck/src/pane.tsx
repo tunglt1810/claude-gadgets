@@ -977,6 +977,10 @@ export const AgentPane = ({
         line('rule')
       )}
       {body()}
+      {/* After the body: a later part is drawn over an earlier part. Before the bars: they come
+          and go, and a part that changes its place among its siblings is a new part, which
+          loses the focus. */}
+      {!isClient && field}
       {scrollTop > 0 && sticky('sticky', scrollTop)}
       {/* The engine moves the window after this drawing: until then the row it shows has a bar
           too, so no drawing is without a bar at its top. */}
@@ -984,8 +988,6 @@ export const AgentPane = ({
         scrollFrom > 0 &&
         scrollFrom !== scrollTop &&
         sticky('stickyfrom', scrollFrom)}
-      {/* After the body and the bars: a later part is drawn over an earlier part. */}
-      {!isClient && field}
     </Box>
   )
 }
