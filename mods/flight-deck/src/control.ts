@@ -19,3 +19,11 @@ export const sendFailure = (reason: string | undefined): string => {
   if (/classifier/i.test(reason)) return 'not sent: add "SendMessage" to permissions.allow'
   return `not sent: ${reason.split('\n')[0]}`
 }
+
+// Whether a scroll takes the message field of a transcript out of the window. The field is
+// after the last item: it is the last row of the tree.
+export const isFieldHidden = (w: {
+  offset: number
+  bodyRows: number
+  contentRows: number
+}): boolean => w.offset + w.bodyRows < w.contentRows

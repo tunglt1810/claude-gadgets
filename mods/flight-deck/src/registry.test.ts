@@ -6,7 +6,6 @@ import {
   ended,
   merged,
   parseRegistry,
-  pruned,
   ran,
   restored,
   spawned,
@@ -198,17 +197,6 @@ test('a tool call runs a known agent and adds no entry for an unknown loop', () 
   const r = stopped(spawned({}, 'a1', 100, {}), 'a1', 200)
   expect(called(r, 'a1', 300).a1).toMatchObject({ status: 'running', runs: 2 })
   expect(called(r, 'ghost', 300)).toEqual(r)
-})
-
-test('pruned drops an old running entry with no data that the engine does not list', () => {
-  const ghost = { id: 'g1', status: 'running' as const, runs: 1, startedAt: 0, endedAt: null }
-  const r = { ...spawned({}, 'a1', 0, { type: 'Explore' }), g1: ghost }
-  // A real agent has data from its spawn or from the list; a new entry gets time for them.
-  expect(Object.keys(pruned(r, [], 120_000))).toEqual(['a1'])
-  expect(Object.keys(pruned(r, [], 30_000))).toEqual(['a1', 'g1'])
-  expect(Object.keys(pruned(r, [{ id: 'g1', status: 'running' }], 120_000))).toEqual(['a1', 'g1'])
-  const tunedGhost = tuned(r, 'g1', 'claude-haiku-4-5', undefined)
-  expect(Object.keys(pruned(tunedGhost, [], 120_000))).toEqual(['a1', 'g1'])
 })
 
 test('a late completed notification does not end an agent that runs again', () => {

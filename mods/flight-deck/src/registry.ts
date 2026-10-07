@@ -148,25 +148,6 @@ export const merged = (r: Registry, list: readonly Listed[], at: number): Regist
   return out
 }
 
-// The time that a new entry has to get its data from a spawn, a step or the list.
-const GRACE_MS = 60_000
-
-// The registry without the entries of an older version that are no agent: an inner loop of the
-// engine raised tool calls under an id of its own, and it got an entry that runs with no end.
-// Such an entry has no data, and the engine does not list it. A real agent that runs is in the
-// list, and it has a type, a description or a model.
-export const pruned = (r: Registry, list: readonly Listed[], at: number): Registry => {
-  const live = new Set(list.map((l) => l.id))
-  const isGhost = (a: AgentEntry): boolean =>
-    a.status === 'running' &&
-    !live.has(a.id) &&
-    at - a.startedAt > GRACE_MS &&
-    [a.type, a.description, a.name, a.model].every((v) => v === undefined)
-  return Object.values(r).some(isGhost)
-    ? Object.fromEntries(Object.entries(r).filter(([, a]) => !isGhost(a)))
-    : r
-}
-
 // A stored registry loaded for a session: a running agent that this process does not list
 // ran in a process that ended.
 export const restored = (r: Registry, list: readonly Listed[], at: number): Registry => {
