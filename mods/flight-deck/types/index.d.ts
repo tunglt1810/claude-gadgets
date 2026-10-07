@@ -81,6 +81,8 @@ export type AgentEntry = {
   type?: string
   description?: string
   name?: string
+  // The address of a teammate in its team: what the TaskStop tool takes for it.
+  teammateId?: string
   // The model and the effort of the agent's latest step.
   model?: string
   effort?: string

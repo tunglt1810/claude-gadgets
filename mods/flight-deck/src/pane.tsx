@@ -246,6 +246,9 @@ export const AgentPane = ({
     ) : (
       oneRow(key, label, button, true)
     )
+  // A row of real buttons of the terminal shows one row: the layout wraps a label in a narrow
+  // pane, and the rows below must keep their place.
+  const oneRowOnly = isClient ? {} : { height: 1, overflow: 'hidden' as const }
   // A line across the terminal's pane: it is longer than a pane, and its box shows one row of it.
   const line = (key: string) => (
     <Box key={key} height={1} overflow="hidden">
@@ -390,7 +393,14 @@ export const AgentPane = ({
     const contextBlock = () =>
       context === null ? null : (
         <Box key="ctxblock" flexDirection="column">
-          <Box key="ctx:row" flexDirection="row" alignItems="center" gap={1} overflow="hidden">
+          <Box
+            key="ctx:row"
+            flexDirection="row"
+            alignItems="center"
+            gap={1}
+            overflow="hidden"
+            {...oneRowOnly}
+          >
             <Button key="context" label={CONTEXT} onPress={onContext} />
             {contextHead(context, columns - CONTEXT.length - BUTTON_CHROME - 1).map((c, i) =>
               cell(`ctx:head:${i}`, c),
@@ -438,7 +448,7 @@ export const AgentPane = ({
       const open = view.openCategories ?? []
       return (
         <Box flexDirection="column">
-          <Box key="ctx:toolbar" flexDirection="row" alignItems="center" gap={1}>
+          <Box key="ctx:toolbar" flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
             <Button key="back" label={BACK} onPress={onBack} />
             {rest('ctx:title', CONTEXT, titleWidth, { bold: true })}
             {context !== null && cell('ctx:detail', { text: context.detail, dim: true })}
@@ -847,7 +857,7 @@ export const AgentPane = ({
       flexDirection="column"
       backgroundColor={PALETTE.strip}
     >
-      <Box key={`${key}:head`} flexDirection="row" alignItems="center" gap={1}>
+      <Box key={`${key}:head`} flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
         <Button key={`${key}:back`} label={BACK} onPress={onBack} />
         {agent !== undefined && cell(`${key}:mark`, agentMark(agent))}
         {rest(`${key}:title`, agent === undefined ? viewed : name(agent), stickyName, {
@@ -865,7 +875,7 @@ export const AgentPane = ({
             }),
           )}
       </Box>
-      <Box key={`${key}:controls`} flexDirection="row" gap={1}>
+      <Box key={`${key}:controls`} flexDirection="row" gap={1} {...oneRowOnly}>
         {controls(`${key}:`, columns)}
       </Box>
     </Box>
@@ -912,11 +922,7 @@ export const AgentPane = ({
       {/* The toolbar: real buttons (`[ label ]` on the terminal, native ones on desktop), so
           they read as controls beside the transcript's plain rows. The terminal wraps a label
           in a narrow pane: the toolbar shows one row of it, so the rows below keep their place. */}
-      <Box
-        flexDirection="row"
-        gap={1}
-        {...(isClient ? {} : { height: 1, overflow: 'hidden' as const })}
-      >
+      <Box flexDirection="row" gap={1} {...oneRowOnly}>
         <Button key="back" label={BACK} onPress={onBack} />
         <Button
           key="wrap"

@@ -2,7 +2,7 @@ import type { AgentEntry, Registry } from '../types'
 
 export type { AgentEntry, Registry }
 
-type Info = Pick<AgentEntry, 'parentId' | 'type' | 'description' | 'name'>
+type Info = Pick<AgentEntry, 'parentId' | 'type' | 'description' | 'name' | 'teammateId'>
 
 // What `$.agent.list()` gives for one agent, reduced to the fields the registry uses.
 export type Listed = {
@@ -12,6 +12,7 @@ export type Listed = {
   description?: string
   name?: string
   parentId?: string
+  teammateId?: string
 }
 
 export const agentsKey = (sessionId: string): string => `agents:${sessionId}`
@@ -33,7 +34,13 @@ const fill = (a: AgentEntry, info: Partial<Info>): AgentEntry => ({
     ? { description: info.description }
     : {}),
   ...(a.name === undefined && info.name !== undefined ? { name: info.name } : {}),
+  ...(a.teammateId === undefined && info.teammateId !== undefined
+    ? { teammateId: info.teammateId }
+    : {}),
 })
+
+// What the TaskStop tool takes for an agent: the address of a teammate, the id of any other.
+export const stopTarget = (r: Registry, id: string): string => r[id]?.teammateId ?? id
 
 export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>): Registry => ({
   ...r,
@@ -165,6 +172,7 @@ export const parseRegistry = (raw: unknown): Registry => {
     const type = str(v.type)
     const description = str(v.description)
     const name = str(v.name)
+    const teammateId = str(v.teammateId)
     const model = str(v.model)
     const effort = str(v.effort)
     const c = v.context
@@ -178,6 +186,7 @@ export const parseRegistry = (raw: unknown): Registry => {
       ...(type === undefined ? {} : { type }),
       ...(description === undefined ? {} : { description }),
       ...(name === undefined ? {} : { name }),
+      ...(teammateId === undefined ? {} : { teammateId }),
       ...(model === undefined ? {} : { model }),
       ...(effort === undefined ? {} : { effort }),
       ...(context === undefined ? {} : { context }),

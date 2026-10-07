@@ -23,6 +23,7 @@ import {
   restored,
   spawned,
   stopped,
+  stopTarget,
   taskNotice,
   tuned,
 } from '../src/registry'
@@ -255,8 +256,11 @@ async function syncPane($: Api): Promise<void> {
 let contextSeq = 0
 // The count of the newest sample that is kept.
 let sampleSeq = 0
-// The main steps at the last end of a turn, by session: a turn with no step grows no context.
+// The main steps at the start of the latest turn, with its session: a turn with no step grows
+// no context.
 let turnSteps = { id: '', steps: 0 }
+// The turns with a step whose end gave no sample: the next sample of a turn end counts them.
+let missedTurns = 0
 
 // Keeps the breakdown of a usage reply as the context sample of the session `id`. A reply
 // with no breakdown changes nothing. `isTurnEnd` counts a turn of the growth.
@@ -523,15 +527,16 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
     return
   }
   await update($, pane, (c) => ({ ...c, stopAsk: null }))
-  ownStops.add(agentId)
+  const task = stopTarget((await read($, agents)).entries, agentId)
+  ownStops.add(task)
   let reason: string | null
   try {
-    const res = await $.tool.call({ tool: 'TaskStop', task_id: agentId })
+    const res = await $.tool.call({ tool: 'TaskStop', task_id: task })
     reason = res.deny !== undefined ? res.deny : res.isError ? (res.text ?? '') : null
   } catch (err) {
     reason = String(err)
   } finally {
-    ownStops.delete(agentId)
+    ownStops.delete(task)
   }
   // A stop that worked takes back the reason of this agent only.
   await patchPane($, (c) => ({
@@ -651,6 +656,7 @@ let isPaneFocused = true
 async function togglePane($: Api): Promise<boolean> {
   const cur = await read($, pane)
   if (cur.isOpen) {
+    wantedFocus = null
     await update($, pane, (c) => ({ ...c, isOpen: false }))
     await $.ui.close({ id: PANE_ID })
     return false
@@ -980,7 +986,9 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
-    await ensureLoaded($)
+    const session = await ensureLoaded($)
+    // The steps at the start of the turn: its end knows from them if the turn had a step.
+    turnSteps = { id: session, steps: (await read($, meter)).steps }
     const at = await stamp($)
     await update($, meter, (c) => ({
       ...c,
@@ -1017,10 +1025,19 @@ export const register: Register = (on, options) => {
     const usd = usage.cost?.usd
     // A turn with no step of the main loop (an abort before the first response) is no turn
     // of the context growth.
-    const steps = (await read($, meter)).steps
-    const hadStep = steps > (turnSteps.id === id ? turnSteps.steps : 0)
-    turnSteps = { id, steps }
-    await recordContext($, id, usage.context, 'summary', hadStep, ++contextSeq)
+    // A turn whose start the mod did not see (a hot reload) counts as a turn.
+    const hadStep = turnSteps.id !== id || (await read($, meter)).steps > turnSteps.steps
+    // A reply with no breakdown is no sample: it makes no request in flight stale.
+    const isSample = usage.context.breakdown !== undefined
+    if (!isSample) missedTurns += hadStep ? 1 : 0
+    else {
+      await recordContext($, id, usage.context, 'summary', hadStep, ++contextSeq)
+      const missed = missedTurns
+      missedTurns = 0
+      // A turn that started no new base takes the turns that gave no sample.
+      if (missed > 0)
+        await update($, contextAtom, (c) => (c.turns > 0 ? { ...c, turns: c.turns + missed } : c))
+    }
     const nextMeter = await update($, meter, (c) => {
       const ended = { ...c, ...endTurn(c, at), ...(usd === undefined ? {} : { costUsd: usd }) }
       return mainTurns(ended) > 0 || stepsInFlight > 0
@@ -1094,7 +1111,10 @@ export const register: Register = (on, options) => {
 
   // The person can close the pane with the engine's mark: the button follows.
   on('ui.close', async ($, e, next) => {
-    if (e.id === PANE_ID) await update($, pane, (c) => ({ ...c, isOpen: false }))
+    if (e.id === PANE_ID) {
+      wantedFocus = null
+      await update($, pane, (c) => ({ ...c, isOpen: false }))
+    }
     return next(e)
   })
 

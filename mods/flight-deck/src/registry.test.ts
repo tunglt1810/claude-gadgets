@@ -9,6 +9,7 @@ import {
   restored,
   spawned,
   stopped,
+  stopTarget,
   taskNotice,
   tuned,
 } from './registry'
@@ -215,4 +216,13 @@ test('a running entry of an older version, with no run, counts its run at the ne
   // The live registry after a hot reload from a version that counted a run at its end.
   const old = { a1: { id: 'a1', status: 'running' as const, runs: 0, startedAt: 1, endedAt: null } }
   expect(ran(old, 'a1', 50).a1?.runs).toBe(1)
+})
+
+test('a teammate keeps the address that TaskStop takes', () => {
+  // TaskStop takes a teammate by its address in the team, not by its id.
+  const r = merged({}, [{ id: 't1', status: 'running', teammateId: 'ana@core' }], 100)
+  expect(r.t1?.teammateId).toBe('ana@core')
+  expect(parseRegistry(JSON.parse(JSON.stringify(r))).t1?.teammateId).toBe('ana@core')
+  expect(stopTarget(r, 't1')).toBe('ana@core')
+  expect(stopTarget(spawned({}, 'a1', 100, {}), 'a1')).toBe('a1')
 })
