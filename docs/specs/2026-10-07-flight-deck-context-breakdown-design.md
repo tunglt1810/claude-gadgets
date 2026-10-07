@@ -224,3 +224,9 @@ Other results:
 - `context.tokens` is absent before the first response. The mod then uses `breakdown.totalTokens`.
 - The `full` breakdown had no `System tools` row. A category row is thus not always present.
 - Two memory files can have the same type and the same file name. Their item rows then show the same name.
+
+## 10. Known limits
+
+- The conversation row and the item lists are found by the name of a category (`Messages`, `MCP tools`, `Memory files`, `Skills`, `Custom agents`). The typings say to branch on `kind`, but `kind` is only `used`, `free`, `buffer` or `deferred`: no value parts the conversation from the overhead, and no value names a list. A renamed row counts as overhead with no items. This is a known limit, not a defect to fix.
+- A full count that a newer sample overtakes keeps its lists and takes the tokens of the newer sample.
+- The press of `context` or `recount` does not wait for the full count.

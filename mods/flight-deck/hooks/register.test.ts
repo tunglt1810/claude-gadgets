@@ -969,6 +969,7 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
+  on('turn.step', stepHook(null) as never)
   let isSecond = false
   const calls = paneEngine(on, () =>
     isSecond ? [...ROWS, { role: 'user', text: 'Again.', toolUses: [] }] : ROWS,
@@ -991,8 +992,8 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   expect(await paneText(ui)).not.toContain('Again.')
 
   isSecond = true
-  // A message starts the agent again: its first call counts the run.
-  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+  // A message starts the agent again: its first step counts the run.
+  await runStep($, { ...STEP, agentId: 'a1' } as never)
   await completeAgent($, 'a1')
   const text = await paneText(ui)
   expect(text).toContain('Again.')
@@ -1279,10 +1280,11 @@ test('an aborted run of an agent draws it stopped', async ($, on) => {
   }
 })
 
-test('a killed notification stops the agent and its next event runs it again', async ($, on) => {
+test('a killed notification stops the agent and its next step runs it again', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on)
+  on('turn.step', stepHook(null) as never)
   paneEngine(on)
   await spawn($)
   await notify($, 'a1', 'killed')
@@ -1294,7 +1296,7 @@ test('a killed notification stops the agent and its next event runs it again', a
   expect(await ui.find({ key: 'agent:bash1' })).toBeUndefined()
   await ui.unmount()
 
-  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+  await runStep($, { ...STEP, agentId: 'a1' } as never)
   ui = await mountPane($, 'terminal')
   expect((await marks(ui))[0]?.props.color).toBe('#a9dc76')
   await ui.unmount()
@@ -1307,12 +1309,13 @@ test('a stored running agent that this process does not list loads as stopped', 
   })
   engine(on)
   paneEngine(on)
-  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'b1' } as never)
+  on('turn.step', stepHook(null) as never)
+  // The step of another agent loads the registry of the session.
+  await runStep($, { ...STEP, agentId: 'b1' } as never)
 
   const ui = await mountPane($, 'terminal')
-  // The tool call loads the session. Its loop is not a known agent: it adds no row.
   const marked = await marks(ui)
-  expect(marked).toHaveLength(1)
+  expect(marked).toHaveLength(2)
   expect(marked.map((m) => m.props.color)).toContain('#ff6188')
   await ui.unmount()
 })
@@ -2758,13 +2761,14 @@ test('a stop button forgets its question when the agent ends', async ($, on) => 
     return { result: {} as never, text: 'ok' }
   })
   paneEngine(on)
+  on('turn.step', stepHook(null) as never)
   await spawn($)
 
   const ui = await mountPane($, 'terminal')
   await ui.press({ key: 'stop:a1' })
   await completeAgent($, 'a1')
   // The agent runs again: the first press asks again.
-  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+  await runStep($, { ...STEP, agentId: 'a1' } as never)
   expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
   await ui.press({ key: 'stop:a1' })
   expect(stops).toHaveLength(0)
@@ -2806,5 +2810,21 @@ test('the message button of the bar asks for the keyboard when the pane does not
   expect(calls.isOpenFocused).toBe(true)
   // The field is there to take the focus.
   expect((await ui.find({ key: 'say:a1' }))?.type).toBe('Input')
+  await ui.unmount()
+})
+
+test('a tool call that starts after the end of a run does not run the agent again', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+  await $.turn.complete({ ...DONE, isAborted: true, reason: 'aborted', agentId: 'a1' } as never)
+  // A call that was in the queue of the stopped step. Only a step starts a run.
+  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
+
+  const ui = await mountPane($, 'terminal')
+  expect(await marks(ui)).toMatchObject([STOPPED])
+  expect((await cellOf(ui, 'runs:a1')).trim()).toContain('1')
   await ui.unmount()
 })

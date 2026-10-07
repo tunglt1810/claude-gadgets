@@ -73,3 +73,5 @@ An open agent row has a control row below its detail row.
 
 - Each answer of an agent, and each stop, costs one turn of the main loop. That is the notification of the engine.
 - A Button takes no color: the stop button is not red.
+- Only a step starts a run of an agent. A tool call marks no agent: a call of a stopped step can start after the end of the run.
+- A `completed` notification of the engine ends an agent in its first run only. For an agent that a message started again, the notification can be of the earlier run, and nothing in it names the run. So it changes no agent that runs again. When the mod does not see the `turn.complete` of such a run (a hot reload in the middle of the run), the agent shows as running until the session loads again. This is a known limit, not a defect to fix.

@@ -14,7 +14,6 @@ import { costOf } from '../src/price'
 import {
   agentsKey,
   agentTitle,
-  called,
   completed,
   ended,
   merged,
@@ -209,18 +208,15 @@ async function loadAgents($: Api, id: string): Promise<void> {
     await $.clock.now(),
   )
   await update($, agents, (c) => (c.sessionId === id ? c : { sessionId: id, entries }))
+  // Another session: the pane keeps only what is not of a session.
   await update($, pane, (c) => ({
-    ...c,
-    agentId: null,
-    expanded: [],
-    collapsedAgents: [],
-    transcript: null,
-    isContext: false,
-    openCategories: [],
-    compose: null,
-    stopAsk: null,
-    controlError: null,
+    ...initialPane,
+    isOpen: c.isOpen,
+    isWrapped: c.isWrapped,
+    sent: c.sent ?? 0,
   }))
+  for (const key of Object.keys(drafts)) delete drafts[key]
+  wantedFocus = null
   await syncPane($)
 }
 
@@ -274,18 +270,21 @@ async function recordContext(
 
 // Reads a breakdown and draws it. A `full` one sends a token-count request for each tool and
 // each memory file: only a press asks for it.
-async function measureContext($: Api, detail: 'summary' | 'full', isRetry = false): Promise<void> {
+async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void> {
   const id = await $.session.id()
   const seq = ++contextSeq
   const usage = await $.session.usage({ breakdown: detail })
   if ((await $.session.id()) !== id) return
-  // A full count is slow. A reply that comes after a newer sample is dropped. The person
-  // asked for a full count: it is counted one more time.
+  let context: UsageContext = usage.context
   if (seq !== contextSeq) {
-    if (detail === 'full' && !isRetry) await measureContext($, 'full', true)
-    return
+    // A newer sample came while this reply was on its way. An estimate is dropped. A full
+    // count is slow and costs requests: its lists are kept, with the tokens of the newer
+    // sample.
+    const newer = (await read($, contextAtom)).sample
+    if (detail !== 'full' || newer === null || newer.isEstimate) return
+    context = { ...context, tokens: newer.tokens }
   }
-  await recordContext($, id, usage.context, detail, false)
+  await recordContext($, id, context, detail, false)
   await syncPane($)
 }
 
@@ -308,6 +307,7 @@ async function trackAgent(
   $: Api,
   id: string,
   change: (r: Registry, at: number) => Registry,
+  isTailLater = false,
 ): Promise<void> {
   await loadAgents($, id)
   const at = await $.clock.now()
@@ -318,31 +318,30 @@ async function trackAgent(
   )
   // An unchanged registry is not stored again: most events of a running agent change
   // nothing. The pane is still drawn: the caller can have changed the numbers of the meter.
-  if (next.sessionId === id && JSON.stringify(next.entries) !== before)
-    await $.store.set(agentsKey(id), next.entries)
-  await syncPane($)
-  startSpinner($)
+  const tail = async () => {
+    if (next.sessionId === id && JSON.stringify(next.entries) !== before)
+      await $.store.set(agentsKey(id), next.entries)
+    await syncPane($)
+    startSpinner($)
+  }
+  // A caller that the engine waits for takes only the change of the registry.
+  if (isTailLater) void tail().catch(() => undefined)
+  else await tail()
 }
 
-// Marks an agent before its step or its call goes on. The engine waits for this hook: a
-// failure of the mod's own record must not stop the work of the agent.
-async function markAgent(
-  $: Api,
-  agentId: string,
-  kind: 'step' | 'call',
-  change: (r: Registry, at: number) => Registry,
-): Promise<void> {
+// Marks an agent as running before its step goes on. Only a step starts a run: a tool call
+// of a stopped step can start after the end of the run. The engine waits for this hook, so
+// only the registry changes before the step: the store and the pane come after it. A failure
+// of the mod's own record must not stop the work of the agent.
+async function markAgent($: Api, agentId: string): Promise<void> {
   try {
     const session = await ensureLoaded($)
-    // Most events are of an agent that runs already: nothing to mark, and no list to read.
+    // Most steps are of an agent that runs already: nothing to mark, and no list to read.
     const cur = await read($, agents)
-    const known = cur.sessionId === session ? cur.entries[agentId] : undefined
-    if (known?.status === 'running') return
-    // A call under an id that is no known agent marks nothing: an inner loop of the engine.
-    if (kind === 'call' && cur.sessionId === session && known === undefined) return
-    await trackAgent($, session, change)
+    if (cur.sessionId === session && cur.entries[agentId]?.status === 'running') return
+    await trackAgent($, session, (r, t) => ran(r, agentId, t), true)
   } catch {
-    // The next event of the agent marks it.
+    // The next step of the agent marks it.
   }
 }
 
@@ -412,7 +411,8 @@ async function openContext($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isContext: true }))
   })
-  await countFull($)
+  // The count is slow: the press does not wait for it.
+  void countFull($)
 }
 
 // Back to the tree, with the focus on the button that opened the context screen.
@@ -551,6 +551,7 @@ async function forgetStop($: Api, agentId: string): Promise<void> {
 async function toggleCompose($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.compose === agentId) {
+    wantedFocus = null
     await update($, pane, (c) => ({ ...c, compose: null, controlError: ownErrorGone(c, agentId) }))
     return
   }
@@ -577,7 +578,10 @@ async function act($: Api, action: PaneAction): Promise<void> {
     // State of an older shape (a hot reload) has no flag.
     return (await read($, pane)).isContext === true ? closeContext($) : backToTree($)
   if (action.kind === 'context') return openContext($)
-  if (action.kind === 'recount') return countFull($)
+  if (action.kind === 'recount') {
+    void countFull($)
+    return
+  }
   if (action.kind === 'category') {
     // A category with no items has no rows to open: a click that only gave the pane the
     // focus gets here too.
@@ -780,7 +784,7 @@ export const register: Register = (on, options) => {
     try {
       // The agent runs from the start of its step. The end of a step does not say so: the end
       // of a stopped step can come after the end of the run.
-      if (runner !== undefined) await markAgent($, runner, 'step', (r, t) => ran(r, runner, t))
+      if (runner !== undefined) await markAgent($, runner)
       const res = yield* next(e)
       const id = await ensureLoaded($)
       await stamp($)
@@ -858,9 +862,6 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     if (e.tool === 'TaskStop' && e.agentId === undefined && ownStops.has(taskOf(e))) return next(e)
     const loop = e.agentId
-    // The agent runs from the start of its call. The end of a call does not say so: the end
-    // of a stopped call can come after the end of the run.
-    if (loop !== undefined) await markAgent($, loop, 'call', (r, t) => called(r, loop, t))
     const res = await next(e)
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res
@@ -980,7 +981,8 @@ export const register: Register = (on, options) => {
     // The steps of the turn are counted, and the ledger holds them: read it now and settle the
     // cost of the advisor, before a side request of the idle time (a prompt suggestion) grows it.
     // The same reply gives the context as it is at the end of the turn.
-    const usage = await $.session.usage({ breakdown: 'summary' })
+    // A breakdown that fails must not keep the turn open: the plain reply has the cost.
+    const usage = await $.session.usage({ breakdown: 'summary' }).catch(() => $.session.usage())
     const usd = usage.cost?.usd
     contextSeq++
     await recordContext($, id, usage.context, 'summary', true)

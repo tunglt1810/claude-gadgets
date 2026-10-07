@@ -911,8 +911,13 @@ export const AgentPane = ({
   return (
     <Box flexDirection="column" position="relative">
       {/* The toolbar: real buttons (`[ label ]` on the terminal, native ones on desktop), so
-          they read as controls beside the transcript's plain rows. */}
-      <Box flexDirection="row" gap={1}>
+          they read as controls beside the transcript's plain rows. The terminal wraps a label
+          in a narrow pane: the toolbar shows one row of it, so the rows below keep their place. */}
+      <Box
+        flexDirection="row"
+        gap={1}
+        {...(isClient ? {} : { height: 1, overflow: 'hidden' as const })}
+      >
         <Button key="back" label={BACK} onPress={onBack} />
         <Button
           key="wrap"
