@@ -137,10 +137,14 @@ test('sampled starts a base, counts the turns that end, and starts again on a co
   expect(next.turns).toBe(1)
   // A sample that is not the end of a turn (the pane opened, a recount) counts no turn.
   expect(sampled(next, 'S1', SAMPLE, false).turns).toBe(1)
-  // Fewer tokens than the last sample: a compaction.
-  const compacted = sampled(next, 'S1', { ...SAMPLE, tokens: 30000 }, true)
+  // An estimate with fewer tokens than the last sample: a compaction.
+  const compacted = sampled(next, 'S1', { ...SAMPLE, detail: 'summary', tokens: 30000 }, true)
   expect(compacted.base).toBe(30000)
   expect(compacted.turns).toBe(0)
+  // A full count is lower than an estimate of the same context: it is no compaction.
+  const full = sampled(next, 'S1', { ...SAMPLE, detail: 'full', tokens: 60000 }, false)
+  expect(full.base).toBe(70000)
+  expect(full.turns).toBe(1)
   // Another session starts again.
   expect(sampled(next, 'S2', SAMPLE, true)).toEqual({
     sessionId: 'S2',

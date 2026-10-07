@@ -4,7 +4,7 @@ import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
-import { sendFailure } from '../src/control'
+import { sendFailure, stopFailure } from '../src/control'
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
@@ -99,7 +99,7 @@ const initialPane: PaneView = {
   openCategories: [],
   compose: null,
   stopAsk: null,
-  sendError: null,
+  controlError: null,
   sent: 0,
 }
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
@@ -214,6 +214,9 @@ async function loadAgents($: Api, id: string): Promise<void> {
     transcript: null,
     isContext: false,
     openCategories: [],
+    compose: null,
+    stopAsk: null,
+    controlError: null,
   }))
   await syncPane($)
 }
@@ -315,7 +318,14 @@ async function focusAfter($: Api, key: string, change: () => Promise<void>): Pro
 
 async function openAgent($: Api, agentId: string): Promise<void> {
   await focusAfter($, 'back', async () => {
-    await update($, pane, (c) => ({ ...c, agentId, expanded: [], transcript: null }))
+    await update($, pane, (c) => ({
+      ...c,
+      agentId,
+      expanded: [],
+      transcript: null,
+      compose: null,
+      controlError: null,
+    }))
     await syncPane($)
   })
   await loadTranscript($, agentId)
@@ -331,7 +341,13 @@ async function refreshViewed($: Api, agentId: string): Promise<void> {
 async function backToTree($: Api): Promise<void> {
   const from = (await read($, pane)).agentId
   await focusAfter($, `agent:${from}`, async () => {
-    await update($, pane, (c) => ({ ...c, agentId: null, expanded: [], transcript: null }))
+    await update($, pane, (c) => ({
+      ...c,
+      agentId: null,
+      expanded: [],
+      transcript: null,
+      controlError: null,
+    }))
     await syncPane($)
   })
 }
@@ -355,20 +371,28 @@ async function closeContext($: Api): Promise<void> {
 // The text of each message field as the person typed it, by agent. Kept here, not in state:
 // a write to state on each key would draw the pane again.
 const drafts: Record<string, string> = {}
+// The agents that have a message on its way.
+const sending = new Set<string>()
+// The stops of the pane that are on their way: the `tool.call` hook of the mod sees each one,
+// and it is not a tool call of the session.
+let ownStops = 0
 
 // Sends the text of a message field to an agent, as the SendMessage tool does. The engine
 // starts an ended agent again. A message that is not sent stays in its field, with the reason.
 async function sendMessage($: Api, agentId: string, text: string): Promise<void> {
-  if (text.trim() === '') return
+  // A second Enter while the message is on its way sends nothing.
+  if (text.trim() === '' || sending.has(agentId)) return
+  sending.add(agentId)
   const res = await $.session
     .send({ to: { agentId }, text })
     .catch((err: unknown) => ({ isDelivered: false as const, reason: String(err) }))
+  sending.delete(agentId)
   if (res.isDelivered) {
     delete drafts[agentId]
     await update($, pane, (c) => ({
       ...c,
       compose: null,
-      sendError: null,
+      controlError: null,
       sent: (c.sent ?? 0) + 1,
     }))
     return refreshViewed($, agentId)
@@ -376,7 +400,7 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   drafts[agentId] = text
   await update($, pane, (c) => ({
     ...c,
-    sendError: { agentId, text, reason: sendFailure(res.reason) },
+    controlError: { agentId, reason: sendFailure(res.reason) },
   }))
 }
 
@@ -388,7 +412,16 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
     return
   }
   await update($, pane, (c) => ({ ...c, stopAsk: null }))
-  await $.tool.call({ tool: 'TaskStop', task_id: agentId }).catch(() => undefined)
+  ownStops++
+  const res = await $.tool
+    .call({ tool: 'TaskStop', task_id: agentId })
+    .catch((err: unknown) => ({ deny: String(err) }))
+  ownStops--
+  const reason = 'deny' in res && res.deny !== undefined ? res.deny : res.isError ? res.text : null
+  await update($, pane, (c) => ({
+    ...c,
+    controlError: reason === null ? null : { agentId, reason: stopFailure(reason) },
+  }))
 }
 
 // Opens the message field of an agent's row with the focus in it, or closes it. The transcript
@@ -400,11 +433,11 @@ async function toggleCompose($: Api, agentId: string): Promise<void> {
     return
   }
   if (cur.compose === agentId) {
-    await update($, pane, (c) => ({ ...c, compose: null, sendError: null }))
+    await update($, pane, (c) => ({ ...c, compose: null, controlError: null }))
     return
   }
   await focusAfter($, `say:${agentId}`, async () => {
-    await update($, pane, (c) => ({ ...c, compose: agentId, sendError: null }))
+    await update($, pane, (c) => ({ ...c, compose: agentId, controlError: null }))
   })
 }
 
@@ -422,6 +455,10 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'recount') return measureContext($, 'full')
   if (action.kind === 'category') {
+    // A category with no items has no rows to open: a click that only gave the pane the
+    // focus gets here too.
+    const rows = (await read($, shownData)).context?.categories ?? []
+    if ((rows.find((r) => r.name === action.name)?.items.length ?? 0) === 0) return
     await update($, pane, (c) => ({
       ...c,
       openCategories: toggled(c.openCategories, action.name),
@@ -462,11 +499,12 @@ async function togglePane($: Api): Promise<boolean> {
   await loadAgents($, await $.session.id())
   const isWrapped = (await $.store.get(WRAP_KEY)) !== false
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
-  // A summary breakdown estimates locally: it sends no request.
-  await measureContext($, 'summary')
   // The pane takes the keyboard: a click on a pane without it only focuses.
   await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true })
   startSpinner($)
+  // After the pane is open: a usage call that fails leaves the pane and its state as one.
+  // A summary breakdown estimates locally: it sends no request.
+  await measureContext($, 'summary').catch(() => undefined)
   return true
 }
 
@@ -692,6 +730,7 @@ export const register: Register = (on, options) => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (ownStops > 0 && e.tool === 'TaskStop' && e.agentId === undefined) return next(e)
     const res = await next(e)
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res

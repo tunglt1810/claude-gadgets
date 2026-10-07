@@ -39,19 +39,25 @@ An open agent row has a control row below its detail row.
 - When the engine does not send the message, the field keeps the text, and a red row below it gives the reason: `not sent: <first line of the reason>`.
 - When the reason names the classifier, the row is `not sent: add "SendMessage" to permissions.allow`.
 - The mod does not change the permission mode and adds no rule.
+- A second Enter while a message is on its way sends nothing.
+
+### 3.2.1 Refused stop
+
+- When the engine does not stop the agent, a red row below the controls gives the reason: `not stopped: <first line of the reason>`.
+- A stop of the pane is not a tool call of the session: the `calls` count does not change.
 
 ### 3.3 Transcript screen
 
 - The toolbar has the `» message` button, and the `■ stop` button while the agent runs, with the same two presses. The bar of a scrolled transcript has the two buttons too, with the keys `sticky:msg:<id>` and `sticky:stop:<id>`.
 - `» message` puts the focus in the message field.
 - The bar has two rows: the back button, the agent and its context, then the two buttons.
-- The two buttons of the toolbar are icons when the pane has less than 50 columns. The two buttons of the bar are icons when it has less than 24.
+- The two buttons of the toolbar are icons when the pane has less than 51 columns. The two buttons of the bar are icons when it has less than 25.
 - The message field is after the last item of the transcript. The engine gives no height of the pane, so no row stays at the end of the pane.
 
 ## 4. Design
 
 - `src/control.ts`: `controlLabels(room, isAsked)` and `sendFailure(reason)`.
-- `PaneView` holds `compose` (the agent whose field is open on the tree), `stopAsk`, `sendError` and `sent`.
+- `PaneView` holds `compose` (the agent whose field is open on the tree), `stopAsk`, `controlError` and `sent`. A session change clears the first three.
 - `PaneAction` has the kinds `compose`, `stop` and `send`. The keys are `msg:<id>`, `stop:<id>` and `say:<id>` (the field).
 - The text that the person types is in a module variable of the hooks module, not in state: a write to state on each key draws the pane again.
 - A surface with no `Input` element draws no field.

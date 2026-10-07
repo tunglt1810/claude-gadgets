@@ -8,6 +8,10 @@ export const controlLabels = (room: number, isAsked: boolean): { message: string
     ? { message: '» message', stop: isAsked ? '■ stop?' : '■ stop' }
     : { message: '»', stop: isAsked ? '■?' : '■' }
 
+// The row below the controls when the engine did not stop the agent.
+export const stopFailure = (reason: string | undefined): string =>
+  reason === undefined || reason === '' ? 'not stopped' : `not stopped: ${reason.split('\n')[0]}`
+
 // The row below a message field when the engine did not send the message. Auto mode gives no
 // verdict for a message that a plugin sends: an allow rule for the tool lets it through.
 export const sendFailure = (reason: string | undefined): string => {

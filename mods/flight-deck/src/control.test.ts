@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { controlLabels, sendFailure } from './control'
+import { controlLabels, sendFailure, stopFailure } from './control'
 
 test('controlLabels are words in a wide row and icons in a narrow one', () => {
   expect(controlLabels(40, false)).toEqual({ message: '» message', stop: '■ stop' })
@@ -19,4 +19,9 @@ test('sendFailure gives the first line of any other reason', () => {
     'not sent: No agent by that name.',
   )
   expect(sendFailure(undefined)).toBe('not sent')
+})
+
+test('stopFailure gives the first line of the reason', () => {
+  expect(stopFailure('No task with that id.\nmore')).toBe('not stopped: No task with that id.')
+  expect(stopFailure(undefined)).toBe('not stopped')
 })

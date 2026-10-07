@@ -121,7 +121,7 @@ export type Transcript =
 // `isWrapped` draws a transcript's long text on several rows. `isContext` puts the context
 // screen in place of the tree; `openCategories` holds the names of its open category rows.
 // `compose` is the agent whose message field is open on the tree; `stopAsk` the agent whose
-// stop button waits for its second press; `sendError` the message that was not sent, with the
+// stop button waits for its second press; `controlError` the message or the stop that the engine refused, with the
 // reason; `sent` counts the sent messages, so a sent message draws the pane again.
 export type PaneView = {
   isOpen: boolean
@@ -134,7 +134,7 @@ export type PaneView = {
   openCategories: string[]
   compose: string | null
   stopAsk: string | null
-  sendError: { agentId: string; text: string; reason: string } | null
+  controlError: { agentId: string; reason: string } | null
   sent: number
 }
 

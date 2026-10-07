@@ -84,7 +84,7 @@ const BUTTON_CHROME = 4
 // The least room that the bar of a scrolled transcript keeps for the agent's name.
 const MIN_STICKY_NAME = 8
 // The columns that the toolbar of a transcript keeps for its back and wrap buttons.
-const TOOLBAR_USED = 26
+const TOOLBAR_USED = 27
 // A tool call by its outcome: its mark and the color of the mark. A finished call is dim at
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const
@@ -251,7 +251,14 @@ export const AgentPane = ({
     </Box>
   )
 
-  // The message field of an agent, and below it the reason of a message that was not sent.
+  // The reason of a message or a stop that the engine refused, below the controls of the agent.
+  const controlError = (key: string, id: string) =>
+    view.controlError?.agentId === id ? (
+      <Text key={key} color={PALETTE.red} wrap="truncate">
+        {view.controlError.reason}
+      </Text>
+    ) : null
+  // The message field of an agent.
   // Enter sends the text. Only the terminal and a desktop draw a field.
   // The field takes its whole row: `width` cells on a desktop, where no box grows.
   const say = (a: AgentEntry | undefined, id: string, width: number, isFocused: boolean) =>
@@ -271,11 +278,6 @@ export const AgentPane = ({
           onInput={(text) => onDraft(id, text)}
           onSubmit={(text) => onSend(id, text)}
         />
-        {view.sendError?.agentId === id && (
-          <Text key={`sayerr:${id}`} color={PALETTE.red} wrap="truncate">
-            {view.sendError.reason}
-          </Text>
-        )}
       </Box>
     ) : null
 
@@ -696,6 +698,11 @@ export const AgentPane = ({
                   {say(agent, agent.id, Math.max(1, columns - inset), true)}
                 </Box>
               )}
+              {isOpen && (
+                <Box key={`errrow:${agent.id}`} paddingLeft={inset}>
+                  {controlError(`err:${agent.id}`, agent.id)}
+                </Box>
+              )}
             </Box>
           )
         })}
@@ -860,7 +867,7 @@ export const AgentPane = ({
           )}
       </Box>
       <Box key={`${key}:controls`} flexDirection="row" gap={1}>
-        {controls(`${key}:`, columns)}
+        {controls(`${key}:`, columns - 1)}
       </Box>
     </Box>
   )
@@ -878,6 +885,7 @@ export const AgentPane = ({
         />
         {controls('', columns - TOOLBAR_USED)}
       </Box>
+      {controlError('err', viewed)}
       <Box key="title" flexDirection="row" alignItems="center" gap={1}>
         {agent !== undefined && cell('mark', agentMark(agent))}
         {rest('title', agent === undefined ? viewed : name(agent), titleWidth, {
@@ -937,6 +945,7 @@ export const AgentPane = ({
       <Box key="sayrow" flexDirection="row">
         {say(agent, viewed, columns, false)}
       </Box>
+      {controlError('err:end', viewed)}
       {scrollTop > 0 && sticky('sticky', scrollTop)}
       {/* The engine moves the window after this drawing: until then the row it shows has a bar
           too, so no drawing is without a bar at its top. */}

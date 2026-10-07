@@ -88,7 +88,9 @@ export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSa
 }
 
 // The state with a new sample. The first sample of a session is the base of its growth, and
-// so is a sample with fewer tokens than the last one: a compaction. `isTurnEnd` counts a turn.
+// so is an estimate with fewer tokens than the last sample: a compaction. A full count is
+// lower than an estimate of the same context, and its reply can come late, so it starts no
+// base. `isTurnEnd` counts a turn.
 export const sampled = (
   c: ContextState,
   id: string,
@@ -96,7 +98,8 @@ export const sampled = (
   isTurnEnd: boolean,
 ): ContextState => {
   const last = c.sessionId === id ? c.sample?.tokens : undefined
-  if (c.sessionId !== id || c.base === null || (last !== undefined && sample.tokens < last))
+  const isCompacted = sample.detail === 'summary' && last !== undefined && sample.tokens < last
+  if (c.sessionId !== id || c.base === null || isCompacted)
     return { sessionId: id, sample, base: sample.tokens, turns: 0 }
   return { ...c, sample, turns: c.turns + (isTurnEnd ? 1 : 0) }
 }

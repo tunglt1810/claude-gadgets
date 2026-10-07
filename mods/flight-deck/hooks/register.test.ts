@@ -2664,3 +2664,40 @@ test('a running agent counts its run before the run ends', async ($, on) => {
     await ui.unmount()
   }
 })
+
+test('a stop that the engine refuses shows the reason, and no stop is a tool call of the session', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  let isDenied = true
+  engine(on, undefined, () =>
+    isDenied ? { deny: 'TaskStop is not allowed.' } : { result: {} as never, text: 'ok' },
+  )
+  paneEngine(on)
+  await spawn($)
+
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'stop:a1' })
+  await ui.press({ key: 'stop:a1' })
+  expect(await paneText(ui)).toContain('not stopped: TaskStop is not allowed.')
+  isDenied = false
+  await ui.press({ key: 'stop:a1' })
+  await ui.press({ key: 'stop:a1' })
+  expect(await paneText(ui)).not.toContain('not stopped')
+  await ui.unmount()
+  expect(await settled($, clock)).toContain('⌘ calls 0')
+})
+
+test('the message field of the tree closes when the transcript opens', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'msg:a1' })
+  await ui.press({ key: 'agent:a1' })
+  await ui.press({ key: 'back' })
+  expect(await ui.find({ key: 'say:a1' })).toBeUndefined()
+  await ui.unmount()
+})
