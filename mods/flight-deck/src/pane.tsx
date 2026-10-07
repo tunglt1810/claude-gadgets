@@ -633,12 +633,22 @@ export const AgentPane = ({
   }
 
   const item = (it: TranscriptItem, i: number) => {
-    if (it.kind === 'prompt')
-      return (
+    if (it.kind === 'prompt') {
+      const prompt = (
         <Text key={String(i)} color={PALETTE.cyan} wrap={isWrapped ? 'wrap' : 'truncate'}>
           {isWrapped ? `> ${it.text}` : cut(`> ${it.text}`, isClient ? columns : Infinity)}
         </Text>
       )
+      // An empty row parts a new prompt from the turn before it.
+      return i === 0 ? (
+        prompt
+      ) : (
+        <Box key={String(i)} flexDirection="column">
+          <Box key={`turn:${i}`} height={1} />
+          {prompt}
+        </Box>
+      )
+    }
     if (it.kind === 'text') return <Markdown key={String(i)} text={it.text} />
     if (it.kind === 'answer')
       return (

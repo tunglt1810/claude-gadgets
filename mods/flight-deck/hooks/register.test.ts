@@ -2466,3 +2466,22 @@ test('the context screen stays one row wide in a narrow pane', async ($, on) => 
     await ui.unmount()
   }
 })
+
+test('an empty row parts a new prompt from the turn before it', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on, () => [...ROWS, { role: 'user', text: 'Now the words.', toolUses: [] }])
+  await spawn($)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'agent:a1' })
+    expect(await paneText(ui)).toContain('> Now the words.')
+    // The items are a prompt, a tool call, an answer and the new prompt. The first prompt
+    // has no turn before it.
+    expect(await ui.find({ key: 'turn:0' })).toBe(undefined)
+    expect((await ui.find({ key: 'turn:3' }))?.props.height).toBe(1)
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
