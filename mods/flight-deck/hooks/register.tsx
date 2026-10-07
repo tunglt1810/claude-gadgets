@@ -217,6 +217,7 @@ async function loadAgents($: Api, id: string): Promise<void> {
     sent: c.sent ?? 0,
   }))
   for (const key of Object.keys(drafts)) delete drafts[key]
+  answersToShow.clear()
   wantedFocus = null
   await syncPane($)
 }
@@ -475,6 +476,19 @@ const ownStops = new Set<string>()
 const taskOf = (e: object): string =>
   'task_id' in e && typeof e.task_id === 'string' ? e.task_id : ''
 
+// The agents whose transcript got a message of the pane: the window goes to the answer.
+// An agent leaves the set when its run ends or stops, and all leave it when the person
+// moves the window: the person then reads another place.
+const answersToShow = new Set<string>()
+
+// Moves the window of the transcript of `agentId` to its end, when that transcript is on
+// the screen.
+async function showEnd($: Api, agentId: string): Promise<void> {
+  const cur = await read($, pane)
+  if (cur.isOpen && cur.agentId === agentId)
+    await $.ui.scroll({ in: PANE_ID, to: 'end' }).catch(() => ({}))
+}
+
 // Sends the text of a message field to an agent, as the SendMessage tool does. The engine
 // starts an ended agent again. A message that is not sent stays in its field, with the reason.
 async function sendMessage($: Api, agentId: string, text: string): Promise<void> {
@@ -488,6 +502,8 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
     // The field is empty while the message is on its way: text that the person types then is
     // a new message, not more of the sent one.
     delete drafts[agentId]
+    // Before the send: the run that answers can end before the send comes back.
+    if ((await read($, pane)).agentId === agentId) answersToShow.add(agentId)
     await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
     res = await $.session
       .send({ to: { agentId }, text })
@@ -515,8 +531,13 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
         await close()
       })
     else await close()
-    return refreshViewed($, agentId)
+    await refreshViewed($, agentId)
+    // The new message is the last row of the transcript, and the field is in the header:
+    // the window goes to the end, and again when the answer of the agent comes.
+    await showEnd($, agentId)
+    return
   }
+  answersToShow.delete(agentId)
   // The text comes back to the field, unless the person typed a new one.
   if (drafts[agentId] === undefined) drafts[agentId] = text
   // Auto mode did not judge the message: the pane asks the person once. With the answer
@@ -1050,6 +1071,8 @@ export const register: Register = (on, options) => {
       await trackAgent($, session, (r, t) => end(r, agentId, t))
       await forgetStop($, agentId)
       await refreshViewed($, agentId)
+      // The engine does not wait for the move of the window.
+      if (answersToShow.delete(agentId)) void showEnd($, agentId).catch(() => undefined)
       return next(e)
     }
     const id = await ensureLoaded($)
@@ -1103,6 +1126,7 @@ export const register: Register = (on, options) => {
       await update($, meter, (c) => ({ ...c, ...endRun(c, notice.id, at) }))
       await trackAgent($, session, (r, t) => ended(r, notice.id, notice.status, t))
       await forgetStop($, notice.id)
+      answersToShow.delete(notice.id)
     }
     return res
   })
@@ -1127,6 +1151,7 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.scroll', async ($, e, next) => {
+    if (e.requestId === PANE_ID && e.origin.kind === 'person') answersToShow.clear()
     const isTranscript =
       isPaneOnTerminal &&
       e.component === 'Pane' &&

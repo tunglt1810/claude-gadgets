@@ -46,6 +46,7 @@ An open agent row has a control row below its detail row.
 - The mod cannot read the permission mode of the session. The hook thus changes each `ask` that the mode alone gave. In default mode the engine gave `allow` for a message of a plugin (tested), so the hook changed nothing there.
 - The hook compares `input.to` of the call with the id of the agent. The engine gave the id for an agent with no name (tested). An agent with a name is not tested: if the engine gives the name, the verdict stays `ask` and the row names the rule of the settings.
 - The pane has no control that takes the answer back. To take it back, delete `allowSend` from the store file of the mod.
+- A message that goes from the transcript screen is the last row of the transcript, and the field is in the header. The pane thus moves its window to the end (`$.ui.scroll({ in, to: 'end' })`) after the send, and one time more at the end of the next run of the agent. A move of the window by the person, or a stop of the agent, cancels the second move. The test driver does not raise an event for this call: a live session in a pty showed the two moves, with the field below the bar and the focus in it.
 - The mod does not change the permission mode and adds no rule.
 - A second Enter while a message is on its way sends nothing. The field is empty during that time, and the text comes back when the engine refuses the message.
 
