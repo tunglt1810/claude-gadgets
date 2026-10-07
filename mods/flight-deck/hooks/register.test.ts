@@ -2318,3 +2318,82 @@ test('a transcript longer than the engine draws keeps its newest items and its b
   await ui.press({ key: 'sticky:back' })
   await ui.unmount()
 })
+
+// A usage reply with a breakdown: 31.4k of overhead, 52.8k of messages, two MCP servers.
+const CONTEXT = {
+  tokens: 84200,
+  window: 200000,
+  breakdown: {
+    categories: [
+      { name: 'System prompt', tokens: 3200, kind: 'used' },
+      { name: 'System tools', tokens: 8100, kind: 'used' },
+      { name: 'MCP tools', tokens: 14200, kind: 'used' },
+      { name: 'Memory files', tokens: 4000, kind: 'used' },
+      { name: 'Skills', tokens: 1900, kind: 'used' },
+      { name: 'Messages', tokens: 52800, kind: 'used' },
+      { name: 'Free space', tokens: 82800, kind: 'free' },
+    ],
+    totalTokens: 84200,
+    mcpTools: [
+      { name: 'mcp__figma__get', serverName: 'figma', tokens: 6000, isLoaded: true },
+      { name: 'mcp__figma__set', serverName: 'figma', tokens: 3800, isLoaded: true },
+      { name: 'mcp__chrome__click', serverName: 'chrome', tokens: 1800, isLoaded: true },
+    ],
+    memoryFiles: [{ path: '/repo/CLAUDE.md', type: 'Project', tokens: 4000 }],
+    agents: [],
+    skills: { skillFrontmatter: [{ name: 'docs', tokens: 1900 }] },
+    autoCompactThreshold: 167000,
+    isAutoCompactEnabled: true,
+  },
+}
+
+// The engine with a usage that has the breakdown above.
+const contextEngine = (on: Parameters<typeof mock.store>[0]) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, {}, () => ({ context: CONTEXT }))
+  paneEngine(on)
+}
+
+const turn = async ($: Engine, turnId: string) => {
+  await $.turn.start({ text: 'hi', turnId })
+  await $.turn.complete({ ...DONE, turnId })
+}
+
+test('the agents screen shows the context block after a turn', async ($, on) => {
+  contextEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    const text = await paneText(ui)
+    expect(text).toContain('ctx 84.2k/200k 42%')
+    expect(text).toContain(`${'█'.repeat(6)}${'▓'.repeat(11)}`)
+    expect(text).toContain('overhead 31.4k')
+    expect(text).toContain('messages 52.8k')
+    expect(text).toContain('dead weight 11.6k')
+    await ui.unmount()
+  }
+})
+
+test('a called MCP server is not dead weight', async ($, on) => {
+  contextEngine(on)
+  await $.tool.call({ tool: 'mcp__figma__get' } as never)
+  await turn($, 't1')
+  const ui = await mountPane($, 'terminal')
+  const text = await paneText(ui)
+  expect(text).toContain('dead weight 1.8k')
+  await ui.unmount()
+})
+
+test('a usage with no breakdown draws no context block', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).not.toContain('overhead')
+    await ui.unmount()
+  }
+})

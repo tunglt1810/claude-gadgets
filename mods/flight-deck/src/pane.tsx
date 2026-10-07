@@ -2,6 +2,7 @@ import type { Elements } from 'claude-code'
 import type {
   AgentEntry,
   Cell,
+  ContextView,
   Dashboard,
   PaneView,
   Registry,
@@ -10,6 +11,7 @@ import type {
 } from '../types'
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
+import { barSegments, contextHead, contextSummary } from './context'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
 import { formatDuration } from './format'
@@ -30,6 +32,8 @@ type Props = {
   stats: Snapshot | null
   // The session's cost and a row per model, above the agents table.
   dashboard: Dashboard | null
+  // The context of the main loop, below the dashboard; null with no sample.
+  context: ContextView | null
   // The dashboard's costs and the tokens of each context as they are on screen, by name, where
   // the pane is drawn on each frame (the terminal). Absent on a desktop: a cell runs to its
   // new number by itself.
@@ -132,6 +136,7 @@ export const AgentPane = ({
   view,
   stats,
   dashboard,
+  context,
   shownUsd,
   spin,
   now,
@@ -297,11 +302,45 @@ export const AgentPane = ({
       )
     }
 
+    // The bar of a context: one text, in a box of one row that cuts it. Its length is a
+    // fixed count of cells, so no box here takes a width from `columns`.
+    const bar = (key: string, c: ContextView) => (
+      <Box key={key} height={1} flexShrink={1} overflow="hidden">
+        <Text wrap="truncate">
+          {barSegments(c).map((s, i) => (
+            <Text
+              key={String(i)}
+              {...(s.color === undefined ? { dimColor: true } : { color: s.color })}
+            >
+              {s.text}
+            </Text>
+          ))}
+        </Text>
+      </Box>
+    )
+    // A row of cells with one cell between them.
+    const cells = (key: string, row: Cell[]) => (
+      <Box key={key} flexDirection="row" alignItems="center" gap={1} overflow="hidden">
+        {row.map((c, i) => cell(`${key}:${i}`, c))}
+      </Box>
+    )
+    // The context of the main loop: its length, the bar of the window and the totals.
+    const contextBlock = () =>
+      context === null ? null : (
+        <Box key="ctxblock" flexDirection="column">
+          {cells('ctx:head', contextHead(context, columns))}
+          {bar('ctx:bar', context)}
+          {cells('ctx:sum', contextSummary(context))}
+          {rule('ctx:rule')}
+        </Box>
+      )
+
     const rows = treeRows(entries)
     if (rows.length === 0)
       return (
         <Box flexDirection="column">
           {board()}
+          {contextBlock()}
           <Text dimColor>No agents yet.</Text>
         </Box>
       )
@@ -314,6 +353,7 @@ export const AgentPane = ({
     return (
       <Box flexDirection="column">
         {board()}
+        {contextBlock()}
         <Box key="head" flexDirection="row" gap={1}>
           {/* Built as a row is, a mark and a box of the name's width: a desktop sizes a box
               and a cell in different units, so only the same parts line up. */}

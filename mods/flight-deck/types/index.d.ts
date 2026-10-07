@@ -174,6 +174,8 @@ export type PaneData = {
   entries: Registry
   stats: Snapshot | null
   dashboard: Dashboard | null
+  // The context of the main loop, on the tree screen; null with no sample.
+  context: ContextView | null
 }
 
 // One item below a category of the context: an MCP server (`count` is its loaded tools), a
@@ -232,6 +234,7 @@ declare module 'claude-code' {
       agents: Agents
       pane: PaneView
       paneData: PaneData
+      context: ContextState
       paneShown: NamedShown
       // Where the pane's window is about to be: the offset of the latest scroll, and the
       // offset the pane was drawn with when the scroll was asked for.

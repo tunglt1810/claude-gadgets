@@ -3,6 +3,7 @@ import { atom, read, update } from 'claude-code'
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
+import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
@@ -49,7 +50,16 @@ import {
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
 import { contextTargets, contextTokens, contextWindow } from '../src/window'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
-import type { Agents, Meter, PaneAction, PaneData, PaneView, Registry, Transcript } from '../types'
+import type {
+  Agents,
+  ContextState,
+  Meter,
+  PaneAction,
+  PaneData,
+  PaneView,
+  Registry,
+  Transcript,
+} from '../types'
 
 type Api = EngineInterface
 type Ttls = { main: Ttl; agent: Ttl }
@@ -86,8 +96,17 @@ const initialPane: PaneView = {
   transcript: null,
 }
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
-const initialData: PaneData = { sessionId: null, entries: {}, stats: null, dashboard: null }
+const initialData: PaneData = {
+  sessionId: null,
+  entries: {},
+  stats: null,
+  dashboard: null,
+  context: null,
+}
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
+// The context of the main loop: the latest breakdown that an event read, and its growth.
+const initialContext: ContextState = { sessionId: null, sample: null, base: null, turns: 0 }
+const contextAtom = atom({ plugin: 'flight-deck', key: 'context' } as const, initialContext)
 // The dashboard's costs and the context lengths as the terminal draws them: a changed number
 // runs to its new value.
 const initialPaneShown: NamedShown = { sessionId: null, tweens: {} }
@@ -196,12 +215,15 @@ async function syncPane($: Api): Promise<void> {
   const id = await $.session.id()
   const reg = await read($, agents)
   const view = await read($, pane)
+  const snap = await currentMeter($)
+  const ctx = await read($, contextAtom)
   const next = paneData(
     id,
     reg.sessionId === id ? reg.entries : {},
     view.agentId,
-    await currentMeter($),
+    snap,
     await $.clock.now(),
+    ctx.sessionId === id ? contextView(ctx, snap) : null,
   )
   const cur = await read($, shownData)
   if (JSON.stringify(cur) !== JSON.stringify(next)) await update($, shownData, () => next)
@@ -216,6 +238,29 @@ async function syncPane($: Api): Promise<void> {
   if (JSON.stringify(tweens) === JSON.stringify(retargetNamed(tweens, id, target, at))) return
   await update($, paneShown, (c) => retargetNamed(c, id, target, at))
   startFrames($)
+}
+
+// Keeps the breakdown of a usage reply as the context sample of the session `id`. A reply
+// with no breakdown changes nothing. `isTurnEnd` counts a turn of the growth.
+async function recordContext(
+  $: Api,
+  id: string,
+  context: UsageContext,
+  detail: 'summary' | 'full',
+  isTurnEnd: boolean,
+): Promise<void> {
+  const sample = sampleOf(context, detail)
+  if (sample === null) return
+  await update($, contextAtom, (c) => sampled(c, id, sample, isTurnEnd))
+}
+
+// Reads a breakdown and draws it. A `full` one sends a token-count request for each tool and
+// each memory file: only a press asks for it.
+async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void> {
+  const id = await $.session.id()
+  const usage = await $.session.usage({ breakdown: detail })
+  await recordContext($, id, usage.context, detail, false)
+  await syncPane($)
 }
 
 // The engine's list merged in (it has the agents that raised no spawn), then one registry
@@ -320,7 +365,8 @@ async function togglePane($: Api): Promise<boolean> {
   await loadAgents($, await $.session.id())
   const isWrapped = (await $.store.get(WRAP_KEY)) !== false
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
-  await syncPane($)
+  // A summary breakdown estimates locally: it sends no request.
+  await measureContext($, 'summary')
   // The pane takes the keyboard: a click on a pane without it only focuses.
   await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true })
   startSpinner($)
@@ -502,6 +548,7 @@ export const register: Register = (on, options) => {
                     0) + stepCost,
               },
         advisor: advised(c.advisor, res.serverToolUses ?? [], advisorModel),
+        steps: c.steps + (isMain && res.usage !== null ? 1 : 0),
         // An agent with no `agent.spawn` (a skill that runs in a subagent) is counted here.
         agents: c.agents + (e.agentId === undefined || e.agentId in c.byAgent ? 0 : 1),
         totals: addUsage(c.totals, res.usage),
@@ -567,6 +614,10 @@ export const register: Register = (on, options) => {
       added: c.added + diff.added,
       removed: c.removed + diff.removed,
       bg: c.bg + (isBackground ? 1 : 0),
+      mcpCalls:
+        e.tool.startsWith('mcp__') && !c.mcpCalls.includes(e.tool)
+          ? [...c.mcpCalls, e.tool]
+          : c.mcpCalls,
       byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
         ...a,
         tools: a.tools + 1,
@@ -661,7 +712,10 @@ export const register: Register = (on, options) => {
     const at = await stamp($)
     // The steps of the turn are counted, and the ledger holds them: read it now and settle the
     // cost of the advisor, before a side request of the idle time (a prompt suggestion) grows it.
-    const usd = (await $.session.usage()).cost?.usd
+    // The same reply gives the context as it is at the end of the turn.
+    const usage = await $.session.usage({ breakdown: 'summary' })
+    const usd = usage.cost?.usd
+    await recordContext($, id, usage.context, 'summary', true)
     const nextMeter = await update($, meter, (c) => {
       const ended = { ...c, ...endTurn(c, at), ...(usd === undefined ? {} : { costUsd: usd }) }
       return mainTurns(ended) > 0 || stepsInFlight > 0
@@ -771,6 +825,8 @@ export const register: Register = (on, options) => {
         view={await read($, pane)}
         stats={isCurrent ? data.stats : null}
         dashboard={isCurrent ? data.dashboard : null}
+        // State of an older shape (a hot reload) has no context.
+        context={isCurrent ? (data.context ?? null) : null}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
