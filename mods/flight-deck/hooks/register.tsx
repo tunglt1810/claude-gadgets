@@ -4,7 +4,7 @@ import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
-import { sendFailure, stopFailure } from '../src/control'
+import { isNoVerdict, isOpenAsk, isPaneSend, sendFailure, stopFailure } from '../src/control'
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
@@ -465,6 +465,9 @@ const ownErrorGone = (c: PaneView, agentId: string): PaneView['controlError'] =>
 const drafts: Record<string, string> = {}
 // The agents that have a message on its way.
 const sending = new Set<string>()
+// The store key of the person's answer: the messages of the pane go in auto mode. It is not
+// of a session.
+const ALLOW_KEY = 'allowSend'
 // The agents that a stop of the pane is on its way to: the `tool.call` hook of the mod sees
 // each stop, and it is not a tool call of the session.
 const ownStops = new Set<string>()
@@ -516,10 +519,24 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   }
   // The text comes back to the field, unless the person typed a new one.
   if (drafts[agentId] === undefined) drafts[agentId] = text
+  // Auto mode did not judge the message: the pane asks the person once. With the answer
+  // and still no verdict, the reason names the rule of the settings.
+  const isAsk = isNoVerdict(res.reason) && (await $.store.get(ALLOW_KEY)) !== true
   await update($, pane, (c) => ({
     ...c,
-    controlError: { agentId, reason: sendFailure(res.reason) },
+    controlError: isAsk ? { agentId, isAsk } : { agentId, reason: sendFailure(res.reason) },
   }))
+}
+
+// The person lets the messages of the pane go in auto mode: the answer is kept, and the
+// message that waits in the field goes. The button leaves the screen: the focus goes to the
+// field first, when the field of the agent is on the screen.
+async function allowSend($: Api, agentId: string): Promise<void> {
+  await $.store.set(ALLOW_KEY, true)
+  const clear = () => patchPane($, (c) => ({ ...c, controlError: ownErrorGone(c, agentId) }))
+  if ((await read($, pane)).compose === agentId) await focusAfter($, `say:${agentId}`, clear)
+  else await clear()
+  await sendMessage($, agentId, drafts[agentId] ?? '')
 }
 
 // The first press of a stop button asks, the second stops the agent as the TaskStop tool
@@ -612,6 +629,7 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if ((await read($, pane)).stopAsk != null) await update($, pane, (c) => ({ ...c, stopAsk: null }))
   if (action.kind === 'compose') return toggleCompose($, action.agentId)
   if (action.kind === 'send') return sendMessage($, action.agentId, action.text)
+  if (action.kind === 'allow') return allowSend($, action.agentId)
   if (action.kind === 'open') return openAgent($, action.agentId)
   if (action.kind === 'back')
     // State of an older shape (a hot reload) has no flag.
@@ -897,6 +915,22 @@ export const register: Register = (on, options) => {
     } finally {
       stepsInFlight--
     }
+  })
+
+  // Auto mode asks for a SendMessage call and gives a plugin's call no verdict. After the
+  // person's answer, a message of the pane goes. A deny stays, and so does an ask that a
+  // rule, a classic hook or a ceiling gave.
+  on('tool.check', { tool: 'SendMessage' }, async ($, e, next) => {
+    const verdict = await next(e)
+    const call = {
+      plugin: next.origin.plugin,
+      input: e.input,
+      ...(e.agentId === undefined ? {} : { agentId: e.agentId }),
+    }
+    if (!isOpenAsk(verdict) || !isPaneSend(call, sending)) return verdict
+    return (await $.store.get(ALLOW_KEY)) === true
+      ? { decision: 'allow', reason: 'the person allowed the messages of the Flight Deck pane' }
+      : verdict
   })
 
   on('tool.call', async ($, e, next) => {
@@ -1187,6 +1221,7 @@ export const register: Register = (on, options) => {
           drafts[agentId] = text
         }}
         onSend={(agentId, text) => act($, { kind: 'send', agentId, text })}
+        onAllow={(agentId) => act($, { kind: 'allow', agentId })}
       />
     )
     if (pad === 0) return body

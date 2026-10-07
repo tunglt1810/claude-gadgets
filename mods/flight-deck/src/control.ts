@@ -13,10 +13,50 @@ export const controlLabels = (room: number, isAsked: boolean): { message: string
 export const stopFailure = (reason: string | undefined): string =>
   reason === undefined || reason === '' ? 'not stopped' : `not stopped: ${reason.split('\n')[0]}`
 
-// The row below a message field when the engine did not send the message. Auto mode gives no
-// verdict for a message that a plugin sends: an allow rule for the tool lets it through.
+// Auto mode gives no verdict for a message that a plugin sends: the reason says so, and the
+// pane then asks the person. A message that the classifier refused was judged.
+export const isNoVerdict = (reason: string | undefined): boolean =>
+  reason !== undefined && /classifier gave no verdict/i.test(reason)
+
+// Whether the engine asks for a call by its mode only: an ask that a rule of the settings, a
+// classic hook or a ceiling of the organization gave is the decision of a person.
+export const isOpenAsk = (verdict: {
+  decision: string
+  rule?: string
+  hook?: string
+  ceiling?: string
+}): boolean =>
+  verdict.decision === 'ask' &&
+  verdict.rule === undefined &&
+  verdict.hook === undefined &&
+  verdict.ceiling === undefined
+
+const PLUGIN = 'flight-deck'
+
+// Whether a SendMessage call is a message of the pane: the mod made the call (`plugin`, the
+// origin of the dispatch), from the main loop, to an agent of `sending`. A call of the model
+// has the engine as its origin.
+export const isPaneSend = (
+  call: { plugin: string; agentId?: string; input: unknown },
+  sending: ReadonlySet<string>,
+): boolean => {
+  const { input } = call
+  const to = typeof input === 'object' && input !== null && 'to' in input ? input.to : null
+  return (
+    call.plugin === PLUGIN &&
+    call.agentId === undefined &&
+    typeof to === 'string' &&
+    sending.has(to)
+  )
+}
+
+// The button that lets the messages of the pane go in auto mode.
+export const ALLOW_LABEL = 'allow messages in auto mode'
+
+// The row below a message field when the engine did not send the message. With the answer of
+// the person and still no verdict, an allow rule for the tool lets the message through.
 export const sendFailure = (reason: string | undefined): string => {
   if (reason === undefined || reason === '') return 'not sent'
-  if (/classifier/i.test(reason)) return 'not sent: add "SendMessage" to permissions.allow'
+  if (isNoVerdict(reason)) return 'not sent: add "SendMessage" to permissions.allow'
   return `not sent: ${reason.split('\n')[0]}`
 }

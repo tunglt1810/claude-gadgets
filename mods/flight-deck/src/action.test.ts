@@ -52,3 +52,7 @@ test('focusAction reads the keys of the context screen', () => {
   expect(focusAction('item:MCP tools:0', null)).toBeNull()
   expect(focusAction('cat:', null)).toBeNull()
 })
+
+test('focusAction reads the button that allows the messages of the pane', () => {
+  expect(focusAction('allow:a1', null)).toEqual({ kind: 'allow', agentId: 'a1' })
+})

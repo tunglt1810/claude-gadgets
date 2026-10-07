@@ -2532,9 +2532,75 @@ test('the message button of an agent opens a field, and Enter sends its text', a
   expect(sent).toHaveLength(2)
 })
 
-test('a message that is not sent shows the reason and keeps its text', async ($, on) => {
+const NO_VERDICT = 'The server-side auto mode classifier gave no verdict for SendMessage'
+
+test('a message that auto mode does not judge asks the person, then goes', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  // The engine gives no verdict until the person answers.
+  let isAllowed = false
+  const sent = sendEngine(on, () =>
+    isAllowed ? { isDelivered: true } : { isDelivered: false, reason: NO_VERDICT },
+  )
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    if ((await ui.find({ key: 'say:a1' })) === undefined) await ui.press({ key: 'msg:a1' })
+    await ui.input({ key: 'say:a1', text: `hello ${surface}` })
+    if (surface === SURFACES[0]) {
+      // The first message: the pane asks, and the text stays in the field.
+      expect((await ui.find({ key: 'allow:a1' }))?.props.label).toBe('allow messages in auto mode')
+      expect(await paneText(ui)).not.toContain('permissions.allow')
+      expect((await ui.find({ key: 'say:a1' }))?.props.value).toBe(`hello ${surface}`)
+      isAllowed = true
+      const before = sent.length
+      await ui.press({ key: 'allow:a1' })
+      // The message that waited in the field goes.
+      expect(sent).toHaveLength(before + 1)
+    }
+    expect(sent.at(-1)?.text).toBe(`hello ${surface}`)
+    expect(await ui.find({ key: 'allow:a1' })).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+// A check that the test raises has not the mod as its origin, as a call of the model or of
+// another plugin: the hook of the mod leaves the verdict, with a message of the pane on its
+// way to the same agent and the answer of the person in the store. `control.test.ts` has the
+// call of the mod.
+test('a SendMessage call that the mod did not make keeps the verdict of the engine', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, { allowSend: true })
+  engine(on)
+  paneEngine(on)
+  on('tool.check', () => ({ decision: 'ask' }) as never)
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  on('session.send', async () => {
+    await gate
+    return { isDelivered: true } as never
+  })
+  await spawn($)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'msg:a1' })
+  const typing = ui.input({ key: 'say:a1', text: 'hello' })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  const call = { tool: 'SendMessage', input: { to: 'a1', message: 'hello' } }
+  expect((await $.tool.check({ ...call, tool_use_id: 'toolu_01' } as never)).decision).toBe('ask')
+  expect((await $.tool.check(call)).decision).toBe('ask')
+  release()
+  await typing
+  await ui.unmount()
+})
+
+test('a message that is not sent shows the reason and keeps its text', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, { allowSend: true })
   engine(on)
   paneEngine(on)
   sendEngine(on, () => ({

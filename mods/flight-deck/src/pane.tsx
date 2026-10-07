@@ -12,7 +12,7 @@ import type {
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
 import { barSegments, contextHead, contextSummary, overheadHead } from './context'
-import { controlLabels } from './control'
+import { ALLOW_LABEL, controlLabels } from './control'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
 import { formatDuration, formatTokens, formatUsd } from './format'
@@ -63,6 +63,7 @@ type Props = {
   onCompose: (agentId: string) => void
   onStop: (agentId: string) => void
   onDraft: (agentId: string, text: string) => void
+  onAllow: (agentId: string) => void
   onSend: (agentId: string, text: string) => void
 }
 
@@ -181,6 +182,7 @@ export const AgentPane = ({
   onCompose,
   onStop,
   onDraft,
+  onAllow,
   onSend,
 }: Props) => {
   const { Box, Text, Button, Code, Markdown } = ui
@@ -256,13 +258,23 @@ export const AgentPane = ({
     </Box>
   )
 
+  const allow = (id: string) => {
+    const button = <Button key={`allow:${id}`} label={ALLOW_LABEL} onPress={() => onAllow(id)} />
+    return isClient ? button : oneRow(`allowbox:${id}`, ALLOW_LABEL, button)
+  }
   // The reason of a message or a stop that the engine refused, below the controls of the agent.
+  // A message that auto mode did not judge has a button there: it lets the messages of the
+  // pane go.
   const controlError = (key: string, id: string) =>
-    view.controlError?.agentId === id ? (
+    view.controlError?.agentId !== id ? null : 'isAsk' in view.controlError ? (
+      <Box key={key} flexDirection="row" {...oneRowOnly}>
+        {allow(id)}
+      </Box>
+    ) : (
       <Text key={key} color={PALETTE.red} wrap="truncate">
         {view.controlError.reason}
       </Text>
-    ) : null
+    )
   // The message field of an agent. It has no placeholder: text that an input method composes
   // (Vietnamese on macOS) is not in the field yet, so the engine draws the placeholder below it.
   // Enter sends the text. Only the terminal and a desktop draw a field.
