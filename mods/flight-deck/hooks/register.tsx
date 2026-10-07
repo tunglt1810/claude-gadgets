@@ -4,7 +4,7 @@ import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
-import { isFieldHidden, sendFailure, stopFailure } from '../src/control'
+import { sendFailure, stopFailure } from '../src/control'
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
@@ -510,20 +510,6 @@ const REFOCUS_MS = 80
 
 // The field that the later focus moves go to, or null when the person chose another place.
 let wantedFocus: string | null = null
-// The agent whose message field has the focus ring, as far as the mod knows.
-let fieldWithRing: string | null = null
-
-// The terminal draws the cursor of a field that has the ring. When a scroll takes the field
-// out of the window, the cursor stays at the last row of the screen. So the ring goes to the
-// message button of the bar, which is in the window at each offset but the first.
-function leaveHiddenField($: Api, offset: number): void {
-  const agentId = fieldWithRing
-  if (agentId === null) return
-  fieldWithRing = null
-  wantedFocus = null
-  const key = offset > 0 ? `sticky:msg:${agentId}` : `msg:${agentId}`
-  void $.ui.focus({ requestId: PANE_ID, key }).catch(() => ({}))
-}
 
 // Puts the focus in the message field of an agent, so the person can type at once. The
 // pressed button stays on the screen, and the engine can give it the ring back when the
@@ -532,12 +518,8 @@ async function focusField($: Api, agentId: string): Promise<void> {
   const key = `say:${agentId}`
   wantedFocus = key
   // A later move does nothing after the person moved the focus or pressed another button.
-  const move = async (): Promise<{ deny?: string }> => {
-    if (wantedFocus !== key) return {}
-    const res: { deny?: string } = await $.ui.focus({ requestId: PANE_ID, key }).catch(() => ({}))
-    if (res.deny === undefined) fieldWithRing = agentId
-    return res
-  }
+  const move = async (): Promise<{ deny?: string }> =>
+    wantedFocus === key ? $.ui.focus({ requestId: PANE_ID, key }).catch(() => ({})) : {}
   const first = await move()
   // A click presses a button of a pane that does not hold the keyboard, and the engine then
   // refuses each focus move. The pane asks for the keyboard as it does when it opens.
@@ -1042,9 +1024,6 @@ export const register: Register = (on, options) => {
     // The person moved the focus: no later move of the mod takes it back.
     if (e.origin.kind === 'person') wantedFocus = null
     const res = await next(e)
-    // The ring is on a message field, or it left one.
-    if (res.deny === undefined && e.component === 'Pane' && e.requestId === PANE_ID)
-      fieldWithRing = e.element?.startsWith('say:') === true ? e.element.slice(4) : null
     const element = e.element
     const isClick =
       e.component === 'Pane' && e.requestId === PANE_ID && e.origin.kind === 'person' && !wasFocused
@@ -1072,10 +1051,7 @@ export const register: Register = (on, options) => {
       await Promise.race([drawn, new Promise<void>((r) => setTimeout(r, SCROLL_WAIT_MS))])
       onPaneDrawn = null
     }
-    const res = await next(e)
-    if (isTranscript && e.origin.kind === 'person' && isFieldHidden(e))
-      leaveHiddenField($, e.offset)
-    return res
+    return next(e)
   })
 
   on('command.run', { command: 'agent-log' }, async ($) => ({
