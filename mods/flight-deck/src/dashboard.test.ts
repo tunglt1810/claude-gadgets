@@ -10,7 +10,7 @@ import {
   usdTargets,
 } from './dashboard'
 import { PALETTE } from './palette'
-import { completed, spawned, tuned } from './registry'
+import { completed, ran, spawned, tuned } from './registry'
 import { emptySnapshot } from './snapshot'
 
 const MTOK = { input: 1e6, output: 0, cacheRead: 0, cacheWrite: 0 }
@@ -21,7 +21,7 @@ test('dashboard sums cost, working time and runs per model, the costliest first'
   r = completed(r, 'a1', 60_000)
   r = spawned(r, 'a2', 0, {})
   r = tuned(r, 'a2', 'claude-haiku-4-5-20251001', undefined)
-  r = completed(completed(r, 'a2', 30_000), 'a2', 30_000)
+  r = completed(ran(completed(r, 'a2', 30_000), 'a2', 30_000), 'a2', 30_000)
   const snap = {
     ...emptySnapshot(),
     costUsd: 5,

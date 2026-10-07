@@ -254,6 +254,9 @@ async function syncPane($: Api): Promise<void> {
   startFrames($)
 }
 
+// Counts the context samples that were asked for: a reply knows from it if it is the newest.
+let contextSeq = 0
+
 // Keeps the breakdown of a usage reply as the context sample of the session `id`. A reply
 // with no breakdown changes nothing. `isTurnEnd` counts a turn of the growth.
 async function recordContext(
@@ -272,7 +275,11 @@ async function recordContext(
 // each memory file: only a press asks for it.
 async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void> {
   const id = await $.session.id()
+  const seq = ++contextSeq
   const usage = await $.session.usage({ breakdown: detail })
+  // A full count is slow. A reply that comes after a newer sample, or after a change of the
+  // session, is dropped.
+  if (seq !== contextSeq || (await $.session.id()) !== id) return
   await recordContext($, id, usage.context, detail, false)
   await syncPane($)
 }
@@ -287,14 +294,28 @@ async function trackAgent(
   await loadAgents($, id)
   const at = await $.clock.now()
   const list = await $.agent.list()
+  const before = JSON.stringify((await read($, agents)).entries)
   const next = await update($, agents, (c) =>
     c.sessionId === id
       ? { ...c, entries: change(pruned(merged(c.entries, list, at), list, at), at) }
       : c,
   )
+  // An unchanged registry is not stored and not drawn again: most events of a running agent
+  // change nothing.
+  if (JSON.stringify(next.entries) === before) return
   if (next.sessionId === id) await $.store.set(agentsKey(id), next.entries)
   await syncPane($)
   startSpinner($)
+}
+
+// Marks an agent before its step or its call goes on. The engine waits for this hook: a
+// failure of the mod's own record must not stop the work of the agent.
+async function markAgent($: Api, change: (r: Registry, at: number) => Registry): Promise<void> {
+  try {
+    await trackAgent($, await ensureLoaded($), change)
+  } catch {
+    // The next event of the agent marks it.
+  }
 }
 
 // Reads one agent's transcript into the pane. A result for an agent that is no longer on
@@ -400,7 +421,12 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
     .catch((err: unknown) => ({ isDelivered: false as const, reason: String(err) }))
   sending.delete(agentId)
   if (res.isDelivered) {
-    await update($, pane, (c) => ({ ...c, compose: null, controlError: null }))
+    // The field and the reason of another agent stay.
+    await update($, pane, (c) => ({
+      ...c,
+      compose: c.compose === agentId ? null : c.compose,
+      controlError: c.controlError?.agentId === agentId ? null : c.controlError,
+    }))
     return refreshViewed($, agentId)
   }
   // The text comes back to the field, unless the person typed a new one.
@@ -691,10 +717,7 @@ export const register: Register = (on, options) => {
     try {
       // The agent runs from the start of its step. The end of a step does not say so: the end
       // of a stopped step can come after the end of the run.
-      if (runner !== undefined) {
-        const session = await ensureLoaded($)
-        await trackAgent($, session, (r, t) => ran(r, runner, t))
-      }
+      if (runner !== undefined) await markAgent($, (r, t) => ran(r, runner, t))
       const res = yield* next(e)
       const id = await ensureLoaded($)
       await stamp($)
@@ -774,10 +797,7 @@ export const register: Register = (on, options) => {
     const loop = e.agentId
     // The agent runs from the start of its call. The end of a call does not say so: the end
     // of a stopped call can come after the end of the run.
-    if (loop !== undefined) {
-      const session = await ensureLoaded($)
-      await trackAgent($, session, (r, t) => called(r, loop, t))
-    }
+    if (loop !== undefined) await markAgent($, (r, t) => called(r, loop, t))
     const res = await next(e)
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res
@@ -895,6 +915,7 @@ export const register: Register = (on, options) => {
     // The same reply gives the context as it is at the end of the turn.
     const usage = await $.session.usage({ breakdown: 'summary' })
     const usd = usage.cost?.usd
+    contextSeq++
     await recordContext($, id, usage.context, 'summary', true)
     const nextMeter = await update($, meter, (c) => {
       const ended = { ...c, ...endTurn(c, at), ...(usd === undefined ? {} : { costUsd: usd }) }

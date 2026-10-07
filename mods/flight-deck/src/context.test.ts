@@ -13,6 +13,7 @@ import {
   sampleOf,
 } from './context'
 import { PALETTE } from './palette'
+import { UNKNOWN_CALLS } from './snapshot'
 
 const CONTEXT = {
   tokens: 84200,
@@ -293,4 +294,37 @@ test('overheadHead shows the share of the window and the carry cost', () => {
     '·',
     '16% of window',
   ])
+})
+
+test('the buffer is the buffer row of the breakdown, not the window less the threshold', () => {
+  // A model window of 1M with a compaction window of 200k: the threshold is far below the window.
+  const wide = sampleOf({ ...CONTEXT, window: 1_000_000 }, 'full')
+  expect(wide?.buffer).toBe(33000)
+  if (wide === null) throw new Error('no sample')
+  const v = contextView({ sessionId: 'S1', sample: wide, base: null, turns: 0 }, SNAP)
+  expect(v?.buffer).toBe(33000)
+})
+
+test('a sample from the API after an estimate starts the base again', () => {
+  // With no response yet the tokens are a local estimate, which is higher than the API count.
+  const { tokens: _, ...noTokens } = CONTEXT
+  const estimate = sampleOf(noTokens, 'summary')
+  const real = sampleOf({ ...CONTEXT, tokens: 90000 }, 'summary')
+  if (estimate === null || real === null) throw new Error('no sample')
+  expect(estimate.isEstimate).toBe(true)
+  const first = sampled(
+    { sessionId: null, sample: null, base: null, turns: 0 },
+    'S1',
+    estimate,
+    false,
+  )
+  const next = sampled(first, 'S1', real, true)
+  expect(next.base).toBe(90000)
+  expect(next.turns).toBe(0)
+})
+
+test('a session with no record of its MCP calls shows no dead weight', () => {
+  const v = contextView(state(), { ...SNAP, mcpCalls: [UNKNOWN_CALLS] })
+  expect(v?.unused).toEqual([])
+  expect(v?.deadWeight).toBe(0)
 })

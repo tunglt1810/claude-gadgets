@@ -991,6 +991,8 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   expect(await paneText(ui)).not.toContain('Again.')
 
   isSecond = true
+  // A message starts the agent again: its first call counts the run.
+  await $.tool.call({ tool: 'Bash', command: 'true', agentId: 'a1' } as never)
   await completeAgent($, 'a1')
   const text = await paneText(ui)
   expect(text).toContain('Again.')

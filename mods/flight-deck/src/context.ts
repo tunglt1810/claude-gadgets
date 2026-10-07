@@ -10,6 +10,7 @@ import { cellText } from './cell'
 import { formatTokens, formatUsd } from './format'
 import { PALETTE } from './palette'
 import { readPrice } from './price'
+import { UNKNOWN_CALLS } from './snapshot'
 import { contextColor } from './window'
 
 // The category that is the conversation, by the name the engine gives it: no `kind` parts it
@@ -73,7 +74,11 @@ export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSa
   return {
     detail,
     tokens: c.tokens ?? b.totalTokens,
+    isEstimate: c.tokens === undefined,
     window: c.window,
+    // The threshold is measured in the compaction window, which can be smaller than the
+    // window of the model: the buffer is the row of the breakdown, not their difference.
+    buffer: b.categories.filter((r) => r.kind === 'buffer').reduce((n, r) => n + r.tokens, 0),
     threshold:
       b.isAutoCompactEnabled && b.autoCompactThreshold !== undefined
         ? b.autoCompactThreshold
@@ -90,7 +95,8 @@ export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSa
 // The state with a new sample. The first sample of a session is the base of its growth, and
 // so is an estimate with fewer tokens than the last sample: a compaction. A full count is
 // lower than an estimate of the same context, and its reply can come late, so it starts no
-// base. `isTurnEnd` counts a turn.
+// base. An estimate is higher than the count of the API for the same context, so the first
+// sample of the API after an estimate is a base too. `isTurnEnd` counts a turn.
 export const sampled = (
   c: ContextState,
   id: string,
@@ -99,7 +105,8 @@ export const sampled = (
 ): ContextState => {
   const last = c.sessionId === id ? c.sample?.tokens : undefined
   const isCompacted = sample.detail === 'summary' && last !== undefined && sample.tokens < last
-  if (c.sessionId !== id || c.base === null || isCompacted)
+  const isFirstCount = c.sample?.isEstimate === true && !sample.isEstimate
+  if (c.sessionId !== id || c.base === null || isCompacted || isFirstCount)
     return { sessionId: id, sample, base: sample.tokens, turns: 0 }
   return { ...c, sample, turns: c.turns + (isTurnEnd ? 1 : 0) }
 }
@@ -127,7 +134,8 @@ export const contextView = (
   const price = snap.mainModel === undefined ? null : readPrice(snap.mainModel)
   const carry = (tokens: number): number | null =>
     price === null ? null : (tokens * snap.steps * price) / 1e6
-  const unused = s.servers
+  // A session of an older version has no record of its calls: no server is known as unused.
+  const unused = (snap.mcpCalls.includes(UNKNOWN_CALLS) ? [] : s.servers)
     .filter((v) => !v.tools.some((t) => snap.mcpCalls.includes(t)))
     .map((v) => ({ name: v.name, tokens: v.tokens, count: v.tools.length }))
   return {
@@ -136,7 +144,8 @@ export const contextView = (
     window: s.window,
     overhead,
     messages: s.tokens - overhead,
-    buffer: s.threshold === null ? 0 : Math.max(0, s.window - s.threshold),
+    // A sample of an older shape (a hot reload) has no buffer.
+    buffer: s.threshold === null ? 0 : (s.buffer ?? 0),
     perTurn,
     turnsLeft,
     steps: snap.steps,

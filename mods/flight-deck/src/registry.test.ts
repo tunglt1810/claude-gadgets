@@ -52,9 +52,10 @@ test('a second run counts again', () => {
   expect(r.a1).toMatchObject({ status: 'idle', runs: 2, endedAt: 400 })
 })
 
-test('an end with no event of the run before it counts the run', () => {
-  const r = completed(completed(spawned({}, 'a1', 100, {}), 'a1', 200), 'a1', 400)
-  expect(r.a1).toMatchObject({ status: 'idle', runs: 2, endedAt: 400 })
+test('a second end of one run counts nothing', () => {
+  // The notification of the engine can come before the turn.complete of the run.
+  const noticed = ended(spawned({}, 'a1', 100, {}), 'a1', 'completed', 200)
+  expect(completed(noticed, 'a1', 250).a1).toMatchObject({ status: 'idle', runs: 1 })
 })
 
 test('merge adds an agent seen only in the list and fills absent fields', () => {

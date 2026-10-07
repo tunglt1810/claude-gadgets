@@ -1,5 +1,12 @@
 import { expect, test } from 'claude-code/testing'
-import { emptySnapshot, isComplete, parseSnapshot, storeKey, touchSessions } from './snapshot'
+import {
+  emptySnapshot,
+  isComplete,
+  parseSnapshot,
+  storeKey,
+  touchSessions,
+  UNKNOWN_CALLS,
+} from './snapshot'
 
 test('storeKey is per session id', () => {
   expect(storeKey('abc')).toBe('session:abc')
@@ -97,10 +104,10 @@ test('isComplete: state written before spawn counts and per-agent data existed i
   expect(isComplete(noBg)).toBe(false)
 })
 
-test('parseSnapshot gives a 0.5.1 snapshot no steps and no MCP calls', () => {
+test('parseSnapshot gives a 0.5.1 snapshot no steps, and its MCP calls are not known', () => {
   const s = parseSnapshot({ tools: 3 })
   expect(s.steps).toBe(0)
-  expect(s.mcpCalls).toEqual([])
+  expect(s.mcpCalls).toEqual([UNKNOWN_CALLS])
 })
 
 test('parseSnapshot keeps the steps and only the names that are strings', () => {
@@ -113,4 +120,10 @@ test('isComplete refuses a state with no steps or no MCP calls', () => {
   expect(isComplete(emptySnapshot())).toBe(true)
   expect(isComplete({ ...emptySnapshot(), steps: undefined } as never)).toBe(false)
   expect(isComplete({ ...emptySnapshot(), mcpCalls: undefined } as never)).toBe(false)
+})
+
+test('a stored snapshot with no list of MCP calls marks the calls as unknown', () => {
+  const { mcpCalls: _, ...old } = emptySnapshot()
+  expect(parseSnapshot(old).mcpCalls).toEqual([UNKNOWN_CALLS])
+  expect(parseSnapshot(emptySnapshot()).mcpCalls).toEqual([])
 })

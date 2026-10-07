@@ -209,6 +209,10 @@ export type ContextSample = {
   tokens: number
   window: number
   threshold: number | null
+  // The room that auto-compaction keeps: the buffer rows of the breakdown.
+  buffer: number
+  // The tokens are a local estimate: the session has no response of the API yet.
+  isEstimate: boolean
   categories: ContextCategoryRow[]
   servers: { name: string; tokens: number; tools: string[] }[]
 }

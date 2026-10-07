@@ -67,9 +67,7 @@ export const workedMs = (a: AgentEntry, now: number): number =>
 
 export const completed = (r: Registry, id: string, at: number): Registry => {
   const a = r[id] ?? blank(id, at)
-  // An end with no event of the run before it: the run is counted here.
-  const runs = a.runs + (a.status === 'running' ? 0 : 1)
-  return { ...r, [id]: { ...a, status: 'idle', runs, endedAt: at } }
+  return { ...r, [id]: { ...a, status: 'idle', endedAt: at } }
 }
 
 // The model and the effort of a known agent's latest step: a step without effort clears it.

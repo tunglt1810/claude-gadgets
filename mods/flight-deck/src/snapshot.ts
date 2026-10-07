@@ -1,6 +1,10 @@
 import type { AgentUsage, Snapshot, Totals } from '../types'
 import { emptyTotals } from './usage'
 
+// In `mcpCalls`: the session ran before the mod kept its MCP calls, so no server is known as
+// not called.
+export const UNKNOWN_CALLS = '*'
+
 export type { Snapshot }
 
 export const emptySnapshot = (): Snapshot => ({
@@ -92,9 +96,12 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
     ),
     advisor: parseAdvisor(r.advisor),
     steps: num(r.steps),
+    // A record of an older version has no list: its calls are not known.
     mcpCalls: Array.isArray(r.mcpCalls)
       ? r.mcpCalls.filter((x): x is string => typeof x === 'string')
-      : [],
+      : typeof r.tools === 'number'
+        ? [UNKNOWN_CALLS]
+        : [],
     ...(typeof r.mainModel === 'string' ? { mainModel: r.mainModel } : {}),
   }
 }
