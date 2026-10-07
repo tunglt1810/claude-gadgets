@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `128e223`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `e90434b`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -11,6 +11,7 @@ Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là mộ
 | Mod | Chức năng |
 | --- | --- |
 | `flight-deck` | Một dải phía trên ô nhập. Dải hiển thị token vào, token ra, tỉ lệ cache hit, số lần gọi tool, số subagent và số tác vụ nền đã khởi chạy, thời gian model làm việc, chi phí của session, số dòng mà các tool sửa file đã thay đổi và đồng hồ đếm ngược của prompt cache. Các tổng số gồm cả mọi subagent. Khi transcript của một subagent đang ở trên màn hình, dải hiển thị số liệu của subagent đó và của các agent bên dưới nó. Dữ liệu được giữ lại khi resume. |
+| `verdict-gate` | Dành cho auto mode. Khi safety classifier không đưa ra verdict cho một tool call, một hộp thoại hỏi bạn. Bạn chọn chạy call đó một lần, chạy mọi call cùng loại trong session, hoặc từ chối. Một call mà classifier đánh giá là không an toàn vẫn bị từ chối. |
 
 ## Bộ công cụ
 
