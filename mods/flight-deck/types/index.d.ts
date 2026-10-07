@@ -37,6 +37,10 @@ export type Snapshot = {
   // `usd` is the growth of the ledger cost that no step holds, over the turns that called it.
   // `base` is that rest at the start of the turn; `pending` marks a call not settled yet.
   advisor: { calls: number; ms: number; usd: number; base: number; model?: string; pending?: true }
+  // The steps of the main loop that had a usage: each one read the overhead from the cache.
+  steps: number
+  // The wire names of the MCP tools that a loop called, each name one time.
+  mcpCalls: string[]
   mainModel?: string
 }
 

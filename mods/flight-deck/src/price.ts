@@ -20,13 +20,24 @@ const PRICES: Record<string, { input: number; output: number; read?: number }> =
   'claude-haiku-4-5': { input: 1, output: 5 },
 }
 
-// The estimated cost of a model's tokens, or null for a model with no price. The longest
-// matching id wins: `claude-opus-5-5` is not priced as `claude-opus-5`.
-export const costOf = (model: string, t: Totals, ttl: Ttl = '5m'): number | null => {
+// The price row of a model, or undefined for a model with no price. The longest matching id
+// wins: `claude-opus-5-5` is not priced as `claude-opus-5`.
+const priceOf = (model: string) => {
   const id = Object.keys(PRICES)
     .filter((k) => model === k || model.startsWith(`${k}-`))
     .sort((a, b) => b.length - a.length)[0]
-  const p = id === undefined ? undefined : PRICES[id]
+  return id === undefined ? undefined : PRICES[id]
+}
+
+// The cache read price of a model in US dollars per million tokens, or null with no price.
+export const readPrice = (model: string): number | null => {
+  const p = priceOf(model)
+  return p === undefined ? null : (p.read ?? p.input * 0.1)
+}
+
+// The estimated cost of a model's tokens, or null for a model with no price.
+export const costOf = (model: string, t: Totals, ttl: Ttl = '5m'): number | null => {
+  const p = priceOf(model)
   if (p === undefined) return null
   const read = p.read ?? p.input * 0.1
   return (

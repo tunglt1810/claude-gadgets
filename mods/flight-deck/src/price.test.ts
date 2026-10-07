@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { costOf } from './price'
+import { costOf, readPrice } from './price'
 
 // Dollars rounded to a millionth: float sums are not exact.
 const usd = (n: number | null): number => Math.round((n ?? Number.NaN) * 1e6) / 1e6
@@ -30,4 +30,12 @@ test('costOf prices 1-hour cache writes at 2 x input', () => {
   const t = { input: 0, output: 0, cacheRead: 0, cacheWrite: 1e6 }
   expect(usd(costOf('claude-sonnet-5-5', t, '1h'))).toBe(4)
   expect(usd(costOf('claude-sonnet-5-5', t, '5m'))).toBe(2.5)
+})
+
+test('readPrice gives the cache read price of a model, or null with no price', () => {
+  expect(readPrice('claude-opus-5-5')).toBe(0.2)
+  // No listed read price: a tenth of the input price.
+  expect(usd(readPrice('claude-sonnet-4-6'))).toBe(0.3)
+  expect(readPrice('claude-haiku-4-5-20251001')).toBe(0.1)
+  expect(readPrice('m')).toBeNull()
 })

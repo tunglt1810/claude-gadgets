@@ -17,6 +17,8 @@ export const emptySnapshot = (): Snapshot => ({
   byModel: {},
   costByModel: {},
   advisor: { calls: 0, ms: 0, usd: 0, base: 0 },
+  steps: 0,
+  mcpCalls: [],
 })
 
 export const storeKey = (sessionId: string): string => `session:${sessionId}`
@@ -89,6 +91,10 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
       Object.entries(isRecord(r.costByModel) ? r.costByModel : {}).map(([m, c]) => [m, num(c)]),
     ),
     advisor: parseAdvisor(r.advisor),
+    steps: num(r.steps),
+    mcpCalls: Array.isArray(r.mcpCalls)
+      ? r.mcpCalls.filter((x): x is string => typeof x === 'string')
+      : [],
     ...(typeof r.mainModel === 'string' ? { mainModel: r.mainModel } : {}),
   }
 }
@@ -96,12 +102,13 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
 // False for a value of an older shape: live state outlasts a hot reload, so after the mod
 // gains a field the state it finds lacks it (and `undefined + n` is NaN).
 export const isComplete = (s: Partial<Snapshot>): boolean =>
-  [s.tools, s.workMs, s.costUsd, s.added, s.removed, s.agents, s.bg].every(
+  [s.tools, s.workMs, s.costUsd, s.added, s.removed, s.agents, s.bg, s.steps].every(
     (v) => typeof v === 'number' && Number.isFinite(v),
   ) &&
   isRecord(s.byAgent) &&
   isRecord(s.byModel) &&
   isRecord(s.costByModel) &&
+  Array.isArray(s.mcpCalls) &&
   [s.advisor?.calls, s.advisor?.ms, s.advisor?.usd, s.advisor?.base].every(Number.isFinite)
 
 // Recency index of stored sessions: the id first, duplicates removed, anything past `max`

@@ -162,6 +162,8 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     byModel: s.byModel,
     costByModel: s.costByModel,
     advisor: s.advisor,
+    steps: s.steps,
+    mcpCalls: s.mcpCalls,
     ...(s.mainModel === undefined ? {} : { mainModel: s.mainModel }),
   })
 }
