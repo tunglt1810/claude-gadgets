@@ -4,6 +4,7 @@ import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
+import { sendFailure } from '../src/control'
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
@@ -96,6 +97,10 @@ const initialPane: PaneView = {
   transcript: null,
   isContext: false,
   openCategories: [],
+  compose: null,
+  stopAsk: null,
+  sendError: null,
+  sent: 0,
 }
 const pane = atom({ plugin: 'flight-deck', key: 'pane' } as const, initialPane)
 const initialData: PaneData = {
@@ -347,8 +352,63 @@ async function closeContext($: Api): Promise<void> {
   })
 }
 
+// The text of each message field as the person typed it, by agent. Kept here, not in state:
+// a write to state on each key would draw the pane again.
+const drafts: Record<string, string> = {}
+
+// Sends the text of a message field to an agent, as the SendMessage tool does. The engine
+// starts an ended agent again. A message that is not sent stays in its field, with the reason.
+async function sendMessage($: Api, agentId: string, text: string): Promise<void> {
+  if (text.trim() === '') return
+  const res = await $.session
+    .send({ to: { agentId }, text })
+    .catch((err: unknown) => ({ isDelivered: false as const, reason: String(err) }))
+  if (res.isDelivered) {
+    delete drafts[agentId]
+    await update($, pane, (c) => ({
+      ...c,
+      compose: null,
+      sendError: null,
+      sent: (c.sent ?? 0) + 1,
+    }))
+    return refreshViewed($, agentId)
+  }
+  drafts[agentId] = text
+  await update($, pane, (c) => ({
+    ...c,
+    sendError: { agentId, text, reason: sendFailure(res.reason) },
+  }))
+}
+
+// The first press of a stop button asks, the second stops the agent as the TaskStop tool
+// does. The notification of the engine then draws the agent stopped.
+async function stopAgent($: Api, agentId: string): Promise<void> {
+  if ((await read($, pane)).stopAsk !== agentId) {
+    await update($, pane, (c) => ({ ...c, stopAsk: agentId }))
+    return
+  }
+  await update($, pane, (c) => ({ ...c, stopAsk: null }))
+  await $.tool.call({ tool: 'TaskStop', task_id: agentId }).catch(() => undefined)
+}
+
+// Opens the message field of an agent's row with the focus in it, or closes it.
+async function toggleCompose($: Api, agentId: string): Promise<void> {
+  if ((await read($, pane)).compose === agentId) {
+    await update($, pane, (c) => ({ ...c, compose: null, sendError: null }))
+    return
+  }
+  await focusAfter($, `say:${agentId}`, async () => {
+    await update($, pane, (c) => ({ ...c, compose: agentId, sendError: null }))
+  })
+}
+
 // What a pane button does, from its press or from the click that gave the pane the focus.
 async function act($: Api, action: PaneAction): Promise<void> {
+  if (action.kind === 'stop') return stopAgent($, action.agentId)
+  // Any other press takes back the question of a stop button.
+  if ((await read($, pane)).stopAsk != null) await update($, pane, (c) => ({ ...c, stopAsk: null }))
+  if (action.kind === 'compose') return toggleCompose($, action.agentId)
+  if (action.kind === 'send') return sendMessage($, action.agentId, action.text)
   if (action.kind === 'open') return openAgent($, action.agentId)
   if (action.kind === 'back')
     // State of an older shape (a hot reload) has no flag.
@@ -876,6 +936,13 @@ export const register: Register = (on, options) => {
         onContext={() => act($, { kind: 'context' })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}
+        drafts={drafts}
+        onCompose={(agentId) => act($, { kind: 'compose', agentId })}
+        onStop={(agentId) => act($, { kind: 'stop', agentId })}
+        onDraft={(agentId, text) => {
+          drafts[agentId] = text
+        }}
+        onSend={(agentId, text) => act($, { kind: 'send', agentId, text })}
       />
     )
     if (pad === 0) return body

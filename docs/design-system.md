@@ -144,6 +144,9 @@ Rule: use single-width, text-presentation characters only. Do not use an emoji. 
 | `─` | Rule that closes a table | `line` and `rule` in `pane.tsx` |
 | `─` × 12, dim | Short rule before each new prompt of a transcript | `TURN_RULE_LENGTH` in `pane.tsx` |
 | `█` | Each cell of the context bar. The color shows the part. | `barSegments` in `context.ts` |
+| `»` | The message button of an agent. | `controlLabels` in `control.ts` |
+| `■` | The stop button of a running agent. `?` after it asks for the second press. | `controlLabels` in `control.ts` |
+| `›` | The label of a message field. | `say` in `pane.tsx` |
 | `← agents` | Back label | `BACK` in `pane.tsx` |
 
 All agent marks and spinner frames are eight-dot braille glyphs. One font draws them at one size. Every mark has a width of two cells (`MARK_WIDTH`).

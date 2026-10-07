@@ -1,0 +1,59 @@
+# flight-deck: message and stop an agent from the pane
+
+Date: 2026-10-07. Tested on Claude Code 2.1.292.
+
+## 1. Goal
+
+The person sends a message to a subagent from the pane, and stops a subagent from the pane. The main loop does not spend a turn to pass the message on.
+
+## 2. Spike results
+
+The spike mod is `.tmp/spike-send/`. It ran headless.
+
+| Question | Result |
+| --- | --- |
+| A message to a running agent | `$.session.send({ to: { agentId }, text })` answers `{ isDelivered: true }`. The agent reads the message at its next step, as a message of the coordinator, and obeys it. |
+| A message to a completed agent | The engine starts the agent again under the same id. |
+| The answer of the agent | The engine sends a `task-notification` to the main loop at the end of each run. The main loop runs one turn to read it. The mod appends nothing. |
+| Stop | `$.tool.call({ tool: 'TaskStop', task_id: agentId })` stops the agent in each permission mode. The status becomes `killed`, and the main loop gets a notification. |
+| Auto mode | The classifier gives no verdict for a message that a plugin sends: `{ isDelivered: false, reason }`. A second try gets the same answer. |
+| A `tool.check` hook of the mod | The engine does not call it for the mod's own message. The mod cannot allow its own message. |
+| An allow rule for `SendMessage` | The message goes through in auto mode. Tested with `--allowedTools SendMessage`. |
+
+Not tested: a message to a killed agent, an allow rule in a settings file, and the `Input` element on a live desktop.
+
+## 3. Behavior
+
+### 3.1 Control row
+
+An open agent row has a control row below its detail row.
+
+- `» message` opens a message field below the control row, with the focus in it. A second press closes the field.
+- `■ stop` is there only while the agent runs. The first press changes the label to `■ stop?`. The second press stops the agent. A press on any other button takes the question back.
+- A row with less than 24 cells draws the two buttons as `»` and `■` (`■?` for the question).
+
+### 3.2 Message field
+
+- Enter sends the text. An empty text is not sent.
+- After a sent message, the field of the tree closes. The field of the transcript screen stays, empty.
+- When the engine does not send the message, the field keeps the text, and a red row below it gives the reason: `not sent: <first line of the reason>`.
+- When the reason names the classifier, the row is `not sent: add "SendMessage" to permissions.allow`.
+- The mod does not change the permission mode and adds no rule.
+
+### 3.3 Transcript screen
+
+- The toolbar has a `■ stop` button while the agent runs, with the same two presses.
+- The message field is after the last item of the transcript. The engine gives no height of the pane, so no row stays at the end of the pane.
+
+## 4. Design
+
+- `src/control.ts`: `controlLabels(room, isAsked)` and `sendFailure(reason)`.
+- `PaneView` holds `compose` (the agent whose field is open on the tree), `stopAsk`, `sendError` and `sent`.
+- `PaneAction` has the kinds `compose`, `stop` and `send`. The keys are `msg:<id>`, `stop:<id>` and `say:<id>` (the field).
+- The text that the person types is in a module variable of the hooks module, not in state: a write to state on each key draws the pane again.
+- A surface with no `Input` element draws no field.
+
+## 5. Limits
+
+- Each answer of an agent, and each stop, costs one turn of the main loop. That is the notification of the engine.
+- A Button takes no color: the stop button is not red.

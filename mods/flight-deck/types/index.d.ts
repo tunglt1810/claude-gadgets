@@ -120,6 +120,9 @@ export type Transcript =
 // of the open tool calls; `collapsedAgents` the ids of the agents whose detail row is closed (a row is open at first);
 // `isWrapped` draws a transcript's long text on several rows. `isContext` puts the context
 // screen in place of the tree; `openCategories` holds the names of its open category rows.
+// `compose` is the agent whose message field is open on the tree; `stopAsk` the agent whose
+// stop button waits for its second press; `sendError` the message that was not sent, with the
+// reason; `sent` counts the sent messages, so a sent message draws the pane again.
 export type PaneView = {
   isOpen: boolean
   isWrapped: boolean
@@ -129,6 +132,10 @@ export type PaneView = {
   transcript: Transcript | null
   isContext: boolean
   openCategories: string[]
+  compose: string | null
+  stopAsk: string | null
+  sendError: { agentId: string; text: string; reason: string } | null
+  sent: number
 }
 
 // What a pane button does.
@@ -141,6 +148,9 @@ export type PaneAction =
   | { kind: 'recount' }
   | { kind: 'category'; name: string }
   | { kind: 'tool'; toolUseId: string }
+  | { kind: 'compose'; agentId: string }
+  | { kind: 'stop'; agentId: string }
+  | { kind: 'send'; agentId: string; text: string }
 
 // One cell of a pane row that is not a button: a text, a turning mark (`spin`), or a time that
 // counts up from `since` after the text. A right-aligned cell is padded to `width`.

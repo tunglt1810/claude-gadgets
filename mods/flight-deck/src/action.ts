@@ -16,6 +16,9 @@ export const focusAction = (element: string, transcript: Transcript | null): Pan
   // An agent's name, and the button of its detail row.
   if (kind === 'agent' || kind === 'detail') return { kind: 'open', agentId: id }
   if (kind === 'expand') return { kind: 'expand', agentId: id }
+  // The buttons of an agent's control row, and the stop button of the transcript screen.
+  if (kind === 'msg') return { kind: 'compose', agentId: id }
+  if (kind === 'stop') return { kind: 'stop', agentId: id }
   // A category row of the context screen.
   if (kind === 'cat') return { kind: 'category', name: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }

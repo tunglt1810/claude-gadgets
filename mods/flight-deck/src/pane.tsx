@@ -12,6 +12,7 @@ import type {
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
 import { barSegments, contextHead, contextSummary, overheadHead } from './context'
+import { controlLabels } from './control'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
 import { formatDuration, formatTokens, formatUsd } from './format'
@@ -57,6 +58,12 @@ type Props = {
   onContext: () => void
   onRecount: () => void
   onCategory: (name: string) => void
+  // The text of each message field as the person typed it, by agent.
+  drafts: Record<string, string>
+  onCompose: (agentId: string) => void
+  onStop: (agentId: string) => void
+  onDraft: (agentId: string, text: string) => void
+  onSend: (agentId: string, text: string) => void
 }
 
 // The most lines of a tool call's input, and of its result, that the pane draws.
@@ -166,6 +173,11 @@ export const AgentPane = ({
   onContext,
   onRecount,
   onCategory,
+  drafts,
+  onCompose,
+  onStop,
+  onDraft,
+  onSend,
 }: Props) => {
   const { Box, Text, Button, Code, Markdown } = ui
   const viewed = view.agentId
@@ -236,6 +248,29 @@ export const AgentPane = ({
       <Text dimColor>{'─'.repeat(RULE_LENGTH)}</Text>
     </Box>
   )
+
+  // The message field of an agent, and below it the reason of a message that was not sent.
+  // Enter sends the text. Only the terminal and a desktop draw a field.
+  const say = (a: AgentEntry | undefined, id: string, isFocused: boolean) =>
+    'Input' in ui ? (
+      <Box key={`saybox:${id}`} flexDirection="column" flexGrow={1} flexShrink={1}>
+        <ui.Input
+          key={`say:${id}`}
+          label="›"
+          placeholder={`message ${a === undefined ? id : name(a)}`}
+          value={drafts[id] ?? ''}
+          submitLabel="send"
+          {...(isFocused ? { autoFocus: true as const } : {})}
+          onInput={(text) => onDraft(id, text)}
+          onSubmit={(text) => onSend(id, text)}
+        />
+        {view.sendError?.agentId === id && (
+          <Text key={`sayerr:${id}`} color={PALETTE.red} wrap="truncate">
+            {view.sendError.reason}
+          </Text>
+        )}
+      </Box>
+    ) : null
 
   // A context cell with the tokens that are on screen, where the pane draws each frame.
   const shownCtx = (agentId: string, c: Cell): Cell => {
@@ -503,6 +538,12 @@ export const AgentPane = ({
     // State of an older shape (a hot reload) has no flag.
     if (view.isContext === true) return contextScreen()
 
+    const labels = (id: string, room: number) => controlLabels(room, view.stopAsk === id)
+    // A plain button of a control row, on one row of the terminal.
+    const control = (key: string, label: string, onPress: () => void) => {
+      const button = <Button key={key} plain label={label} onPress={onPress} />
+      return isClient ? button : oneRow(`${key}:box`, label, button)
+    }
     const rows = treeRows(entries)
     if (rows.length === 0)
       return (
@@ -623,6 +664,29 @@ export const AgentPane = ({
                   )}
                   {/* A Button takes no color: the context stays a cell. */}
                   {ctx !== undefined && cell(`detail:ctx:${agent.id}`, shownCtx(agent.id, ctx))}
+                </Box>
+              )}
+              {isOpen && (
+                // The controls of the agent, built as the detail row is: a message to it, and
+                // a stop while it runs.
+                <Box key={`controlrow:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
+                  {depth > 0 && (
+                    <Box key={`control:indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />
+                  )}
+                  {cell(`control:mark:${agent.id}`, { text: '', width: MARK_WIDTH })}
+                  <Box key={`control:expand:${agent.id}`} width={EXPAND_WIDTH} flexShrink={0} />
+                  {control(`msg:${agent.id}`, labels(agent.id, columns - inset).message, () =>
+                    onCompose(agent.id),
+                  )}
+                  {agent.status === 'running' &&
+                    control(`stop:${agent.id}`, labels(agent.id, columns - inset).stop, () =>
+                      onStop(agent.id),
+                    )}
+                </Box>
+              )}
+              {isOpen && view.compose === agent.id && (
+                <Box key={`sayrow:${agent.id}`} flexDirection="row" paddingLeft={inset}>
+                  {say(agent, agent.id, true)}
                 </Box>
               )}
             </Box>
@@ -787,6 +851,13 @@ export const AgentPane = ({
           label={`wrap ${isWrapped ? 'on' : 'off'}`}
           onPress={onWrap}
         />
+        {agent?.status === 'running' && (
+          <Button
+            key={`stop:${viewed}`}
+            label={controlLabels(columns, view.stopAsk === viewed).stop}
+            onPress={() => onStop(viewed)}
+          />
+        )}
       </Box>
       <Box key="title" flexDirection="row" alignItems="center" gap={1}>
         {agent !== undefined && cell('mark', agentMark(agent))}
@@ -842,6 +913,9 @@ export const AgentPane = ({
         line('rule')
       )}
       {body()}
+      {/* After the transcript: the engine gives no height of the pane, so no row stays at its
+          end. */}
+      {say(agent, viewed, false)}
       {scrollTop > 0 && sticky('sticky', scrollTop)}
       {/* The engine moves the window after this drawing: until then the row it shows has a bar
           too, so no drawing is without a bar at its top. */}

@@ -73,7 +73,7 @@ const settled = async (
 const engine = (
   on: Parameters<typeof mock.store>[0],
   id: () => string = () => 'S1',
-  toolResult: () => object = () => ({ result: {} as never, text: 'ok' }),
+  toolResult: (e?: unknown) => object = () => ({ result: {} as never, text: 'ok' }),
   isSpawnRefused: () => boolean = () => false,
   settings: () => object = () => ({}),
   env: Record<string, string> = {},
@@ -89,7 +89,7 @@ const engine = (
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('prompt.submit', (_$, e) => ({ text: e.text }))
-  on('tool.call', () => toolResult() as never)
+  on('tool.call', (_$, e) => toolResult(e) as never)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: [] }))
   on('settings.read', () => ({ value: settings() }) as never)
@@ -931,8 +931,9 @@ test('a child agent is listed below its parent', async ($, on) => {
   await spawn($, 'a1')
 
   const ui = await mountPane($, 'terminal')
-  // Each agent has three buttons: the expand button, the name and the text of its detail row.
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(6)
+  // Each agent has five buttons: the expand button, the name, the text of its detail row, and
+  // the message and the stop of its control row.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(10)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -2483,6 +2484,131 @@ test('a short rule parts a new prompt from the turn before it', async ($, on) =>
     const rule = await ui.find({ key: 'turn:3' })
     expect(rule?.props.height).toBe(1)
     expect(rule?.text).toBe('─'.repeat(12))
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+// Records the messages that the plugin sends, and answers each with `result`.
+const sendEngine = (
+  on: Parameters<typeof mock.store>[0],
+  result: () => object = () => ({ isDelivered: true }),
+) => {
+  const sent: { to: string; text: string }[] = []
+  on('session.send', (_$, e) => {
+    sent.push({ to: JSON.stringify(e.to), text: e.text })
+    return result() as never
+  })
+  return sent
+}
+
+test('the message button of an agent opens a field, and Enter sends its text', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  const sent = sendEngine(on)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect((await ui.find({ key: 'msg:a1' }))?.props.label).toBe('» message')
+    expect(await ui.find({ key: 'say:a1' })).toBeUndefined()
+    await ui.press({ key: 'msg:a1' })
+    expect((await ui.find({ key: 'say:a1' }))?.type).toBe('Input')
+    await ui.input({ key: 'say:a1', text: 'stop after this file' })
+    expect(sent.at(-1)?.text).toBe('stop after this file')
+    expect(sent.at(-1)?.to).toContain('a1')
+    // A sent message closes the field.
+    expect(await ui.find({ key: 'say:a1' })).toBeUndefined()
+    await ui.unmount()
+  }
+  expect(sent).toHaveLength(2)
+})
+
+test('a message that is not sent shows the reason and keeps its text', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  sendEngine(on, () => ({
+    isDelivered: false,
+    reason: 'The server-side auto mode classifier gave no verdict for SendMessage',
+  }))
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    if ((await ui.find({ key: 'say:a1' })) === undefined) await ui.press({ key: 'msg:a1' })
+    await ui.input({ key: 'say:a1', text: 'hello' })
+    expect(await paneText(ui)).toContain('not sent: add "SendMessage" to permissions.allow')
+    expect((await ui.find({ key: 'say:a1' }))?.props.value).toBe('hello')
+    // An empty message is not sent, and it leaves the reason of the last one.
+    await ui.input({ key: 'say:a1', text: '  ' })
+    await ui.unmount()
+  }
+})
+
+test('the stop button stops a running agent on its second press', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  const stops: unknown[] = []
+  engine(on, undefined, (e) => {
+    stops.push(e)
+    return { result: {} as never, text: 'ok' }
+  })
+  paneEngine(on)
+  await spawn($)
+  await spawn($)
+  await completeAgent($, 'a2')
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    // An agent that does not run has no stop button.
+    expect(await ui.find({ key: 'stop:a2' })).toBeUndefined()
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+    await ui.press({ key: 'stop:a1' })
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop?')
+    expect(stops).toHaveLength(surface === 'terminal' ? 0 : 1)
+    await ui.press({ key: 'stop:a1' })
+    expect(stops.at(-1)).toMatchObject({ tool: 'TaskStop', task_id: 'a1' })
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+    await ui.unmount()
+  }
+  expect(stops).toHaveLength(2)
+})
+
+test('a narrow pane draws the control buttons as icons', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 24)
+    expect((await ui.find({ key: 'msg:a1' }))?.props.label).toBe('»')
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■')
+    await ui.unmount()
+  }
+})
+
+test('the transcript screen has a message field and a stop button', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  const sent = sendEngine(on)
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'agent:a1' })
+    expect((await ui.find({ key: 'stop:a1' }))?.props.label).toBe('■ stop')
+    await ui.input({ key: 'say:a1', text: 'one more thing' })
+    expect(sent.at(-1)?.text).toBe('one more thing')
+    // The field stays on the transcript screen, empty.
+    expect((await ui.find({ key: 'say:a1' }))?.props.value).toBe('')
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
