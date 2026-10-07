@@ -17,8 +17,8 @@ The spike mod is `.tmp/spike-send/`. It ran headless.
 | The answer of the agent | The engine sends a `task-notification` to the main loop at the end of each run. The main loop runs one turn to read it. The mod appends nothing. |
 | Stop | `$.tool.call({ tool: 'TaskStop', task_id: agentId })` stops the agent in each permission mode. The status becomes `killed`, and the main loop gets a notification. |
 | Auto mode | The classifier gives no verdict for a message that a plugin sends: `{ isDelivered: false, reason }`. A second try gets the same answer. |
-| A `tool.check` hook of the mod | The engine does not call it for the mod's own message. The mod cannot allow its own message. |
 | An allow rule for `SendMessage` | The message goes through in auto mode. Tested with `--allowedTools SendMessage`. |
+| A `tool.check` hook in auto mode | The engine calls the hook for a message that the same plugin sends from another hook, and `next.origin.plugin` is the name of that plugin. For a call that the closure of an element makes (`onSubmit`, `onPress`), the engine runs no hook of the plugin: a first spike and a live session showed that. The engine's verdict for the call is `ask`. A hook that answers `allow` lets the message through with no rule. A hook that answers `ask` changes nothing, and no `PermissionRequest` event comes (tested headless). |
 
 A stop in the middle of a Bash call gave this order: the stop result, the end of the Bash call (`isError`, exit code 137) 7 ms later, then `turn.complete` (`aborted`) 3 ms after that. A stop in the middle of a step gave the end of the step 2 ms before `turn.complete`. The hooks of the mod are async, so the end of a call can finish its work after the end of the run. For that reason an agent is marked as running at the start of a step or a call, not at its end.
 
@@ -39,7 +39,19 @@ An open agent row has a control row below its detail row.
 - Enter sends the text. An empty text is not sent.
 - After a sent message, the field of the tree closes. The field of the transcript screen stays, empty.
 - When the engine does not send the message, the field keeps the text, and a red row below it gives the reason: `not sent: <first line of the reason>`.
-- When the reason names the classifier, the row is `not sent: add "SendMessage" to permissions.allow`.
+- When the reason says that the classifier gave no verdict, the row is the button `allow messages in auto mode`. The text stays in the field.
+- A press of the button stores the answer (`allowSend` in the store of the mod, for all sessions) and sends the text of the field.
+- After the answer, a `tool.check` hook changes the verdict `ask` to `allow` for a message of the pane only: a call that the mod made (`next.origin.plugin` is `flight-deck`; the model's call has `engine`), from the main loop, to an agent that has a message of the pane on its way. A `deny` stays. An `ask` that has a `rule`, a `hook` or a `ceiling` stays too: a person or an organization gave it. A SendMessage call of the model keeps the verdict of the engine.
+- The message goes from a `ui.input` hook (a submit of the field) and the button from a `ui.press` hook, not from the closures of the elements: the `tool.check` hook of the mod runs only for a call that a hook of the mod makes.
+- With no text in the field, a press of the button does nothing and stores no answer.
+- The terminal draws a focused field in as many rows as its text needs. The text wraps at a space, in rows of the width of the box less 9 cells (the label and the `⏎ send` hint). The header of a transcript keeps that many rows for the field, and the rule and the transcript start below them. The mod counts the rows (`fieldLayout`): the engine gives no height of an Input.
+- When the first row of the text fills its width, the terminal draws the whole field in one row, cut with `…`. The label of the field then grows by a cell (`››:`), which moves the place where the text wraps. Padding around the field does not have this effect. A first word that is longer than a row stays cut.
+- A field without the focus is one row, cut with `…`. The header keeps the rows of the focused field then, and the rows below the field are empty.
+- With the answer and still no verdict, the row is `not sent: add "SendMessage" to permissions.allow`.
+- The mod cannot read the permission mode of the session. The hook thus changes each `ask` that the mode alone gave. In default mode the engine gave `allow` for a message of a plugin (tested), so the hook changed nothing there.
+- The hook compares `input.to` of the call with the id of the agent. The engine gave the id for an agent with no name (tested). An agent with a name is not tested: if the engine gives the name, the verdict stays `ask` and the row names the rule of the settings.
+- The pane has no control that takes the answer back. To take it back, delete `allowSend` from the store file of the mod.
+- A message that goes from the transcript screen is the last row of the transcript, and the field is in the header. The pane thus moves its window to the end (`$.ui.scroll({ in, to: 'end' })`) after the send, and one time more at the end of the next run of the agent. A move of the window by the person, another screen, or a stop of the agent cancels the second move. The test driver does not raise an event for this call: a live session in a pty showed the two moves, with the field below the bar and the focus in it.
 - The mod does not change the permission mode and adds no rule.
 - A second Enter while a message is on its way sends nothing. The field is empty during that time, and the text comes back when the engine refuses the message.
 

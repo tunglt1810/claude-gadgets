@@ -20,6 +20,8 @@ export const focusAction = (raw: string, transcript: Transcript | null): PaneAct
   // The buttons of an agent's control row, and the stop button of the transcript screen.
   if (kind === 'msg') return { kind: 'compose', agentId: id }
   if (kind === 'stop') return { kind: 'stop', agentId: id }
+  // The button below a message that auto mode did not judge.
+  if (kind === 'allow') return { kind: 'allow', agentId: id }
   // A category row of the context screen.
   if (kind === 'cat') return { kind: 'category', name: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }

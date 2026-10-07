@@ -4,7 +4,15 @@ import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
-import { sendFailure, stopFailure } from '../src/control'
+import {
+  fieldLayout,
+  isNoVerdict,
+  isOpenAsk,
+  isPaneSend,
+  PLUGIN,
+  sendFailure,
+  stopFailure,
+} from '../src/control'
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
@@ -217,6 +225,7 @@ async function loadAgents($: Api, id: string): Promise<void> {
     sent: c.sent ?? 0,
   }))
   for (const key of Object.keys(drafts)) delete drafts[key]
+  answersToShow.clear()
   wantedFocus = null
   await syncPane($)
 }
@@ -394,6 +403,7 @@ async function focusAfter($: Api, key: string, change: () => Promise<void>): Pro
 }
 
 async function openAgent($: Api, agentId: string): Promise<void> {
+  answersToShow.clear()
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({
       ...c,
@@ -416,6 +426,7 @@ async function refreshViewed($: Api, agentId: string): Promise<void> {
 
 // Back to the tree, with the focus on the row of the agent that was open.
 async function backToTree($: Api): Promise<void> {
+  answersToShow.clear()
   const from = (await read($, pane)).agentId
   await focusAfter($, `agent:${from}`, async () => {
     await update($, pane, (c) => ({
@@ -465,12 +476,33 @@ const ownErrorGone = (c: PaneView, agentId: string): PaneView['controlError'] =>
 const drafts: Record<string, string> = {}
 // The agents that have a message on its way.
 const sending = new Set<string>()
+// The store key of the person's answer: the messages of the pane go in auto mode. It is not
+// of a session.
+const ALLOW_KEY = 'allowSend'
 // The agents that a stop of the pane is on its way to: the `tool.call` hook of the mod sees
 // each stop, and it is not a tool call of the session.
 const ownStops = new Set<string>()
 // The task that a TaskStop call names.
 const taskOf = (e: object): string =>
   'task_id' in e && typeof e.task_id === 'string' ? e.task_id : ''
+
+// The agents whose transcript got a message of the pane: the window goes to the answer.
+// An agent leaves the set when its run ends or stops, and all leave it when the person
+// moves the window or goes to another screen: the person then reads another place.
+const answersToShow = new Set<string>()
+
+// Moves the window of the transcript of `agentId` to its end, when that transcript is on
+// the screen.
+async function showEnd($: Api, agentId: string): Promise<void> {
+  const cur = await read($, pane)
+  if (cur.isOpen && cur.agentId === agentId)
+    await $.ui.scroll({ in: PANE_ID, to: 'end' }).catch(() => ({}))
+}
+
+// Draws the pane again for a change that is not in its state: the text of a field.
+async function redraw($: Api): Promise<void> {
+  await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
+}
 
 // Sends the text of a message field to an agent, as the SendMessage tool does. The engine
 // starts an ended agent again. A message that is not sent stays in its field, with the reason.
@@ -480,11 +512,17 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   sending.add(agentId)
   let session: string
   let res: { isDelivered: true } | { isDelivered: false; reason?: string }
+  // Whether this message put its agent in `answersToShow`: a message that is not sent
+  // takes back only that.
+  let isAdded = false
   try {
     session = await $.session.id()
     // The field is empty while the message is on its way: text that the person types then is
     // a new message, not more of the sent one.
     delete drafts[agentId]
+    // Before the send: the run that answers can end before the send comes back.
+    isAdded = (await read($, pane)).agentId === agentId && !answersToShow.has(agentId)
+    if (isAdded) answersToShow.add(agentId)
     await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
     res = await $.session
       .send({ to: { agentId }, text })
@@ -512,14 +550,35 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
         await close()
       })
     else await close()
-    return refreshViewed($, agentId)
+    await refreshViewed($, agentId)
+    // The new message is the last row of the transcript, and the field is in the header:
+    // the window goes to the end, and again when the answer of the agent comes.
+    await showEnd($, agentId)
+    return
   }
+  if (isAdded) answersToShow.delete(agentId)
   // The text comes back to the field, unless the person typed a new one.
   if (drafts[agentId] === undefined) drafts[agentId] = text
+  // Auto mode did not judge the message: the pane asks the person once. With the answer
+  // and still no verdict, the reason names the rule of the settings.
+  const isAsk = isNoVerdict(res.reason) && (await $.store.get(ALLOW_KEY)) !== true
   await update($, pane, (c) => ({
     ...c,
-    controlError: { agentId, reason: sendFailure(res.reason) },
+    controlError: isAsk ? { agentId, isAsk } : { agentId, reason: sendFailure(res.reason) },
   }))
+}
+
+// The person lets the messages of the pane go in auto mode: the answer is kept, and the
+// message that waits in the field goes. The button leaves the screen: the focus goes to the
+// field first, when the field of the agent is on the screen.
+async function allowSend($: Api, agentId: string): Promise<void> {
+  // With no message in the field (a hot reload emptied it), the press does nothing.
+  if ((drafts[agentId] ?? '').trim() === '') return
+  await $.store.set(ALLOW_KEY, true)
+  const clear = () => patchPane($, (c) => ({ ...c, controlError: ownErrorGone(c, agentId) }))
+  if ((await read($, pane)).compose === agentId) await focusAfter($, `say:${agentId}`, clear)
+  else await clear()
+  await sendMessage($, agentId, drafts[agentId] ?? '')
 }
 
 // The first press of a stop button asks, the second stops the agent as the TaskStop tool
@@ -612,6 +671,7 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if ((await read($, pane)).stopAsk != null) await update($, pane, (c) => ({ ...c, stopAsk: null }))
   if (action.kind === 'compose') return toggleCompose($, action.agentId)
   if (action.kind === 'send') return sendMessage($, action.agentId, action.text)
+  if (action.kind === 'allow') return allowSend($, action.agentId)
   if (action.kind === 'open') return openAgent($, action.agentId)
   if (action.kind === 'back')
     // State of an older shape (a hot reload) has no flag.
@@ -899,6 +959,22 @@ export const register: Register = (on, options) => {
     }
   })
 
+  // Auto mode asks for a SendMessage call and gives a plugin's call no verdict. After the
+  // person's answer, a message of the pane goes. A deny stays, and so does an ask that a
+  // rule, a classic hook or a ceiling gave.
+  on('tool.check', { tool: 'SendMessage' }, async ($, e, next) => {
+    const verdict = await next(e)
+    const call = {
+      plugin: next.origin.plugin,
+      input: e.input,
+      ...(e.agentId === undefined ? {} : { agentId: e.agentId }),
+    }
+    if (!isOpenAsk(verdict) || !isPaneSend(call, sending)) return verdict
+    return (await $.store.get(ALLOW_KEY)) === true
+      ? { decision: 'allow', reason: 'the person allowed the messages of the Flight Deck pane' }
+      : verdict
+  })
+
   on('tool.call', async ($, e, next) => {
     if (e.tool === 'TaskStop' && e.agentId === undefined && ownStops.has(taskOf(e))) return next(e)
     const loop = e.agentId
@@ -1016,6 +1092,9 @@ export const register: Register = (on, options) => {
       await trackAgent($, session, (r, t) => end(r, agentId, t))
       await forgetStop($, agentId)
       await refreshViewed($, agentId)
+      // The engine does not wait for the move of the window.
+      if (answersToShow.delete(agentId) && e.reason === 'answer')
+        void showEnd($, agentId).catch(() => undefined)
       return next(e)
     }
     const id = await ensureLoaded($)
@@ -1069,6 +1148,7 @@ export const register: Register = (on, options) => {
       await update($, meter, (c) => ({ ...c, ...endRun(c, notice.id, at) }))
       await trackAgent($, session, (r, t) => ended(r, notice.id, notice.status, t))
       await forgetStop($, notice.id)
+      answersToShow.delete(notice.id)
     }
     return res
   })
@@ -1092,7 +1172,25 @@ export const register: Register = (on, options) => {
     return res
   })
 
+  // A message goes from these two hooks, not from the closure of its element: for a call
+  // that a closure makes, the engine runs no hook of the mod, and the `tool.check` hook
+  // above then cannot let the message through (a live session showed both).
+  on('ui.input', async ($, e, next) => {
+    const isField = e.plugin === PLUGIN && e.requestId === PANE_ID && e.element.startsWith('say:')
+    if (!isField || e.kind !== 'submit') return next(e)
+    await act($, { kind: 'send', agentId: e.element.slice('say:'.length), text: e.value })
+    return { element: e.element, value: e.value }
+  })
+
+  on('ui.press', async ($, e, next) => {
+    const isAllow = e.plugin === PLUGIN && e.requestId === PANE_ID && e.element.startsWith('allow:')
+    if (!isAllow) return next(e)
+    await act($, { kind: 'allow', agentId: e.element.slice('allow:'.length) })
+    return { element: e.element }
+  })
+
   on('ui.scroll', async ($, e, next) => {
+    if (e.requestId === PANE_ID && e.origin.kind === 'person') answersToShow.clear()
     const isTranscript =
       isPaneOnTerminal &&
       e.component === 'Pane' &&
@@ -1183,10 +1281,16 @@ export const register: Register = (on, options) => {
         drafts={drafts}
         onCompose={(agentId) => act($, { kind: 'compose', agentId })}
         onStop={(agentId) => act($, { kind: 'stop', agentId })}
-        onDraft={(agentId, text) => {
+        onDraft={(agentId, text, width) => {
+          const before = fieldLayout(drafts[agentId] ?? '', width)
+          const after = fieldLayout(text, width)
           drafts[agentId] = text
+          // The pane draws the field by its layout: a field that got or lost a row, or
+          // whose label changes its length, draws the pane again.
+          if (before.rows !== after.rows || before.pad !== after.pad) void redraw($)
         }}
         onSend={(agentId, text) => act($, { kind: 'send', agentId, text })}
+        onAllow={(agentId) => act($, { kind: 'allow', agentId })}
       />
     )
     if (pad === 0) return body
