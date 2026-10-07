@@ -297,7 +297,7 @@ A press on an agent opens its transcript. The mod reads it with `$.session.messa
 - A `tool` item is a button with one summary line. A press shows or hides its input and its result.
 - A `tool` item of an Agent call has a second button that opens the child agent.
 - The pane draws a maximum of 40 lines of an input and 40 lines of a result.
-- The pane draws the newest 300 items of a long transcript.
+- The pane draws the newest 300 items of a long transcript, and no more than fit 80,000 characters. The engine draws only the first 100,000 characters of a pane.
 - When the engine refuses the read, the pane shows the refusal text.
 - An event of the agent in view reads its transcript again. The mod discards a result for an agent that is no longer in view.
 
@@ -354,13 +354,17 @@ The layout of section 11.7 does not change. Only the method changes.
 | Content width | `bodyColumns` less 2 | `bodyColumns` |
 | Title | The first row of the pane, bold | The title bar of the desktop pane |
 | Side margin | One cell of padding at the left and at the right | None. The desktop pane has its own margin. |
+| Column that takes the width that stays | A box that grows and shrinks. The layout cuts its text. | A box of a width in cells. The mod cuts its text. |
 | Text at the right edge of a column | Spaces before the text | A box of the column width that puts the text at its end |
 | Header of the agent names | A `Text`, as a cell | A button that does nothing. A desktop draws the label of a button after a margin of its own. |
-| Rule | A `─` for each cell of the content width | A box of the content width that cuts a longer line |
+| Rule | A box of one row that cuts a longer line | A box of the content width that cuts a longer line |
 | Cell that is not a button | A `Text` in a box of the cell width | A `Client` of the cell width |
 | Spinner, live time, cost that runs | The pane is drawn again on each tick | The `Client` of the cell has its own timer |
 
-- The terminal method uses a number of characters as a width. It gives the layout only because the terminal font has a fixed width.
+- The terminal method uses a number of characters as the width of a fixed column. It gives the layout only because the terminal font has a fixed width.
+- The terminal draws a dragged pane at its new width with the last tree, before the hook answers. Thus no box of the terminal tree takes its width from `bodyColumns`. The last tree is then correct at the new width.
+- The label of a button is cut to a number of characters, because a button has no property that cuts its label. The end of a cut label can change one frame after the pane.
+- The terminal layout wraps a label to the width of its box. A button is in a box as wide as its label, inside a box that shrinks and cuts it. The label stays on one row.
 - A test of the desktop method examines the elements and their properties. It cannot measure a position. A person must examine a change of the desktop method on a live desktop.
 
 ## 12. Tests

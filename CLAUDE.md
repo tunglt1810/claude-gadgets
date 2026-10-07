@@ -4,7 +4,7 @@ Mods (hot-reloadable function-hook plugins) for Claude Code. One self-contained 
 
 ## Compatibility
 
-- Built and tested against **Claude Code 2.1.291** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.291.`
+- Built and tested against **Claude Code 2.1.292** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.292.`
 - Bun 1.4.2 (not pinned in the repo).
 - The plugin API may change between Claude Code releases without notice. After an update: let the engine rewrite `mods/<name>/.claude-plugin/types/` (load the mod once), run `bun run check`, then update the version on this line.
 - Not verified on any other Claude Code version, and not yet run live on Claude Desktop.
@@ -21,7 +21,9 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 ## Conventions
 
 - Docs, code comments, identifiers, commit messages and user-visible strings are English.
+- The one exception: a translation of the README is `docs/i18n/README.<lang>.md`. `README.md` is the source. Each translation names the commit of `README.md` that it follows, and each README has the row of language links below its title.
 - Dependencies are pinned to exact versions (`bunfig.toml` `exact = true`); never add a range.
+- A changelog entry is one short sentence: what changed for the person who uses the mod. The cause and the method go in the commit message or the spec, not in the changelog.
 - Specs go in `docs/specs/`, plans in `docs/plans/`, scratch files in `.tmp/` (never `/tmp`).
 - TDD: write the failing test first, watch it fail, then implement.
 - New mod: use the `/new-mod <name>` skill; add it to the root `package.json` scripts.
@@ -55,6 +57,9 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 - No emoji in drawn text: they are double width and misalign the row. Use single-width characters. The one exception is the pane title: its row has no columns.
 - Size a band to `e.props.bodyColumns` and keep it to one row; drop parts instead of wrapping.
 - `AbovePrompt` is raised on terminal and desktop only; `Pane` on every surface.
+- The terminal draws a dragged pane at its new width with the last tree, before the hook answers. Take no box width from `bodyColumns` there: the part that takes the rest of a row has `flexGrow` and `flexShrink`, and a rule is a long line in a `Box` with `height={1}` and `overflow="hidden"`. A width from `bodyColumns` is wrong for one frame at each step of the drag.
+- The terminal layout wraps a Button label to the width of its box. Put the Button in a box as wide as the label, inside a box with `flexShrink` and `overflow="hidden"`: the label stays on one row and the outer box cuts it.
+- The engine draws the first 100,000 characters of a tree, in the order written, and it draws a later part over an earlier part. A row that lies over the body (a sticky row) is thus after the body, and a long body cuts it: keep the body below the limit.
 - The engine scrolls a pane as one tree and has no sticky row. A row that stays in view is a `Box` with `position="absolute"` and `top` equal to `e.props.scroll.offset`. The engine moves the window when the `ui.scroll` hook returns and draws the pane later: store the event's offset, wait for the drawing, then call `next(e)`, or the row is gone for one frame. Terminal only: a desktop scrolls by the pixel and the offset is in rows.
 
 ### Desktop (each of these failed live once)

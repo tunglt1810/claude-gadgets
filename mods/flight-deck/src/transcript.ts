@@ -49,8 +49,25 @@ export const transcriptItems = (rows: readonly Row[]): TranscriptItem[] => {
 
 export const MAX_ITEMS = 300
 
-// The newest items the pane draws, and how many older ones it leaves out.
-export const lastItems = (items: TranscriptItem[]): { items: TranscriptItem[]; hidden: number } =>
-  items.length <= MAX_ITEMS
+// The engine draws the first 100,000 characters of a tree, in the order written. The pane
+// keeps its drawn items below that, with room for the rows around them.
+export const MAX_CHARS = 80_000
+
+// The newest items the pane draws, and how many older ones it leaves out: 300 at most, and no
+// more than fit `limit` by the `size` of each. The newest item is drawn at any size.
+export const lastItems = (
+  items: TranscriptItem[],
+  size: (it: TranscriptItem) => number = () => 0,
+  limit = MAX_CHARS,
+): { items: TranscriptItem[]; hidden: number } => {
+  let kept = 0
+  let total = 0
+  while (kept < Math.min(items.length, MAX_ITEMS)) {
+    total += size(items[items.length - 1 - kept] as TranscriptItem)
+    if (kept > 0 && total > limit) break
+    kept++
+  }
+  return kept === items.length
     ? { items, hidden: 0 }
-    : { items: items.slice(-MAX_ITEMS), hidden: items.length - MAX_ITEMS }
+    : { items: items.slice(-kept), hidden: items.length - kept }
+}

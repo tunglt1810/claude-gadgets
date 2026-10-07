@@ -1,6 +1,6 @@
 {
   "name": "flight-deck",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Band tracking session tokens, tool calls, model working time and cache countdown, with a pane that shows each subagent's transcript",
   "types": "./types/index.d.ts",
   "userConfig": {

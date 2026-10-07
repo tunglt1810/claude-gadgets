@@ -1,0 +1,92 @@
+# claude-gadgets
+
+[English](../../README.md) · Tiếng Việt
+
+> Bản dịch của [`README.md`](../../README.md) tại commit `66934e4`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+
+Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
+
+## Các mod
+
+| Mod | Chức năng |
+| --- | --- |
+| `flight-deck` | Một dải phía trên ô nhập. Dải hiển thị token vào, token ra, tỉ lệ cache hit, số lần gọi tool, số subagent và số tác vụ nền đã khởi chạy, thời gian model làm việc, chi phí của session, số dòng mà các tool sửa file đã thay đổi và đồng hồ đếm ngược của prompt cache. Các tổng số gồm cả mọi subagent. Khi transcript của một subagent đang ở trên màn hình, dải hiển thị số liệu của subagent đó và của các agent bên dưới nó. Dữ liệu được giữ lại khi resume. |
+
+## Bộ công cụ
+
+Bun, TypeScript 7 và Biome. Mọi dependency được ghim vào một phiên bản chính xác (`bunfig.toml` đặt `exact = true`).
+
+```sh
+bun install --frozen-lockfile
+bun run check      # biome + tsc + claude plugin validate + claude plugin test
+```
+
+`tsc` cần typings của engine tại `mods/<name>/.claude-plugin/types/claude-code/index.d.ts`. Claude Code ghi file này khi nó nạp một mod. Để kiểm tra kiểu trước lần nạp đầu tiên, hãy sao chép file mà skill `plugin-authoring` chỉ ra (file này nằm trong gitignore).
+
+## Nạp một mod
+
+- CLI: `claude --plugin-dir mods/flight-deck` (nạp lại nóng mỗi khi lưu file).
+- Claude Desktop (tab Code): đặt `CLAUDE_CODE_PLUGIN_DIRS` bằng đường dẫn tuyệt đối của mod trong khối `env` của `~/.claude/settings.json`.
+
+Tuỳ chọn `cacheTtl` của `flight-deck` nhận `5m` (mặc định) hoặc `1h`. Hãy đặt `1h` khi session của bạn dùng prompt cache 1 giờ.
+
+## Pane agents
+
+`flight-deck` có một pane hiển thị các subagent của session.
+
+- Bấm `◆ agents N` trên dải, hoặc chạy `/agent-log`, để mở pane. Làm lại thao tác đó để đóng pane.
+- Pane liệt kê các subagent theo dạng cây. Agent con nằm dưới agent cha.
+- Bấm vào một agent để xem transcript của nó. Bấm vào một lần gọi tool để xem input và kết quả của nó.
+- Mỗi hàng agent có một hàng chi tiết và một nút mở rộng. Hàng chi tiết mở sẵn, và nút này ẩn hoặc hiện nó. Hàng chi tiết hiển thị model, effort và độ dài context của agent (`ctx 182.4k/1M 18%`). Màu là xanh lá dưới 50%, vàng từ 50% và đỏ từ 80%.
+- Màn hình transcript hiển thị cùng độ dài context đó bên dưới tiêu đề.
+- Pane vẫn hiển thị một agent sau khi agent đó hoàn thành, sau khi một tin nhắn mới khởi chạy lại nó, và sau `--resume`.
+
+Giới hạn:
+
+- Một agent đã khởi chạy trước khi mod được nạp thì không có trong danh sách.
+- Engine không cho một mod đọc các agent của một lần chạy workflow. Một teammate chạy trong pane terminal riêng cũng vậy. Pane hiển thị thông báo từ chối của engine.
+
+## Thêm một mod
+
+Chạy skill `/new-mod <name>`, hoặc sao chép `mods/flight-deck` rồi lược bớt. Engine bắt buộc ba quy tắc:
+
+- Hợp đồng `types` phải độc lập, không có import.
+- Hàm trợ giúp nhận `$` phải là khai báo `function` ở cấp module.
+- Các file của plugin chỉ liên kết với nhau bằng `import` tĩnh.
+
+## Cấu trúc thư mục
+
+```
+mods/<name>/{.claude-plugin/plugin.json, hooks/, src/, types/index.d.ts, tsconfig.json}
+docs/specs/   đặc tả thiết kế
+docs/plans/   kế hoạch triển khai
+docs/i18n/    các bản dịch của README
+```
+
+## Xem trước
+
+### Claude Code CLI
+
+- Màn hình chính
+![Xem trước flight deck trên Claude Code CLI](../../previews/preview-cli.png)
+
+- Bảng agent
+![Bảng agent trên CLI](../../previews/preview-cli-agent-dashboard.png)
+
+- Transcript của agent
+![Transcript của agent trên CLI](../../previews/preview-cli-agent-transcript.png)
+
+### Claude Desktop
+
+- Dải phía trên ô nhập
+![Xem trước flight deck trên Claude Desktop](../../previews/preview-desktop.png)
+
+- Bảng agent
+![Bảng agent trên Claude Desktop](../../previews/preview-desktop-agent-dashboard.png)
+
+- Transcript của agent
+![Transcript của agent trên Claude Desktop](../../previews/preview-desktop-agent-transcript.png)
+
+## Giấy phép
+
+[MIT](../../LICENSE)

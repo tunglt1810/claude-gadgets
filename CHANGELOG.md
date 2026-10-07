@@ -9,6 +9,19 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+### [0.6.0] - 2026-10-07
+
+Tested on Claude Code 2.1.292.
+
+#### Added
+
+- A Vietnamese README: `docs/i18n/README.vi.md`.
+
+#### Fixed
+
+- Terminal: the pane no longer moves for one frame at each step of a drag that changes its width.
+- A transcript of more than 100,000 characters keeps its newest items and the bar of a scrolled transcript.
+
 ### [0.5.0] - 2026-10-06
 
 Tested on Claude Code 2.1.291.

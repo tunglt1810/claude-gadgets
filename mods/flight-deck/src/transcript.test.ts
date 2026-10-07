@@ -114,3 +114,11 @@ test('lastItems keeps the newest 300 and counts the rest', () => {
   expect(items[0]).toEqual({ kind: 'text', text: '5' })
   expect(lastItems(many.slice(0, 3))).toEqual({ items: many.slice(0, 3), hidden: 0 })
 })
+
+test('lastItems keeps the newest items that fit a size', () => {
+  const many = Array.from({ length: 10 }, (_, i) => ({ kind: 'text' as const, text: String(i) }))
+  // Each item has a size of 3: three items fit 10.
+  expect(lastItems(many, () => 3, 10)).toEqual({ items: many.slice(-3), hidden: 7 })
+  // The newest item is drawn when it is larger than the limit by itself.
+  expect(lastItems(many, () => 30, 10)).toEqual({ items: many.slice(-1), hidden: 9 })
+})
