@@ -48,7 +48,7 @@ Limits:
 
 The pane shows what fills the context window of the main loop.
 
-- Below the dashboard, a block shows the context length (`ctx 84.2k/200k 42%`), a bar and three totals. In the bar, `█` is the overhead, `▄` is the messages, `▁` is the free room and `▂` is the room that auto-compaction keeps.
+- Below the dashboard, a block shows the context length (`ctx 84.2k/200k 42%`), a bar and three totals. The bar shows the overhead in the color of the context length, the messages in a darker shade of that color, then the free room and the room that auto-compaction keeps in two greys.
 - The overhead is the content that each request carries before the conversation: the system prompt, the tools, the memory files and the skills.
 - Press `context` to see the overhead by category. Press a category with a `▸` mark to see its MCP servers, its memory files or its skills.
 - `carry($)` is an estimate of what the overhead cost in this session: its tokens, multiplied by the steps of the main loop and by the cache read price.

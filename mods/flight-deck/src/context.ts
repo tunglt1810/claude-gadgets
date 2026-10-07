@@ -8,6 +8,7 @@ import type {
 } from '../types'
 import { cellText } from './cell'
 import { formatTokens, formatUsd } from './format'
+import { PALETTE } from './palette'
 import { readPrice } from './price'
 import { contextColor } from './window'
 
@@ -160,21 +161,30 @@ export const barCells = (
   return { overhead, messages: used - overhead, free: width - used - buffer, buffer }
 }
 
-export type BarSegment = { text: string; color?: string }
+export type BarSegment = { text: string; color: string }
 
-// The bar as segments of lower block characters: one family of glyphs that stand on one
-// line, so the segments line up on each surface (a shade character is from another font
-// there, a few pixels off). The height of a segment tells its part: full for the overhead,
-// half for the messages, a low line for the free room and for the compact buffer. The used
-// parts have the color of the context tone; a part with no color is drawn dim.
+// A hex color with each channel at 55 percent: the darker shade of a tone.
+export const darker = (hex: string): string =>
+  `#${[1, 3, 5]
+    .map((i) =>
+      Math.round(Number.parseInt(hex.slice(i, i + 2), 16) * 0.55)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`
+
+// The bar as segments of one character, the full block: a second glyph (a shade, a lower
+// block) is from another font or has another height, and is a few pixels off beside it. So
+// only the color tells the parts: the context tone for the overhead, its darker shade for the
+// messages, the strip color for the free room and the dim color for the compact buffer.
 export const barSegments = (v: ContextView): BarSegment[] => {
   const c = barCells(v)
-  const color = contextColor(v)
+  const tone = contextColor(v)
   const segs: BarSegment[] = [
-    { text: '█'.repeat(c.overhead), color },
-    { text: '▄'.repeat(c.messages), color },
-    { text: '▁'.repeat(c.free) },
-    { text: '▂'.repeat(c.buffer) },
+    { text: '█'.repeat(c.overhead), color: tone },
+    { text: '█'.repeat(c.messages), color: darker(tone) },
+    { text: '█'.repeat(c.free), color: PALETTE.strip },
+    { text: '█'.repeat(c.buffer), color: PALETTE.dim },
   ]
   return segs.filter((s) => s.text !== '')
 }

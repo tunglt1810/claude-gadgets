@@ -2367,7 +2367,7 @@ test('the agents screen shows the context block after a turn', async ($, on) => 
     const ui = await mountPane($, surface)
     const text = await paneText(ui)
     expect(text).toContain('ctx 84.2k/200k 42%')
-    expect(text).toContain(`${'█'.repeat(6)}${'▄'.repeat(11)}`)
+    expect(text).toContain('█'.repeat(40))
     expect(text).toContain('overhead 31.4k')
     expect(text).toContain('messages 52.8k')
     expect(text).toContain('dead weight 11.6k')

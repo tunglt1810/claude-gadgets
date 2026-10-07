@@ -326,10 +326,7 @@ export const AgentPane = ({
       <Box key={key} height={1} flexShrink={1} overflow="hidden">
         <Text wrap="truncate">
           {barSegments(c).map((s, i) => (
-            <Text
-              key={String(i)}
-              {...(s.color === undefined ? { dimColor: true } : { color: s.color })}
-            >
+            <Text key={String(i)} color={s.color}>
               {s.text}
             </Text>
           ))}

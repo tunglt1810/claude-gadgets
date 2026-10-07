@@ -112,7 +112,7 @@ The block is below the dashboard on the agents screen. It is absent when the ses
 
 ```
 [ context ]  ctx 84.2k/200k 42% · +3.1k/turn · ≈26 turns to compact
-██████▄▄▄▄▄▄▄▄▄▄▄▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▂▂▂▂▂
+████████████████████████████████████████
 overhead 31.4k · messages 52.8k · dead weight 11.6k
 ────────────────────────────────────────────────────────
 ```
@@ -126,18 +126,27 @@ overhead 31.4k · messages 52.8k · dead weight 11.6k
 
 The bar is a new element. `docs/design-system.md` gets these rules.
 
-- The bar has 40 cells. Each cell is a lower block element (`▁` to `█`). These characters stand on one line on each surface. A shade character does not: version 0.6.0 used shades at first, and they were some pixels off.
-- `█` (full height) is the overhead and `▄` (half height) is the messages. Both have the context tone color.
-- `▁` (one eighth) is the free room and `▂` (two eighths) is the compact buffer. Both are dim.
-- An overhead of more than 0 tokens has at least one cell.
-- The bar is one `Text` with a `Text` for each segment. It is in a box of one row that cuts it. The box takes no width from `bodyColumns`.
+- The bar has 40 cells. It takes no width from `bodyColumns`.
+- Each cell is the full block `█`. A second character (a shade, a lower block) comes from a different font or has a different height. It is then some pixels off from the block beside it.
+- Only the color shows the parts:
+
+| Part | Color |
+|---|---|
+| overhead | the color of the context tone |
+| messages | the darker shade of that color (`darker`: each channel at 55 percent) |
+| free room | `PALETTE.strip` |
+| compact buffer | `PALETTE.dim` |
+
+- An overhead of more than 0 tokens has one cell at least.
+- The bar is one `Text` with a `Text` for each segment, in a `Box` with `height={1}` and `overflow="hidden"`.
+- Version 0.6.0 used shade characters at first, then lower blocks. Each was some pixels off, or did not read as one bar.
 
 ### 6.3 Context screen
 
 ```
 [ ← agents ]  context                      full  [ recount ]
 ctx 84.2k/200k 42% · +3.1k/turn · ≈26 turns to compact
-██████▄▄▄▄▄▄▄▄▄▄▄▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▂▂▂▂▂▂
+████████████████████████████████████████
 ────────────────────────────────────────────────────────
 overhead 31.4k · 16% of window · ≈$0.42 over 38 steps
   category                      tokens share(%) carry($)

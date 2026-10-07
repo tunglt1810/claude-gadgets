@@ -7,6 +7,7 @@ import {
   contextHead,
   contextSummary,
   contextView,
+  darker,
   overheadHead,
   sampled,
   sampleOf,
@@ -225,15 +226,24 @@ test('barCells shares 40 cells between the parts of the window', () => {
   })
 })
 
-test('barSegments draws the used parts in the context tone and the rest with no color', () => {
+test('barSegments draws one character for each cell and tells the parts by color', () => {
   const segs = barSegments(view())
-  expect(segs.map((s) => s.text).join('')).toBe(
-    `${'█'.repeat(6)}${'▄'.repeat(11)}${'▁'.repeat(16)}${'▂'.repeat(7)}`,
-  )
-  // 42 percent: the `ok` tone.
-  expect(segs.map((s) => s.color)).toEqual([PALETTE.green, PALETTE.green, undefined, undefined])
+  // One glyph for the whole bar: no part is a pixel off from the part beside it.
+  expect(segs.map((s) => s.text)).toEqual([
+    '█'.repeat(6),
+    '█'.repeat(11),
+    '█'.repeat(16),
+    '█'.repeat(7),
+  ])
+  // 42 percent: the `ok` tone, and a darker green for the messages.
+  expect(segs.map((s) => s.color)).toEqual([PALETTE.green, '#5d7941', PALETTE.strip, PALETTE.dim])
   const hot = barSegments(view({ sample: { ...SAMPLE, tokens: 170000 } }))
-  expect(hot[0]?.color).toBe(PALETTE.red)
+  expect(hot.slice(0, 2).map((s) => s.color)).toEqual([PALETTE.red, '#8c354b'])
+})
+
+test('darker scales each channel of a hex color', () => {
+  expect(darker('#ffd866')).toBe('#8c7738')
+  expect(darker('#000000')).toBe('#000000')
 })
 
 test('contextHead drops parts until the row fits', () => {
