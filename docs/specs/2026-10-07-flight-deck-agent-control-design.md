@@ -41,7 +41,7 @@ An open agent row has a control row below its detail row.
 - When the engine does not send the message, the field keeps the text, and a red row below it gives the reason: `not sent: <first line of the reason>`.
 - When the reason names the classifier, the row is `not sent: add "SendMessage" to permissions.allow`.
 - The mod does not change the permission mode and adds no rule.
-- A second Enter while a message is on its way sends nothing.
+- A second Enter while a message is on its way sends nothing. The field is empty during that time, and the text comes back when the engine refuses the message.
 
 ### 3.2.1 Refused stop
 

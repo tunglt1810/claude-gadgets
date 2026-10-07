@@ -122,7 +122,7 @@ export type Transcript =
 // screen in place of the tree; `openCategories` holds the names of its open category rows.
 // `compose` is the agent whose message field is open on the tree; `stopAsk` the agent whose
 // stop button waits for its second press; `controlError` the message or the stop that the engine refused, with the
-// reason; `sent` counts the sent messages, so a sent message draws the pane again.
+// reason; `sent` counts the messages that the pane sent off, so each one draws the pane again.
 export type PaneView = {
   isOpen: boolean
   isWrapped: boolean

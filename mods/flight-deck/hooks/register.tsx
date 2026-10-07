@@ -387,21 +387,19 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   // A second Enter while the message is on its way sends nothing.
   if (text.trim() === '' || sending.has(agentId)) return
   sending.add(agentId)
+  // The field is empty while the message is on its way: text that the person types then is
+  // a new message, not more of the sent one.
+  delete drafts[agentId]
+  await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
   const res = await $.session
     .send({ to: { agentId }, text })
     .catch((err: unknown) => ({ isDelivered: false as const, reason: String(err) }))
   sending.delete(agentId)
   if (res.isDelivered) {
-    // Text that the person typed while the message was on its way stays in the field.
-    if (drafts[agentId] === text) delete drafts[agentId]
-    await update($, pane, (c) => ({
-      ...c,
-      compose: null,
-      controlError: null,
-      sent: (c.sent ?? 0) + 1,
-    }))
+    await update($, pane, (c) => ({ ...c, compose: null, controlError: null }))
     return refreshViewed($, agentId)
   }
+  // The text comes back to the field, unless the person typed a new one.
   if (drafts[agentId] === undefined) drafts[agentId] = text
   await update($, pane, (c) => ({
     ...c,
@@ -448,7 +446,7 @@ const REFOCUS_MS = 80
 async function focusField($: Api, agentId: string): Promise<void> {
   const move = () => $.ui.focus({ requestId: PANE_ID, key: `say:${agentId}` }).catch(() => ({}))
   await move()
-  setTimeout(() => void move(), REFOCUS_MS)
+  $.clock.after(REFOCUS_MS, move)
 }
 
 // A stop button that waits for its second press forgets the question when its agent ends.
@@ -682,14 +680,17 @@ export const register: Register = (on, options) => {
     // A run of an agent has no start event: its first step opens its working time.
     const runner = e.agentId
     if (runner !== undefined) {
-      const session = await ensureLoaded($)
+      await ensureLoaded($)
       await update($, meter, (c) => ({ ...c, ...startRun(c, runner, sentAt) }))
-      // The agent runs from the start of its step. The end of a step does not say so: the end
-      // of a stopped step can come after the end of the run.
-      await trackAgent($, session, (r, t) => ran(r, runner, t))
       startTimer($, (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl))
     }
     try {
+      // The agent runs from the start of its step. The end of a step does not say so: the end
+      // of a stopped step can come after the end of the run.
+      if (runner !== undefined) {
+        const session = await ensureLoaded($)
+        await trackAgent($, session, (r, t) => ran(r, runner, t))
+      }
       const res = yield* next(e)
       const id = await ensureLoaded($)
       await stamp($)
