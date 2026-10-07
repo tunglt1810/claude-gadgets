@@ -86,6 +86,8 @@ const PCT_WIDTH = 7
 // The color of an agent's runs and time by how recent its activity is.
 const RECENCY_TONE = { active: PALETTE.green, recent: PALETTE.yellow } as const
 const RUNS_WIDTH = 7
+// The characters of a terminal's rule: more than the columns of a pane.
+const RULE_LENGTH = 600
 
 // The tone of a cell: dim, or a color.
 type Tone = Pick<Cell, 'dim' | 'color'>
@@ -119,6 +121,11 @@ const timeCell = (
 //
 // A row is buttons and cells. Every cell is drawn one way per surface: a Text on the terminal,
 // a `Client` on a desktop, where a Text does not sit on one line with a button beside it.
+//
+// The terminal draws a dragged pane at its new width before the hook answers: it lays the last
+// tree out again. So no box of the terminal's tree takes its width from `columns`. The part
+// that takes the rest of a row grows and shrinks, and the layout cuts its text. A desktop's
+// font is not fixed-width, so a part there has a width in cells.
 export const AgentPane = ({
   ui,
   entries,
@@ -143,7 +150,7 @@ export const AgentPane = ({
   const isWrapped = view.isWrapped === true
   const codeWrap = isWrapped ? 'wrap' : 'truncate-end'
   const isClient = spin === null && 'Client' in ui
-  const cell = (key: string, c: Cell) =>
+  const cell = (key: string, c: Cell, isRest = false) =>
     isClient ? (
       <ui.Client
         key={key}
@@ -153,7 +160,12 @@ export const AgentPane = ({
         height={1}
       />
     ) : (
-      <Box key={key} flexShrink={0} {...(c.width === undefined ? {} : { width: c.width })}>
+      <Box
+        key={key}
+        {...(isRest
+          ? { flexGrow: 1, flexShrink: 1 }
+          : { flexShrink: 0, ...(c.width === undefined ? {} : { width: c.width }) })}
+      >
         <Text
           wrap="truncate"
           {...(c.color === undefined ? {} : { color: c.color })}
@@ -164,6 +176,43 @@ export const AgentPane = ({
         </Text>
       </Box>
     )
+
+  // The cell that takes the rest of its row: `width` cells on a desktop, with its text cut to
+  // them. The terminal's layout gives the cell its width and cuts the text.
+  const rest = (key: string, text: string, width: number, tone: Omit<Cell, 'text'> = {}) =>
+    cell(
+      key,
+      isClient
+        ? { ...tone, text: cut(text, width), width }
+        : { ...tone, text: cut(text, Infinity) },
+      true,
+    )
+  // A button of the terminal in a box that the layout can make narrower than the label. The
+  // layout wraps a label to the width that it has. So the inner box is as wide as the label,
+  // which keeps the label on one row, and the outer box cuts it.
+  const oneRow = (key: string, label: string, button: ReturnType<typeof cell>, isRest = false) => (
+    <Box key={key} flexGrow={isRest ? 1 : 0} flexShrink={1} overflow="hidden">
+      <Box width={label.length} flexShrink={0}>
+        {button}
+      </Box>
+    </Box>
+  )
+  // The box that takes the rest of its row, around a button with `label`: `width` cells on a
+  // desktop.
+  const restBox = (key: string, width: number, label: string, button: ReturnType<typeof cell>) =>
+    isClient ? (
+      <Box key={key} width={width} flexShrink={0}>
+        {button}
+      </Box>
+    ) : (
+      oneRow(key, label, button, true)
+    )
+  // A line across the terminal's pane: it is longer than a pane, and its box shows one row of it.
+  const line = (key: string) => (
+    <Box key={key} height={1} overflow="hidden">
+      <Text dimColor>{'─'.repeat(RULE_LENGTH)}</Text>
+    </Box>
+  )
 
   // A context cell with the tokens that are on screen, where the pane draws each frame.
   const shownCtx = (agentId: string, c: Cell): Cell => {
@@ -182,9 +231,7 @@ export const AgentPane = ({
           <Text dimColor>{'─'.repeat(Math.max(0, columns) * 3)}</Text>
         </Box>
       ) : (
-        <Text key={key} dimColor wrap="truncate">
-          {'─'.repeat(Math.max(0, columns))}
-        </Text>
+        line(key)
       )
     // The dashboard: the session's cost, then per model an estimated cost (≈), its share of
     // the total (colored by its size), the working time and the runs of its agents.
@@ -205,7 +252,7 @@ export const AgentPane = ({
           })}
           {dashboard.rows.length > 0 && (
             <Box key="dash:head" flexDirection="row" gap={1}>
-              {head('dash:head:model', 'model', MODEL)}
+              {rest('dash:head:model', 'model', MODEL, { dim: true })}
               {head('dash:head:cost', 'cost($)', USD_WIDTH, 'right')}
               {head('dash:head:pct', 'cost(%)', PCT_WIDTH, 'right')}
               {head('dash:head:runs', 'runs', RUNS_WIDTH, 'right')}
@@ -216,7 +263,7 @@ export const AgentPane = ({
             const pct = sharePct(r.costUsd, dashboard.costUsd)
             return (
               <Box key={`dash:${r.model}`} flexDirection="row" gap={1}>
-                {cell(`dash:model:${r.model}`, { text: cut(r.model, MODEL), width: MODEL })}
+                {rest(`dash:model:${r.model}`, r.model, MODEL)}
                 {cell(`dash:cost:${r.model}`, {
                   ...(r.costUsd === null
                     ? { text: '—' }
@@ -272,15 +319,18 @@ export const AgentPane = ({
               and a cell in different units, so only the same parts line up. */}
           {head('head:mark', '', MARK_WIDTH)}
           <Box key="head:expand" width={EXPAND_WIDTH} flexShrink={0} />
-          <Box key="head:namebox" width={headName} flexShrink={0}>
-            {/* A desktop draws a button's label after a margin of its own: the header is a
-                button there too (it does nothing), so it starts where the names start. */}
-            {isClient ? (
+          {/* A desktop draws a button's label after a margin of its own: the header is a
+              button there too (it does nothing), so it starts where the names start. */}
+          {restBox(
+            'head:namebox',
+            headName,
+            'agents',
+            isClient ? (
               <Button key="head:name" plain dimColor label="agents" onPress={() => {}} />
             ) : (
-              head('head:name', 'agents', headName)
-            )}
-          </Box>
+              rest('head:name', 'agents', headName, { dim: true })
+            ),
+          )}
           {head('head:runs', 'runs', t.runs, 'right')}
           {head('head:time', 'time', t.time, 'right')}
         </Box>
@@ -295,6 +345,7 @@ export const AgentPane = ({
           // The detail row starts below the name's first character: the cells before it.
           const inset = depth * 2 + MARK_WIDTH + 1 + EXPAND_WIDTH + 1
           const detail = isOpen ? detailCells(agent, columns - inset) : []
+          const label = cut(name(agent), nameWidth)
           const ctx = detail.find((c) => c.ctx !== undefined)
           // The cells before the context as one text; its last dot parts it from the context.
           const lead = detail
@@ -320,15 +371,18 @@ export const AgentPane = ({
                     onPress={() => onExpand(agent.id)}
                   />
                 </Box>
-                <Box key={`name:${agent.id}`} width={nameWidth} flexShrink={0}>
+                {restBox(
+                  `name:${agent.id}`,
+                  nameWidth,
+                  label,
                   <Button
                     key={`agent:${agent.id}`}
                     plain
                     {...(agent.status === 'running' ? {} : { dimColor: true })}
-                    label={cut(name(agent), nameWidth)}
+                    label={label}
                     onPress={() => onOpen(agent.id)}
-                  />
-                </Box>
+                  />,
+                )}
                 {cell(`runs:${agent.id}`, {
                   text: String(agent.runs),
                   ...tone,
@@ -374,7 +428,7 @@ export const AgentPane = ({
     if (it.kind === 'prompt')
       return (
         <Text key={String(i)} color={PALETTE.cyan} wrap={isWrapped ? 'wrap' : 'truncate'}>
-          {isWrapped ? `> ${it.text}` : cut(`> ${it.text}`, columns)}
+          {isWrapped ? `> ${it.text}` : cut(`> ${it.text}`, isClient ? columns : Infinity)}
         </Text>
       )
     if (it.kind === 'text') return <Markdown key={String(i)} text={it.text} />
@@ -389,6 +443,16 @@ export const AgentPane = ({
     const state = it.result === undefined ? 'running' : it.isError ? 'failed' : 'done'
     const child = it.agentId
     const room = columns - MARK_WIDTH - 1 - (child === undefined ? 0 : OPEN_CHILD.length)
+    const label = cut(`${isOpen ? '▾' : '▸'} ${toolSummary(it.tool, it.input)}`, room)
+    const tool = (
+      <Button
+        key={`tool:${it.id}`}
+        plain
+        {...(state === 'done' ? { dimColor: true } : {})}
+        label={label}
+        onPress={() => onTool(it.id)}
+      />
+    )
     return (
       <Box key={String(i)} flexDirection="column">
         <Box flexDirection="row" alignItems="center" gap={1}>
@@ -398,13 +462,7 @@ export const AgentPane = ({
               ? { text: '', spin: true, color: TOOL_TONE.running, width: MARK_WIDTH }
               : { text: TOOL_MARK[state], color: TOOL_TONE[state], width: MARK_WIDTH },
           )}
-          <Button
-            key={`tool:${it.id}`}
-            plain
-            {...(state === 'done' ? { dimColor: true } : {})}
-            label={cut(`${isOpen ? '▾' : '▸'} ${toolSummary(it.tool, it.input)}`, room)}
-            onPress={() => onTool(it.id)}
-          />
+          {isClient ? tool : oneRow(`toolbox:${it.id}`, label, tool)}
           {child !== undefined && (
             <Button key={`child:${it.id}`} plain label={OPEN_CHILD} onPress={() => onOpen(child)} />
           )}
@@ -417,13 +475,24 @@ export const AgentPane = ({
     )
   }
 
+  // The characters that an item draws: its text, or the summary of a tool call with the input
+  // and the result of an open one.
+  const drawnChars = (it: TranscriptItem): number => {
+    if (it.kind !== 'tool') return it.text.length
+    const open = view.expanded.includes(it.id)
+      ? inputCode(it.tool, it.input, MAX_LINES).source.length +
+        clipLines(it.result ?? '', MAX_LINES).length
+      : 0
+    return toolSummary(it.tool, it.input).length + open
+  }
+
   // A transcript read for another agent is never drawn.
   const shown = view.transcript?.agentId === viewed ? view.transcript : null
   const body = () => {
     if (shown === null) return <Text dimColor>Loading...</Text>
     if ('deny' in shown) return <Text color={PALETTE.red}>{shown.deny}</Text>
     if (shown.items.length === 0) return <Text dimColor>No messages yet.</Text>
-    const { items, hidden } = lastItems(shown.items)
+    const { items, hidden } = lastItems(shown.items, drawnChars)
     return (
       <Box flexDirection="column">
         {hidden > 0 && <Text dimColor>{`... ${hidden} older items hidden`}</Text>}
@@ -462,7 +531,7 @@ export const AgentPane = ({
       position="absolute"
       top={top}
       left={0}
-      width={columns}
+      width={isClient ? columns : '100%'}
       flexDirection="row"
       alignItems="center"
       gap={1}
@@ -470,11 +539,9 @@ export const AgentPane = ({
     >
       <Button key={`${key}:back`} label={BACK} onPress={onBack} />
       {agent !== undefined && cell(`${key}:mark`, agentMark(agent))}
-      {cell(`${key}:title`, {
-        text: cut(agent === undefined ? viewed : name(agent), stickyName),
+      {rest(`${key}:title`, agent === undefined ? viewed : name(agent), stickyName, {
         bold: true,
         color: agent?.status === 'running' ? TONE.running : PALETTE.fg,
-        width: stickyName,
       })}
       {stickyCtx !== null &&
         agent?.context !== undefined &&
@@ -503,11 +570,9 @@ export const AgentPane = ({
       </Box>
       <Box key="title" flexDirection="row" alignItems="center" gap={1}>
         {agent !== undefined && cell('mark', agentMark(agent))}
-        {cell('title', {
-          text: cut(agent === undefined ? viewed : name(agent), titleWidth),
+        {rest('title', agent === undefined ? viewed : name(agent), titleWidth, {
           bold: true,
           color: agent?.status === 'running' ? TONE.running : PALETTE.fg,
-          width: titleWidth,
         })}
       </Box>
       {/* Below the title: the model, the runs and the working time, with a dot between them,
@@ -549,9 +614,13 @@ export const AgentPane = ({
         </Text>
       )}
       {/* Parts the header (toolbar and title) from the transcript below it. */}
-      <Text key="rule" dimColor wrap="truncate">
-        {'─'.repeat(Math.max(0, columns))}
-      </Text>
+      {isClient ? (
+        <Text key="rule" dimColor wrap="truncate">
+          {'─'.repeat(Math.max(0, columns))}
+        </Text>
+      ) : (
+        line('rule')
+      )}
       {body()}
       {scrollTop > 0 && sticky('sticky', scrollTop)}
       {/* The engine moves the window after this drawing: until then the row it shows has a bar

@@ -1106,7 +1106,12 @@ test('the wrap toggle switches the transcript between cut rows and wrapped text'
 
     await ui.press({ key: 'wrap' })
     expect(String((await ui.find({ key: 'wrap' }))?.props.label)).toContain('off')
-    expect(await paneText(ui)).not.toContain('END')
+    // A desktop cuts the prompt to the pane's columns. The terminal's layout cuts it.
+    if (surface === 'desktop') expect(await paneText(ui)).not.toContain('END')
+    else
+      expect((await ui.findAll({ type: 'Text', text: /END/ })).map((t) => t.props.wrap)).toEqual([
+        'truncate',
+      ])
     for (const code of await ui.findAll({ type: 'Code' }))
       expect(code.props.wrap).toBe('truncate-end')
 
@@ -1573,10 +1578,11 @@ test('the dashboard spans the pane and ends with the runs and the time', async (
       'dash:head:runs',
       'dash:head:time',
     ])
-    // The pane's columns less the cost (9), the share (7), the runs (7), the time (9) and four
-    // gaps. The terminal's pane has a cell of padding at each side.
+    // A desktop: the pane's columns less the cost (9), the share (7), the runs (7), the time (9)
+    // and four gaps. The terminal's layout gives the model the rest of the row.
     const model = await ui.find({ key: 'dash:head:model' })
-    expect(model?.props.width).toBe(surface === 'terminal' ? 42 : 44)
+    if (surface === 'desktop') expect(model?.props.width).toBe(44)
+    else expect(model?.props).toEqual({ key: 'dash:head:model', flexGrow: 1, flexShrink: 1 })
     await ui.unmount()
   }
 })
@@ -1627,8 +1633,14 @@ test('the rule below the dashboard is as wide as the pane', async ($, on) => {
   paneEngine(on)
   await measure($, 1)
 
+  // The terminal's line is longer than a pane: its box has no width and shows one row of it.
   const term = await mountPane($, 'terminal')
-  expect(await paneText(term)).toContain(`\n${'─'.repeat(78)}\n`)
+  expect((await term.find({ key: 'dash:rule' }))?.props).toEqual({
+    key: 'dash:rule',
+    height: 1,
+    overflow: 'hidden',
+  })
+  expect(await paneText(term)).toContain('─'.repeat(200))
   await term.unmount()
   const desk = await mountPane($, 'desktop')
   expect(await desk.find({ key: 'dash:rule' })).toMatchObject({
@@ -2138,7 +2150,7 @@ test('a scrolled transcript keeps a bar with the back button, the agent and its 
   const bar = await ui.find({ key: 'sticky' })
   // The bar is out of the flow, at the first row that the window shows. The terminal draws
   // its title and an empty row above the pane body: two rows less.
-  expect(bar?.props).toMatchObject({ position: 'absolute', top: 10, width: 78 })
+  expect(bar?.props).toMatchObject({ position: 'absolute', top: 10, width: '100%' })
   expect(bar?.props.backgroundColor).toBeDefined()
   const text = await paneText(ui)
   expect(text).toContain('← agents')
@@ -2242,5 +2254,67 @@ test('a scroll of the transcript waits for the pane to draw the bar at its new r
   } as never)
   // Two rows less on the terminal: its title and the empty row.
   expect(topAtMove).toBe(11)
+  await ui.unmount()
+})
+
+// A pane that is dragged to another width is drawn there at once, before the hook answers: the
+// engine lays the last tree out again. So the terminal's tree takes no width from the columns
+// of the pane: the layout gives a row its width, and the tree of one width is right at another.
+test('the terminal pane is the same tree at each width', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5' } as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', effort: 'high', agentId: 'a1' } as never)
+  await completeAgent($, 'a1')
+  await clock.advance(SETTLE_MS)
+
+  // Wide enough that no text is cut and no part is dropped at either width.
+  const drawnAt = async (columns: number, scrollOffset = 0) => {
+    const ui = await mountPane($, 'terminal', true, columns, scrollOffset)
+    // Each mount gives a button a handle of its own: it is no part of the tree's shape.
+    const tree = JSON.stringify(await ui.drawn()).replace(/"handle":\d+/g, '"handle":0')
+    await ui.unmount()
+    return tree
+  }
+  expect(await drawnAt(121)).toBe(await drawnAt(120))
+
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  await ui.unmount()
+  expect(await drawnAt(121)).toBe(await drawnAt(120))
+  // A scrolled transcript has a bar at its top: it spans the pane at each width too.
+  expect(await drawnAt(121, 5)).toBe(await drawnAt(120, 5))
+})
+
+// The engine draws the first 100,000 characters of a tree, in the order written, and the bar of
+// a scrolled transcript is the last part of the tree: a later part is drawn over an earlier one.
+// So the pane draws the newest items that fit below that limit, and the bar is not cut.
+test('a transcript longer than the engine draws keeps its newest items and its bar', async ($, on) => {
+  const rows = Array.from({ length: 60 }, (_, i) => ({
+    role: 'assistant',
+    text: `item ${i} ${'x'.repeat(4000)}`,
+    toolUses: [],
+  }))
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on, () => rows)
+  await spawn($)
+
+  const first = await mountPane($, 'terminal')
+  await first.press({ key: 'agent:a1' })
+  await first.unmount()
+  const ui = await mountPane($, 'terminal', true, 80, 12)
+  const text = await paneText(ui)
+  expect(text.length).toBeLessThan(100_000)
+  expect(text).toContain('item 59 ')
+  expect(text).not.toContain('item 0 ')
+  expect(text).toMatch(/\.\.\. \d+ older items hidden/)
+  expect(await ui.find({ key: 'sticky' })).toBeDefined()
+  await ui.press({ key: 'sticky:back' })
   await ui.unmount()
 })

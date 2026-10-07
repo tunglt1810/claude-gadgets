@@ -1,5 +1,7 @@
 # claude-gadgets
 
+English · [Tiếng Việt](docs/i18n/README.vi.md)
+
 Mods (hot-reloadable plugins) for Claude Code. Each mod is a self-contained plugin under `mods/<name>/`.
 
 ## Mods
@@ -52,6 +54,7 @@ Run the `/new-mod <name>` skill, or copy `mods/flight-deck` and trim it. Rules t
 mods/<name>/{.claude-plugin/plugin.json, hooks/, src/, types/index.d.ts, tsconfig.json}
 docs/specs/   design specs
 docs/plans/   implementation plans
+docs/i18n/    translations of this README
 ```
 
 ## Preview
