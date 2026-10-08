@@ -3,6 +3,7 @@ import { atom, read, update } from 'claude-code'
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
+import { type Compaction, hashes, listedTools, withStep } from '../src/breaks'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
 import {
   fieldLayout,
@@ -276,6 +277,17 @@ let sampleSeq = 0
 let turnSteps = { id: '', steps: 0 }
 // The turns with a step whose end gave no sample: the next sample of a turn end counts them.
 let missedTurns = 0
+
+// What the mod knows of the next request of the main loop, for the cause of a cache break.
+// Kept here, not in state: no drawing reads it, and the session record gets it with a step.
+// The sections of the last render of the system prompt that sends a request.
+let pendingSections: Record<string, string> | null = null
+// The blocks of the first user message, as the engine last computed them.
+let contextHashes: Record<string, string> | null = null
+// Whether each tool is deferred, by the `tool.describe` results of this process.
+const deferral = new Map<string, boolean>()
+// The compaction of the main loop that came after its last step.
+let compaction: Compaction | null = null
 
 // Keeps the breakdown of a usage reply as the context sample of the session `id`, and says
 // if it did: a reply with no breakdown or no window is no sample, and it changes nothing.
@@ -887,6 +899,9 @@ export const register: Register = (on, options) => {
       await update($, meter, (c) => ({ ...c, ...startRun(c, runner, sentAt) }))
       startTimer($, (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl))
     }
+    // The listed tools of this request: a main step compares them with those of the step
+    // before it. A list that fails gives no tools part.
+    const tools = e.agentId === undefined ? await $.tool.list().catch(() => null) : null
     try {
       // The agent runs from the start of its step. The end of a step does not say so: the end
       // of a stopped step can come after the end of the run.
@@ -903,6 +918,11 @@ export const register: Register = (on, options) => {
       // selects the rate of a model that has a long rate.
       const stepTotals = addUsage(emptyTotals(), res.usage)
       const stepCost = costOf(e.model, stepTotals, isMain ? ttls.main : ttls.agent, true)
+      // A main step with a usage: is it a cache break? The compaction is read one time.
+      const usage = res.usage
+      const squeezed = compaction
+      if (isMain && usage !== null) compaction = null
+      const sections = e.index === 0 ? pendingSections : null
       const advisorModel = settings.advisorModel
       // Compute inside the updater: concurrent events must not overwrite each other.
       const nextMeter = await update($, meter, (c) => ({
@@ -920,6 +940,31 @@ export const register: Register = (on, options) => {
               },
         advisor: advised(c.advisor, res.serverToolUses ?? [], advisorModel),
         engineGap: (c.engineGap ?? 0) + engineGap(e.model, stepTotals),
+        ...(isMain && usage !== null
+          ? (() => {
+              const listed = tools === null ? null : listedTools(tools, deferral, c.deferred ?? [])
+              return {
+                ...withStep(
+                  c,
+                  {
+                    tokens: contextTokens(usage),
+                    cacheRead: usage.cache_read_input_tokens ?? 0,
+                    model: e.model,
+                    messageCount: e.messageCount,
+                    at: sentAt,
+                    fingerprint: {
+                      ...(sections === null ? {} : { sections }),
+                      ...(contextHashes === null ? {} : { context: contextHashes }),
+                      ...(listed === null ? {} : { tools: listed.tools }),
+                    },
+                  },
+                  ttls.main,
+                  squeezed,
+                ),
+                ...(listed === null ? {} : { deferred: listed.deferred }),
+              }
+            })()
+          : {}),
         steps: c.steps + (isMain && res.usage !== null ? 1 : 0),
         // An agent with no `agent.spawn` (a skill that runs in a subagent) is counted here.
         agents: c.agents + (e.agentId === undefined || e.agentId in c.byAgent ? 0 : 1),
@@ -962,6 +1007,50 @@ export const register: Register = (on, options) => {
     } finally {
       stepsInFlight--
     }
+  })
+
+  // The four hooks below change nothing: each returns what the engine gave. A failure of the
+  // mod's own record must not fail the event.
+
+  // The system prompt of the next request. A render that measures the prompt sends nothing,
+  // and a teammate renders the prompt of its lead.
+  on('prompt.compose', async (_$, e, next) => {
+    const res = await next(e)
+    try {
+      if (!e.traits.includes('analysis') && !e.traits.includes('teammate'))
+        pendingSections = hashes(res.sections.map((s) => ({ name: s.id, text: s.text })))
+    } catch {
+      // The next render gives the sections.
+    }
+    return res
+  })
+
+  on('prompt.context', async (_$, e, next) => {
+    const res = await next(e)
+    try {
+      contextHashes = hashes(res.blocks)
+    } catch {
+      // The next read gives the blocks.
+    }
+    return res
+  })
+
+  on('tool.describe', async (_$, e, next) => {
+    const res = await next(e)
+    deferral.set(e.tool, (res.isDeferred ?? e.isDeferred) === true)
+    return res
+  })
+
+  // A precompute installs nothing. A compaction of a subagent is not of the main loop.
+  on('session.compact', async (_$, e, next) => {
+    const res = await next(e)
+    if (e.trigger !== 'precompute' && e.agentId === undefined && res.skip === undefined)
+      compaction = {
+        trigger: e.trigger,
+        ...(res.tokensBefore === undefined ? {} : { before: res.tokensBefore }),
+        ...(res.tokensAfter === undefined ? {} : { after: res.tokensAfter }),
+      }
+    return res
   })
 
   // Auto mode asks for a SendMessage call and gives a plugin's call no verdict. After the
