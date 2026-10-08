@@ -462,19 +462,23 @@ export const AgentPane = ({
       )
 
     // The cache breaks of the main loop: the button of the cache screen, then their count
-    // and their lost cost. A Button takes no color, so the count is a cell after it.
+    // and their lost cost. A Button takes no color, so the count is a cell after it. A rule
+    // closes the block, as it closes the context block.
     const cacheRow = () =>
       breaks === null ? null : (
-        <Box
-          key="cache:row"
-          flexDirection="row"
-          alignItems="center"
-          gap={1}
-          overflow="hidden"
-          {...oneRowOnly}
-        >
-          <Button key="cache" label={CACHE} onPress={onCache} />
-          {cell('cache:head', breaksHead(breaks))}
+        <Box key="cacheblock" flexDirection="column">
+          <Box
+            key="cache:row"
+            flexDirection="row"
+            alignItems="center"
+            gap={1}
+            overflow="hidden"
+            {...oneRowOnly}
+          >
+            <Button key="cache" label={CACHE} onPress={onCache} />
+            {cell('cache:head', breaksHead(breaks))}
+          </Box>
+          {rule('cache:rowrule')}
         </Box>
       )
 

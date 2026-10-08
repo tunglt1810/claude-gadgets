@@ -3197,3 +3197,13 @@ test('a prompt that another loop renders during step 0 is not the prompt of that
   // The sections are the same as the step before had: no change seen.
   expect(await settled($, clock)).toContain('✗ unknown')
 })
+
+test('a rule closes the cache row of the agents screen', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await ui.find({ key: 'cache:rowrule' })).toBeDefined()
+    await ui.unmount()
+  }
+})

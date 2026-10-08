@@ -164,6 +164,7 @@ The agents screen gets one row below the context block: the `cache` button, then
 - With a break, the cell is `<count> breaks · ≈$<lost> lost`, in `yellow`. One break gives `1 break`.
 - The count is the count of all breaks of the session, also of the entries that left the list.
 - The cell is a `Client` on a desktop, as each cell next to a Button.
+- A rule closes the row, as a rule closes the context block.
 
 ### 6.3 Cache screen
 
