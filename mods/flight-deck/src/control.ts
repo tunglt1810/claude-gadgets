@@ -1,3 +1,5 @@
+import { cellWidth, wrapRows } from './wrap'
+
 // The least room of a control row that draws its buttons with words: two real buttons of the
 // terminal, `[ » message ]` and `[ ■ stop? ]`, with one cell between them.
 const WIDE = 25
@@ -66,27 +68,9 @@ export const sendFailure = (reason: string | undefined): string => {
 // hint ` ⏎ send` after it.
 const FIELD_CHROME = 9
 
-// The length of each row of `text`, wrapped at a space in rows of `width` cells. A word that
+// The cells of each row of `text`, wrapped at a space in rows of `width` cells. A word that
 // is longer than a row fills rows.
-const wrapped = (text: string, width: number): number[] => {
-  const rows = [0]
-  for (const word of text.split(' ').filter((w) => w !== '')) {
-    let rest = word.length
-    const last = rows[rows.length - 1] ?? 0
-    if (last > 0 && last + 1 + rest <= width) {
-      rows[rows.length - 1] = last + 1 + rest
-      continue
-    }
-    if (last > 0) rows.push(0)
-    while (rest > width) {
-      rows[rows.length - 1] = width
-      rows.push(0)
-      rest -= width
-    }
-    rows[rows.length - 1] = rest
-  }
-  return rows
-}
+const wrapped = (text: string, width: number): number[] => wrapRows(text, width).map(cellWidth)
 
 // The most cells that the label of a field grows by.
 const MAX_PAD = 3

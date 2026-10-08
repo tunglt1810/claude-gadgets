@@ -857,11 +857,20 @@ export const AgentPane = ({
   // The rows of the tables of `text`, by the place of each table among the parts. The engine
   // sizes a table of a `Markdown` to a width that is not the pane's, and the pane wraps its
   // rows: the terminal's pane draws a table itself, to its columns. A desktop scrolls a wide
-  // table sideways.
-  const tables = (text: string) =>
-    isClient
-      ? null
-      : mdParts(text).map((p) => (p.kind === 'md' ? p.text : tableLines(p.head, p.rows, columns)))
+  // table sideways. A drawing reads the parts of a text two times, for its size and for its
+  // rows: it makes them one time.
+  const drawn = new Map<string, (string | string[])[]>()
+  const tables = (text: string) => {
+    if (isClient) return null
+    let parts = drawn.get(text)
+    if (parts === undefined) {
+      parts = mdParts(text).map((p) =>
+        p.kind === 'md' ? p.text : tableLines(p.head, p.rows, columns, p.align),
+      )
+      drawn.set(text, parts)
+    }
+    return parts
+  }
   const markdown = (key: string | undefined, text: string) => {
     const parts = tables(text)
     if (parts === null || parts.every((p) => typeof p === 'string'))
