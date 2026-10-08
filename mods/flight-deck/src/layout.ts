@@ -64,13 +64,14 @@ const LABEL = {
 const GROUPS: readonly (readonly Part[])[] = [
   ['ctx'],
   ['in', 'out'],
-  ['hit', 'cache'],
+  ['hit', 'cache', 'break'],
   ['tools', 'bg', 'work'],
   ['cost', 'diff'],
 ]
 
 // Metrics in the order they are dropped when the band is too narrow (first = dropped first).
 const DROP_ORDER = [
+  'break',
   'bg',
   'diff',
   'hit',
@@ -139,6 +140,8 @@ export const bandSegments = ({
   // The terminal has no blink attribute: pulse by alternating bold/inverse each second.
   const pulse = tone === 'danger' && Math.floor(now / 1000) % 2 === 0
   const cacheColor = expired ? PALETTE.dim : TONE[tone]
+  // The cause of the cache break of the last main step. An agent view has none.
+  const cause = isAgentView ? undefined : snap.lastPrompt?.cause
   const countdown = (label: string): Segment[] => [
     { text: `${label} ${formatCountdown(rem)}`, color: cacheColor, bold: pulse, inverse: pulse },
   ]
@@ -175,6 +178,7 @@ export const bandSegments = ({
       { text: `${LABEL.diff} +${c.added}`, color: PALETTE.green },
       { text: ` -${c.removed}`, color: PALETTE.red },
     ],
+    break: cause === undefined ? [] : [{ text: `✗ ${cause}`, color: PALETTE.red }],
     cache: countdown(LABEL.cache),
     timer: countdown(LABEL.clock),
   })
@@ -201,6 +205,7 @@ export const bandSegments = ({
 
   const dropped = new Set<string>(isAgentView ? SESSION_ONLY : [])
   if (context === undefined) dropped.add('ctx')
+  if (cause === undefined) dropped.add('break')
   const target = partsFor(countsOf(snap))
   let segs = build(target, dropped)
   for (const next of DROP_ORDER) {

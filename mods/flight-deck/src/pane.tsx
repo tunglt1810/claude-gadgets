@@ -1,6 +1,7 @@
 import type { Elements } from 'claude-code'
 import type {
   AgentEntry,
+  BreaksView,
   Cell,
   ContextView,
   Dashboard,
@@ -9,6 +10,7 @@ import type {
   Snapshot,
   TranscriptItem,
 } from '../types'
+import { breaksHead, causeColor, clockText } from './breaks'
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
 import { barSegments, contextHead, contextSummary, overheadHead } from './context'
@@ -35,6 +37,8 @@ type Props = {
   dashboard: Dashboard | null
   // The context of the main loop, below the dashboard; null with no sample.
   context: ContextView | null
+  // The cache breaks of the main loop; null on a transcript screen.
+  breaks: BreaksView | null
   // The dashboard's costs and the tokens of each context as they are on screen, by name, where
   // the pane is drawn on each frame (the terminal). Absent on a desktop: a cell runs to its
   // new number by itself.
@@ -56,6 +60,7 @@ type Props = {
   onWrap: () => void
   onTool: (toolUseId: string) => void
   onContext: () => void
+  onCache: () => void
   onRecount: () => void
   onCategory: (name: string) => void
   // The text of each message field as the person typed it, by agent.
@@ -113,6 +118,12 @@ const TURN_RULE_LENGTH = 12
 // The button of the context screen, and the button that reads its breakdown again.
 const CONTEXT = 'context'
 const RECOUNT = 'recount'
+// The button of the cache screen, and the columns of that screen: a time fits `HH:MM`, the
+// rewritten tokens their header, a lost cost its header `lost($)`.
+const CACHE = 'cache'
+const CLOCK_WIDTH = 5
+const REWRITTEN_WIDTH = 9
+const LOST_WIDTH = 8
 // The columns of the context screen: a count of tokens fits `123.4k`, a share its header
 // `share(%)`, a carry cost its header `carry($)`, a count of tools its header.
 const TOKENS_WIDTH = 7
@@ -164,6 +175,7 @@ export const AgentPane = ({
   stats,
   dashboard,
   context,
+  breaks,
   shownUsd,
   spin,
   now,
@@ -176,6 +188,7 @@ export const AgentPane = ({
   onWrap,
   onTool,
   onContext,
+  onCache,
   onRecount,
   onCategory,
   drafts,
@@ -448,6 +461,27 @@ export const AgentPane = ({
         </Box>
       )
 
+    // The cache breaks of the main loop: the button of the cache screen, then their count
+    // and their lost cost. A Button takes no color, so the count is a cell after it. A rule
+    // closes the block, as it closes the context block.
+    const cacheRow = () =>
+      breaks === null ? null : (
+        <Box key="cacheblock" flexDirection="column">
+          <Box
+            key="cache:row"
+            flexDirection="row"
+            alignItems="center"
+            gap={1}
+            overflow="hidden"
+            {...oneRowOnly}
+          >
+            <Button key="cache" label={CACHE} onPress={onCache} />
+            {cell('cache:head', breaksHead(breaks))}
+          </Box>
+          {rule('cache:rowrule')}
+        </Box>
+      )
+
     // The first cell of a row that is not pressed. On a desktop it is a button that does
     // nothing: a desktop draws a button's label after a margin of its own, so only a button
     // starts where the category buttons start.
@@ -592,8 +626,70 @@ export const AgentPane = ({
         </Box>
       )
     }
+    // The cache screen: each cache break of the main loop, with its cause and its cost.
+    const cacheScreen = () => {
+      const b = breaks ?? { count: 0, lostUsd: 0, entries: [] }
+      const causeWidth = Math.max(
+        MIN_MODEL,
+        columns - (CLOCK_WIDTH + 1) - (REWRITTEN_WIDTH + 1) - (LOST_WIDTH + 1),
+      )
+      const titleWidth = Math.max(1, columns - (BACK.length + BUTTON_CHROME + 1))
+      const detailWidth = Math.max(1, columns - (CLOCK_WIDTH + 1))
+      const hidden = b.count - b.entries.length
+      return (
+        <Box flexDirection="column">
+          <Box key="cache:toolbar" flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
+            <Button key="back" label={BACK} onPress={onBack} />
+            {rest('cache:title', CACHE, titleWidth, { bold: true })}
+          </Box>
+          {b.count === 0 ? (
+            <Text key="cache:none" dimColor>
+              No cache break yet.
+            </Text>
+          ) : (
+            <Box key="cache:body" flexDirection="column">
+              {cell('cache:sum', { ...breaksHead(b), bold: true })}
+              {hidden > 0 &&
+                cell('cache:hidden', {
+                  text: `${hidden} earlier ${hidden === 1 ? 'break' : 'breaks'} not shown`,
+                  dim: true,
+                })}
+              <Box key="cache:headrow" flexDirection="row" gap={1}>
+                {head('cache:head:time', 'time', CLOCK_WIDTH)}
+                {rest('cache:head:cause', 'cause', causeWidth, { dim: true })}
+                {head('cache:head:rewritten', 'rewritten', REWRITTEN_WIDTH, 'right')}
+                {head('cache:head:lost', 'lost($)', LOST_WIDTH, 'right')}
+              </Box>
+              {b.entries.flatMap((e, i) => [
+                <Box key={`cache:row:${i}`} flexDirection="row" gap={1}>
+                  {cell(`cache:time:${i}`, {
+                    text: clockText(e.at),
+                    dim: true,
+                    width: CLOCK_WIDTH,
+                  })}
+                  {rest(`cache:cause:${i}`, e.cause, causeWidth, { color: causeColor(e.cause) })}
+                  {num(`cache:rewritten:${i}`, formatTokens(e.rewritten), REWRITTEN_WIDTH)}
+                  {num(
+                    `cache:lost:${i}`,
+                    e.lostUsd === null ? '—' : `≈${formatUsd(e.lostUsd)}`,
+                    LOST_WIDTH,
+                  )}
+                </Box>,
+                // The detail starts below the cause.
+                <Box key={`cache:detailrow:${i}`} flexDirection="row" gap={1}>
+                  {cell(`cache:pad:${i}`, { text: '', width: CLOCK_WIDTH })}
+                  {rest(`cache:detail:${i}`, e.detail, detailWidth, { dim: true })}
+                </Box>,
+              ])}
+              {rule('cache:rule')}
+            </Box>
+          )}
+        </Box>
+      )
+    }
     // State of an older shape (a hot reload) has no flag.
     if (view.isContext === true) return contextScreen()
+    if (view.isCache === true) return cacheScreen()
 
     const labels = (id: string, room: number) => controlLabels(room, view.stopAsk === id)
     // A plain button of a control row, on one row of the terminal.
@@ -607,6 +703,7 @@ export const AgentPane = ({
         <Box flexDirection="column">
           {board()}
           {contextBlock()}
+          {cacheRow()}
           <Text dimColor>No agents yet.</Text>
         </Box>
       )
@@ -620,6 +717,7 @@ export const AgentPane = ({
       <Box flexDirection="column">
         {board()}
         {contextBlock()}
+        {cacheRow()}
         <Box key="head" flexDirection="row" gap={1}>
           {/* Built as a row is, a mark and a box of the name's width: a desktop sizes a box
               and a cell in different units, so only the same parts line up. */}

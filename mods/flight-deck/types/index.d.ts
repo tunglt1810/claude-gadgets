@@ -45,7 +45,63 @@ export type Snapshot = {
   // The wire names of the MCP tools that a loop called, each name one time.
   mcpCalls: string[]
   mainModel?: string
+  // The last main step with a usage: its prompt, and what the mod knows of the request.
+  lastPrompt?: LastPrompt
+  // The cache breaks of the main loop, the oldest first: the newest 50.
+  breaks?: BreakEntry[]
+  // All breaks of the session, also those that left `breaks`, and the sum of their lost cost.
+  breakCount?: number
+  lostUsd?: number
+  // The tools of the session that a `tool.describe` result gave as deferred.
+  deferred?: string[]
 }
+
+// Why the cache read of a main step was much less than the prompt of the step before it.
+export type BreakCause =
+  | 'compact'
+  | 'history'
+  | 'model'
+  | 'ttl'
+  | 'tools'
+  | 'prompt'
+  | 'context'
+  | 'unknown'
+
+// Hashes of what a request carries before the conversation, each part by name: the sections
+// of the system prompt, the blocks of the first user message, and the listed tools. A part is
+// absent when the mod did not read it.
+export type Fingerprint = {
+  sections?: Record<string, string>
+  context?: Record<string, string>
+  tools?: Record<string, string>
+}
+
+// `tokens` is the prompt: the input, the cache reads and the cache writes. `at` is the time
+// of the request. `cause` is present when the step was a cache break. `ttl` is the cache
+// lifetime of the main loop at the step: the prefix was written with it. A record of an
+// earlier build has none.
+export type LastPrompt = {
+  tokens: number
+  model: string
+  messageCount: number
+  at: number
+  fingerprint: Fingerprint
+  cause?: BreakCause
+  ttl?: '5m' | '1h'
+}
+
+// One cache break. `rewritten` is the tokens that the API wrote again. `lostUsd` is their
+// cost as cache writes less their cost as cache reads; null for a model with no price.
+export type BreakEntry = {
+  at: number
+  cause: BreakCause
+  detail: string
+  rewritten: number
+  lostUsd: number | null
+}
+
+// What the pane draws of the cache breaks of a session.
+export type BreaksView = { count: number; lostUsd: number; entries: BreakEntry[] }
 
 // What the band draws from: the snapshot plus runtime-only turn bookkeeping.
 export type Meter = Snapshot & {
@@ -136,6 +192,8 @@ export type PaneView = {
   collapsedAgents: string[]
   transcript: Transcript | null
   isContext: boolean
+  // The cache screen is in place of the tree.
+  isCache: boolean
   openCategories: string[]
   compose: string | null
   stopAsk: string | null
@@ -150,6 +208,7 @@ export type PaneAction =
   | { kind: 'back' }
   | { kind: 'wrap' }
   | { kind: 'context' }
+  | { kind: 'cache' }
   | { kind: 'recount' }
   | { kind: 'category'; name: string }
   | { kind: 'tool'; toolUseId: string }
@@ -200,6 +259,8 @@ export type PaneData = {
   dashboard: Dashboard | null
   // The context of the main loop, on the tree screen; null with no sample.
   context: ContextView | null
+  // The cache breaks of the main loop, on the tree screen; null on a transcript screen.
+  breaks: BreaksView | null
 }
 
 // One item below a category of the context: an MCP server (`count` is its loaded tools), a

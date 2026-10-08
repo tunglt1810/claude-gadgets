@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `32dde38`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `24c1f40`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -67,6 +67,16 @@ Giới hạn:
 
 - Các con số là của vòng lặp chính. Engine không cho breakdown context của một subagent.
 - Một tool nạp theo yêu cầu thì không nằm trong window, nên không nằm trong overhead.
+
+## Màn hình cache
+
+Một cache break là một step của vòng lặp chính đọc từ prompt cache ít hơn nhiều so với lượng mà step trước đó đã ghi hoặc đã đọc. Khi đó API ghi lại prompt, với giá cache write.
+
+- Band hiển thị `✗` và nguyên nhân sau một break.
+- Bấm `cache` trên màn hình agents để xem từng break của session.
+- Các nguyên nhân: `compact` (một lần compaction), `history` (các message bị gỡ bỏ), `model` (một model khác), `ttl` (cache hết hạn), `tools` (danh sách tool thay đổi), `prompt` (system prompt thay đổi), `context` (một file chỉ dẫn hoặc ngày tháng thay đổi), `unknown`.
+- `rewritten` là số token mà API ghi lại. `lost($)` là một ước lượng: chi phí của chúng khi là cache write, trừ đi chi phí của chúng khi là cache read.
+- Mod chỉ tìm các break của vòng lặp chính. Một subagent có cache riêng.
 
 ## Câu hỏi khi không có verdict
 

@@ -3,6 +3,7 @@ import { atom, read, update } from 'claude-code'
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
+import { type Compaction, hashes, listedTools, withStep } from '../src/breaks'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
 import {
   fieldLayout,
@@ -105,6 +106,7 @@ const initialPane: PaneView = {
   collapsedAgents: [],
   transcript: null,
   isContext: false,
+  isCache: false,
   openCategories: [],
   compose: null,
   stopAsk: null,
@@ -118,6 +120,7 @@ const initialData: PaneData = {
   stats: null,
   dashboard: null,
   context: null,
+  breaks: null,
 }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
 // The context of the main loop: the latest breakdown that an event read, and its growth.
@@ -202,6 +205,11 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     engineGap: s.engineGap ?? 0,
     steps: s.steps,
     mcpCalls: s.mcpCalls,
+    ...(s.lastPrompt === undefined ? {} : { lastPrompt: s.lastPrompt }),
+    ...(s.breaks === undefined ? {} : { breaks: s.breaks }),
+    ...(s.breakCount === undefined ? {} : { breakCount: s.breakCount }),
+    ...(s.lostUsd === undefined ? {} : { lostUsd: s.lostUsd }),
+    ...(s.deferred === undefined ? {} : { deferred: s.deferred }),
     ...(s.mainModel === undefined ? {} : { mainModel: s.mainModel }),
   })
 }
@@ -271,6 +279,30 @@ let sampleSeq = 0
 let turnSteps = { id: '', steps: 0 }
 // The turns with a step whose end gave no sample: the next sample of a turn end counts them.
 let missedTurns = 0
+
+// What the mod knows of the next request of the main loop, for the cause of a cache break.
+// Kept here, not in state: no drawing reads it, and the session record gets it with a step.
+// `sections` is the last render of the system prompt that sends a request, `context` the
+// blocks of the first user message as the engine last computed them, and `compaction` the
+// compaction of the main loop that came after its last step. They are of one session:
+// `session.start` does not fire on `/clear` or on a resume in the process.
+type Seen = {
+  sessionId: string | null
+  sections: Record<string, string> | null
+  context: Record<string, string> | null
+  compaction: Compaction | null
+}
+let seen: Seen = { sessionId: null, sections: null, context: null, compaction: null }
+// Whether each tool is deferred, by the `tool.describe` results of this process.
+const deferral = new Map<string, boolean>()
+
+// What the hooks saw for the current session: the values of another session are dropped.
+async function seenOf($: Api): Promise<Seen> {
+  const id = await $.session.id()
+  if (seen.sessionId !== id)
+    seen = { sessionId: id, sections: null, context: null, compaction: null }
+  return seen
+}
 
 // Keeps the breakdown of a usage reply as the context sample of the session `id`, and says
 // if it did: a reply with no breakdown or no window is no sample, and it changes nothing.
@@ -457,6 +489,20 @@ async function openContext($: Api): Promise<void> {
 async function closeContext($: Api): Promise<void> {
   await focusAfter($, 'context', async () => {
     await update($, pane, (c) => ({ ...c, isContext: false }))
+  })
+}
+
+// The cache screen, with the focus on its back button.
+async function openCache($: Api): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isCache: true }))
+  })
+}
+
+// Back to the tree, with the focus on the button that opened the cache screen.
+async function closeCache($: Api): Promise<void> {
+  await focusAfter($, 'cache', async () => {
+    await update($, pane, (c) => ({ ...c, isCache: false }))
   })
 }
 
@@ -674,10 +720,17 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'send') return sendMessage($, action.agentId, action.text)
   if (action.kind === 'allow') return allowSend($, action.agentId)
   if (action.kind === 'open') return openAgent($, action.agentId)
-  if (action.kind === 'back')
+  if (action.kind === 'back') {
     // State of an older shape (a hot reload) has no flag.
-    return (await read($, pane)).isContext === true ? closeContext($) : backToTree($)
+    const cur = await read($, pane)
+    return cur.isContext === true
+      ? closeContext($)
+      : cur.isCache === true
+        ? closeCache($)
+        : backToTree($)
+  }
   if (action.kind === 'context') return openContext($)
+  if (action.kind === 'cache') return openCache($)
   if (action.kind === 'recount') {
     void countFull($)
     return
@@ -874,6 +927,11 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     // The cache is refreshed when the request is processed, not when the response ends.
     const sentAt = await $.clock.now()
+    // What this request of the main loop carries: read before the request goes out. A prompt
+    // or a context of another loop that comes while the step streams is not of this step.
+    const mine = e.agentId === undefined ? await seenOf($) : null
+    const sections = mine !== null && e.index === 0 ? mine.sections : null
+    const context = mine?.context ?? null
     stepsInFlight++
     // A run of an agent has no start event: its first step opens its working time.
     const runner = e.agentId
@@ -882,11 +940,21 @@ export const register: Register = (on, options) => {
       await update($, meter, (c) => ({ ...c, ...startRun(c, runner, sentAt) }))
       startTimer($, (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl))
     }
+    // The listed tools of this request: a main step compares them with those of the step
+    // before it. The request does not wait for the list, and a list that fails gives no tools
+    // part.
+    const listing =
+      e.agentId === undefined
+        ? Promise.resolve()
+            .then(() => $.tool.list())
+            .catch(() => null)
+        : null
     try {
       // The agent runs from the start of its step. The end of a step does not say so: the end
       // of a stopped step can come after the end of the run.
       if (runner !== undefined) await markAgent($, runner)
       const res = yield* next(e)
+      const tools = listing === null ? null : await listing
       const id = await ensureLoaded($)
       await stamp($)
       // Subagents (agentId set) have their own caches: count their tokens but do not
@@ -898,6 +966,10 @@ export const register: Register = (on, options) => {
       // selects the rate of a model that has a long rate.
       const stepTotals = addUsage(emptyTotals(), res.usage)
       const stepCost = costOf(e.model, stepTotals, isMain ? ttls.main : ttls.agent, true)
+      // A main step with a usage: is it a cache break? The compaction is read one time.
+      const usage = res.usage
+      const squeezed = mine?.compaction ?? null
+      if (mine !== null && usage !== null) mine.compaction = null
       const advisorModel = settings.advisorModel
       // Compute inside the updater: concurrent events must not overwrite each other.
       const nextMeter = await update($, meter, (c) => ({
@@ -915,6 +987,40 @@ export const register: Register = (on, options) => {
               },
         advisor: advised(c.advisor, res.serverToolUses ?? [], advisorModel),
         engineGap: (c.engineGap ?? 0) + engineGap(e.model, stepTotals),
+        ...(isMain && usage !== null
+          ? (() => {
+              const listed =
+                tools === null
+                  ? null
+                  : listedTools(
+                      tools,
+                      deferral,
+                      c.deferred ?? [],
+                      Object.keys(c.lastPrompt?.fingerprint.tools ?? {}),
+                    )
+              return {
+                ...withStep(
+                  c,
+                  {
+                    tokens: contextTokens(usage),
+                    cacheRead: usage.cache_read_input_tokens ?? 0,
+                    cacheWrite: usage.cache_creation_input_tokens ?? 0,
+                    model: e.model,
+                    messageCount: e.messageCount,
+                    at: sentAt,
+                    fingerprint: {
+                      ...(sections === null ? {} : { sections }),
+                      ...(context === null ? {} : { context }),
+                      ...(listed === null ? {} : { tools: listed.tools }),
+                    },
+                  },
+                  ttls.main,
+                  squeezed,
+                ),
+                ...(listed === null ? {} : { deferred: listed.deferred }),
+              }
+            })()
+          : {}),
         steps: c.steps + (isMain && res.usage !== null ? 1 : 0),
         // An agent with no `agent.spawn` (a skill that runs in a subagent) is counted here.
         agents: c.agents + (e.agentId === undefined || e.agentId in c.byAgent ? 0 : 1),
@@ -957,6 +1063,58 @@ export const register: Register = (on, options) => {
     } finally {
       stepsInFlight--
     }
+  })
+
+  // The four hooks below change nothing: each returns what the engine gave. A failure of the
+  // mod's own record must not fail the event.
+
+  // The system prompt of the next request. A render that measures the prompt sends nothing,
+  // and a teammate renders the prompt of its lead.
+  on('prompt.compose', async ($, e, next) => {
+    const res = await next(e)
+    try {
+      if (!e.traits.includes('analysis') && !e.traits.includes('teammate'))
+        (await seenOf($)).sections = hashes(res.sections.map((s) => ({ name: s.id, text: s.text })))
+    } catch {
+      // The next render gives the sections.
+    }
+    return res
+  })
+
+  on('prompt.context', async ($, e, next) => {
+    const res = await next(e)
+    try {
+      ;(await seenOf($)).context = hashes(res.blocks)
+    } catch {
+      // The next read gives the blocks.
+    }
+    return res
+  })
+
+  on('tool.describe', async (_$, e, next) => {
+    const res = await next(e)
+    try {
+      deferral.set(e.tool, (res.isDeferred ?? e.isDeferred) === true)
+    } catch {
+      // The rule for a tool with no result applies.
+    }
+    return res
+  })
+
+  // A precompute installs nothing. A compaction of a subagent is not of the main loop.
+  on('session.compact', async ($, e, next) => {
+    const res = await next(e)
+    try {
+      if (e.trigger !== 'precompute' && e.agentId === undefined && res.skip === undefined)
+        (await seenOf($)).compaction = {
+          trigger: e.trigger,
+          ...(res.tokensBefore === undefined ? {} : { before: res.tokensBefore }),
+          ...(res.tokensAfter === undefined ? {} : { after: res.tokensAfter }),
+        }
+    } catch {
+      // The break after this compaction then gets another cause.
+    }
+    return res
   })
 
   // Auto mode asks for a SendMessage call and gives a plugin's call no verdict. After the
@@ -1260,6 +1418,8 @@ export const register: Register = (on, options) => {
         dashboard={isCurrent ? data.dashboard : null}
         // State of an older shape (a hot reload) has no context.
         context={isCurrent ? (data.context ?? null) : null}
+        // State of an older shape (a hot reload) has no breaks.
+        breaks={isCurrent ? (data.breaks ?? null) : null}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -1276,6 +1436,7 @@ export const register: Register = (on, options) => {
         onWrap={() => act($, { kind: 'wrap' })}
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
         onContext={() => act($, { kind: 'context' })}
+        onCache={() => act($, { kind: 'cache' })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}
         drafts={drafts}

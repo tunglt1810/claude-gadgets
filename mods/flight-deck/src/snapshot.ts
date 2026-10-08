@@ -1,4 +1,12 @@
-import type { AgentUsage, Snapshot, Totals } from '../types'
+import type {
+  AgentUsage,
+  BreakCause,
+  BreakEntry,
+  Fingerprint,
+  LastPrompt,
+  Snapshot,
+  Totals,
+} from '../types'
 import { emptyTotals } from './usage'
 
 // In `mcpCalls`: the session ran before the mod kept its MCP calls, so no server is known as
@@ -73,10 +81,75 @@ const parseAgents = (raw: unknown): Record<string, AgentUsage> =>
       ]),
   )
 
+const CAUSES: readonly BreakCause[] = [
+  'compact',
+  'history',
+  'model',
+  'ttl',
+  'tools',
+  'prompt',
+  'context',
+  'unknown',
+]
+const isCause = (v: unknown): v is BreakCause => CAUSES.includes(v as BreakCause)
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+const parseHashes = (raw: unknown): Record<string, string> | undefined =>
+  isRecord(raw)
+    ? Object.fromEntries(
+        Object.entries(raw).filter((kv): kv is [string, string] => typeof kv[1] === 'string'),
+      )
+    : undefined
+
+const parseFingerprint = (raw: unknown): Fingerprint => {
+  const f = isRecord(raw) ? raw : {}
+  const part = (name: 'sections' | 'context' | 'tools') => {
+    const map = parseHashes(f[name])
+    return map === undefined ? {} : { [name]: map }
+  }
+  return { ...part('sections'), ...part('context'), ...part('tools') }
+}
+
+const parseLastPrompt = (raw: unknown): LastPrompt | undefined => {
+  if (!isRecord(raw)) return undefined
+  const { tokens, model, messageCount, at } = raw
+  if (!isCount(tokens) || typeof model !== 'string' || !isCount(messageCount) || !isCount(at))
+    return undefined
+  return {
+    tokens,
+    model,
+    messageCount,
+    at,
+    fingerprint: parseFingerprint(raw.fingerprint),
+    ...(isCause(raw.cause) ? { cause: raw.cause } : {}),
+    ...(raw.ttl === '5m' || raw.ttl === '1h' ? { ttl: raw.ttl } : {}),
+  }
+}
+
+const parseBreaks = (raw: unknown): BreakEntry[] =>
+  (Array.isArray(raw) ? raw : []).flatMap((b): BreakEntry[] =>
+    isRecord(b) &&
+    isCount(b.at) &&
+    isCause(b.cause) &&
+    typeof b.detail === 'string' &&
+    isCount(b.rewritten)
+      ? [
+          {
+            at: b.at,
+            cause: b.cause,
+            detail: b.detail,
+            rewritten: b.rewritten,
+            lostUsd: isCount(b.lostUsd) ? b.lostUsd : null,
+          },
+        ]
+      : [],
+  )
+
 // Defensive read: the store is JSON written by an earlier version or by hand.
 export const parseSnapshot = (raw: unknown): Snapshot => {
   if (!isRecord(raw)) return emptySnapshot()
   const r = raw
+  const lastPrompt = parseLastPrompt(r.lastPrompt)
   return {
     totals: parseTotals(r.totals),
     tools: num(r.tools),
@@ -103,6 +176,13 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
       : typeof r.tools === 'number'
         ? [UNKNOWN_CALLS]
         : [],
+    ...(lastPrompt === undefined ? {} : { lastPrompt }),
+    ...(Array.isArray(r.breaks) ? { breaks: parseBreaks(r.breaks) } : {}),
+    ...(isCount(r.breakCount) ? { breakCount: r.breakCount } : {}),
+    ...(isCount(r.lostUsd) ? { lostUsd: r.lostUsd } : {}),
+    ...(Array.isArray(r.deferred)
+      ? { deferred: r.deferred.filter((x): x is string => typeof x === 'string') }
+      : {}),
     ...(typeof r.mainModel === 'string' ? { mainModel: r.mainModel } : {}),
   }
 }

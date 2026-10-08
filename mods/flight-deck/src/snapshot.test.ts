@@ -127,3 +127,40 @@ test('a stored snapshot with no list of MCP calls marks the calls as unknown', (
   expect(parseSnapshot(old).mcpCalls).toEqual([UNKNOWN_CALLS])
   expect(parseSnapshot(emptySnapshot()).mcpCalls).toEqual([])
 })
+
+test('parseSnapshot keeps the cache break fields, and a record without them has none', () => {
+  const old = parseSnapshot({ tools: 3 })
+  expect(old.lastPrompt).toBeUndefined()
+  expect(old.breaks).toBeUndefined()
+  expect(old.deferred).toBeUndefined()
+
+  const entry = { at: 5, cause: 'model', detail: 'a → b', rewritten: 9000, lostUsd: null }
+  const last = {
+    tokens: 9000,
+    model: 'm',
+    messageCount: 4,
+    at: 5,
+    fingerprint: { tools: { Read: 'x' }, sections: { memory: 'y' } },
+    cause: 'model',
+    ttl: '5m',
+  }
+  const s = parseSnapshot({
+    tools: 3,
+    lastPrompt: last,
+    breaks: [entry, { at: 'bad' }, { ...entry, cause: 'nonsense' }, { ...entry, lostUsd: 0.5 }],
+    breakCount: 7,
+    lostUsd: 1.25,
+    deferred: ['WebFetch', 3],
+  })
+  expect(s.lastPrompt).toEqual(last)
+  // An entry of a bad shape is left out.
+  expect(s.breaks).toEqual([entry, { ...entry, lostUsd: 0.5 }])
+  expect(s.breakCount).toBe(7)
+  expect(s.lostUsd).toBe(1.25)
+  expect(s.deferred).toEqual(['WebFetch'])
+  // A prompt of a bad shape is no prompt: the next step then finds no break.
+  expect(parseSnapshot({ lastPrompt: { tokens: 'x' } }).lastPrompt).toBeUndefined()
+  expect(
+    parseSnapshot({ lastPrompt: { ...last, cause: 'nonsense' } }).lastPrompt?.cause,
+  ).toBeUndefined()
+})

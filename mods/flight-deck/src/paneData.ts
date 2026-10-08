@@ -1,5 +1,6 @@
 import type { ContextView, PaneData, Registry, Snapshot } from '../types'
 import { agentView } from './agents'
+import { breaksView } from './breaks'
 import { dashboard } from './dashboard'
 
 // What the pane draws, and nothing more: the pane is drawn again on each change of it, and a
@@ -15,7 +16,14 @@ export const paneData = (
   context: ContextView | null,
 ): PaneData => {
   if (viewed === null)
-    return { sessionId, entries, stats: null, dashboard: dashboard(snap, entries, now), context }
+    return {
+      sessionId,
+      entries,
+      stats: null,
+      dashboard: dashboard(snap, entries, now),
+      context,
+      breaks: breaksView(snap),
+    }
   const agent = entries[viewed]
   return {
     sessionId,
@@ -23,5 +31,6 @@ export const paneData = (
     stats: agentView(snap, viewed),
     dashboard: null,
     context: null,
+    breaks: null,
   }
 }

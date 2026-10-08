@@ -7,7 +7,13 @@ export const focusAction = (raw: string, transcript: Transcript | null): PaneAct
   // A button of the bar that stays in view while a transcript scrolls acts as the button of
   // the header does.
   const element = raw.replace(/^sticky(from)?:/, '')
-  if (element === 'back' || element === 'wrap' || element === 'context' || element === 'recount')
+  if (
+    element === 'back' ||
+    element === 'wrap' ||
+    element === 'context' ||
+    element === 'recount' ||
+    element === 'cache'
+  )
     return { kind: element }
   const [kind, id] = [
     element.slice(0, element.indexOf(':')),

@@ -107,6 +107,17 @@ Source: `TOOL_MARK` and `TOOL_TONE` in `pane.tsx`.
 | `done` | `✓` | `green` | dim |
 | `failed` | `✗` | `red` | normal |
 
+### 2.8 Cache break cause
+
+Source: `causeColor` in `breaks.ts`.
+
+| Cause | Color |
+|---|---|
+| `ttl`, `compact` | `yellow` |
+| `history`, `model`, `tools`, `prompt`, `context`, `unknown` | `red` |
+
+The cell after the `cache` button is dim with no break, and `yellow` with a break (`breaksHead` in `breaks.ts`).
+
 ## 3. Number formats
 
 | Value | Function (file) | Rule | Example |
@@ -139,7 +150,7 @@ Rule: use single-width, text-presentation characters only. Do not use an emoji. 
 | `▸` / `▾` | Disclosure: closed / open. Used by the agents button, the expand button of an agent, and a tool call. | `layout.ts`, `pane.tsx` |
 | `⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷` | Spinner frames of a running agent or tool. One frame each 120 ms. | `SPINNER`, `SPIN_MS` in `spinner.ts` |
 | `⣿` | Mark of an ended agent | `END_MARK` in `pane.tsx` |
-| `✓` / `✗` | Tool call done / failed | `TOOL_MARK` in `pane.tsx` |
+| `✓` / `✗` | Tool call done / failed. `✗ <cause>` is also the cache break part of the band. | `TOOL_MARK` in `pane.tsx`, `bandSegments` in `layout.ts` |
 | `◷ ` | Work time of an agent in the pane. The agents table has no icon in its time column. | `CLOCK` in `pane.tsx` |
 | `─` | Rule that closes a table | `line` and `rule` in `pane.tsx` |
 | `─` × 12, dim | Short rule before each new prompt of a transcript | `TURN_RULE_LENGTH` in `pane.tsx` |
@@ -165,11 +176,12 @@ All agent marks and spinner frames are eight-dot braille glyphs. One font draws 
 Source: `bandSegments`, `GROUPS`, `DROP_ORDER` in `layout.ts`. The `Band` component is in `band.tsx`.
 
 - A metric is `icon label value`.
-- The groups, in order: `ctx`, then `in out`, then `hit cache`, then `tools bg work`, then `cost diff`.
+- The groups, in order: `ctx`, then `in out`, then `hit cache break`, then `tools bg work`, then `cost diff`.
 - `ctx` is present only in an agent view that has a context.
 - The agents button is in no group. It is the last part, at the right end of the row. A gap takes the free room before it.
 - The band is one row. It fits `columns`. It never wraps.
-- A band that is too narrow drops parts in this order (first dropped first): `bg`, `diff`, `hit`, `tools`, `work`, `cost`, `out`, `in`, `ctx`, `agents`.
+- A band that is too narrow drops parts in this order (first dropped first): `break`, `bg`, `diff`, `hit`, `tools`, `work`, `cost`, `out`, `in`, `ctx`, `agents`.
+- `break` is `✗ <cause>` in `red`. It is present when the last main step was a cache break. The band of an agent view does not have it.
 - The fit uses the target counts. A part does not come and go while a count runs.
 - The countdown beside the percentage has no label: `◔ 3:42`. When `hit` is dropped, it has the label again: `◔ cache 3:42`.
 - The band draws no bar after the countdown.
@@ -194,6 +206,7 @@ Source: `agentTable` in `table.ts`, `board` and `AgentPane` in `pane.tsx`.
 - A dashboard row with a warning (`note` of `ModelRow`, from `priceNote` in `price.ts`) has a second row below it. The row is the warning text in `yellow`. It starts at the left edge and takes the width of the pane.
 - A cell keeps its width when its value changes.
 - Each row is one row. A row never wraps.
+- The cache screen table has the columns `time cause rewritten lost($)`. Widths: `CLOCK_WIDTH` 5, `REWRITTEN_WIDTH` 9, `LOST_WIDTH` 8. `cause` takes the rest of the width. The detail of an entry is a second row, dim, that starts below the cause.
 - A detail row below an agent has the same leading cells as the agent row (indent, mark width, expand width), so the two rows align.
 
 ## 8. Buttons and empty states

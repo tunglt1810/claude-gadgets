@@ -12,6 +12,9 @@ const USAGE = {
 const STEP = { turnId: 't1', index: 0, model: 'm', messageCount: 1 }
 const DONE = { answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as const
 
+// What `$.tool.list()` answers. A test sets it before a step.
+let toolList: { name: string; description: string; mcp: boolean }[] = []
+
 const stepResult = (usage: typeof USAGE | null) => ({
   turnId: 't1',
   index: 0,
@@ -79,6 +82,7 @@ const engine = (
   env: Record<string, string> = {},
   usage: () => object = () => ({}),
 ) => {
+  toolList = []
   mock.env(on, env)
   on(
     'session.usage',
@@ -92,6 +96,7 @@ const engine = (
   on('tool.call', (_$, e) => toolResult(e) as never)
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: [] }))
+  on('tool.list', () => ({ value: toolList }) as never)
   on('settings.read', () => ({ value: settings() }) as never)
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   let spawned = 0
@@ -932,8 +937,8 @@ test('a child agent is listed below its parent', async ($, on) => {
 
   const ui = await mountPane($, 'terminal')
   // Each agent has five buttons: the expand button, the name, the text of its detail row, and
-  // the message and the stop of its control row.
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(10)
+  // the message and the stop of its control row. The screen has the cache button too.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(11)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -2913,5 +2918,409 @@ test('a tool call that starts after the end of a run does not run the agent agai
   const ui = await mountPane($, 'terminal')
   expect(await marks(ui)).toMatchObject([STOPPED])
   expect((await cellOf(ui, 'runs:a1')).trim()).toContain('1')
+  await ui.unmount()
+})
+
+// A main step with a prompt of `read + write + 2` tokens.
+const stepOf = (read: number, write: number) =>
+  async function* (_$: unknown, e: { turnId: string; index: number }) {
+    yield* [] as never[]
+    const usage = {
+      input_tokens: 2,
+      output_tokens: 5,
+      cache_read_input_tokens: read,
+      cache_creation_input_tokens: write,
+      model: 'm',
+    }
+    return { ...stepResult(usage), turnId: e.turnId, index: e.index }
+  }
+
+// The steps of a test read their usage from here.
+let nextUsage = { read: 0, write: 0 }
+// What a test does while step 0 streams, and before it answers: another loop renders a prompt.
+let duringStep: (() => Promise<void>) | null = null
+const breakEngine = (on: Parameters<typeof mock.store>[0], id: () => string = () => 'S1') => {
+  duringStep = null
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, id)
+  paneEngine(on)
+  on('turn.step', async function* ($: Engine, e: { turnId: string; index: number }) {
+    await duringStep?.()
+    return yield* stepOf(nextUsage.read, nextUsage.write)($, e)
+  } as never)
+  return clock
+}
+const mainStep = async ($: Engine, read: number, write: number, over: object = {}) => {
+  nextUsage = { read, write }
+  await runStep($, { ...STEP, model: 'claude-opus-5-5', messageCount: 10, ...over } as never)
+}
+
+test('a step that reads the prefix is no cache break', async ($, on) => {
+  const clock = breakEngine(on)
+  await mainStep($, 0, 50_000)
+  await mainStep($, 50_002, 100, { index: 1 })
+  expect(await settled($, clock)).not.toContain('✗')
+})
+
+test('a model change breaks the cache, and the mark goes at the next warm step', async ($, on) => {
+  const clock = breakEngine(on)
+  await mainStep($, 0, 50_000)
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+  expect(await settled($, clock)).toContain('✗ model')
+  await mainStep($, 50_102, 50, { model: 'claude-sonnet-5-5', index: 1 })
+  expect(await settled($, clock)).not.toContain('✗')
+})
+
+test(
+  'a step after the cache lifetime gives the cause ttl',
+  { options: { cacheTtl: '5m' } },
+  async ($, on) => {
+    const clock = breakEngine(on)
+    await mainStep($, 0, 50_000)
+    await clock.advance(301_000)
+    await mainStep($, 0, 50_100)
+    expect(await bandText($)).toContain('✗ ttl')
+  },
+)
+
+test('a step of a subagent and a step with no usage change no cache break', async ($, on) => {
+  const clock = breakEngine(on)
+  await mainStep($, 0, 50_000)
+  await spawn($)
+  // A subagent has its own cache: its cold step is not a break of the main loop.
+  await mainStep($, 0, 9000, { agentId: 'a1' })
+  expect(await settled($, clock)).not.toContain('✗')
+  // The main loop still reads its own prefix.
+  await mainStep($, 50_002, 100, { index: 1 })
+  expect(await settled($, clock)).not.toContain('✗')
+})
+
+test('a removed listed tool gives the cause tools, a removed deferred tool does not', async ($, on) => {
+  const clock = breakEngine(on)
+  on('tool.describe', (_$, e) => ({
+    description: e.description,
+    ...(e.tool === 'NotebookEdit' ? { isDeferred: true } : {}),
+  }))
+  const tool = (name: string) => ({ name, description: name, mcp: false })
+  for (const name of ['Read', 'Write', 'NotebookEdit'])
+    await $.tool.describe({ tool: name, description: name, provider: {} } as never)
+  toolList = [tool('Read'), tool('Write'), tool('NotebookEdit')]
+  await mainStep($, 0, 50_000)
+  // The deferred tool leaves the list: the cold step has no known cause.
+  toolList = [tool('Read'), tool('Write')]
+  await mainStep($, 0, 50_100, { index: 1 })
+  expect(await settled($, clock)).toContain('✗ unknown')
+  toolList = [tool('Read')]
+  await mainStep($, 0, 50_200, { index: 2 })
+  expect(await settled($, clock)).toContain('✗ tools')
+})
+
+test('a changed section of the system prompt gives the cause prompt', async ($, on) => {
+  const clock = breakEngine(on)
+  let memory = 'one'
+  on('prompt.compose', () => ({
+    sections: [
+      { id: 'intro', text: 'hello', scope: 'shared' },
+      { id: 'memory', text: memory, scope: 'session' },
+    ],
+  }))
+  const compose = (traits: string[] = []) =>
+    $.prompt.compose({
+      model: 'm',
+      promptModel: 'm',
+      surfaces: [],
+      tools: [],
+      outputStyle: null,
+      traits,
+    } as never)
+  // The hook changes nothing.
+  expect((await compose()).sections.map((s) => s.id)).toEqual(['intro', 'memory'])
+  await mainStep($, 0, 50_000)
+  memory = 'two'
+  await compose()
+  // A render that sends nothing is not the prompt of a request.
+  memory = 'analysis'
+  await compose(['analysis'])
+  await mainStep($, 0, 50_100, { turnId: 't2' })
+  expect(await settled($, clock)).toContain('✗ prompt')
+})
+
+test('a changed context block gives the cause context', async ($, on) => {
+  const clock = breakEngine(on)
+  let claudeMd = 'one'
+  on('prompt.context', () => ({ blocks: [{ name: 'claudeMd', text: claudeMd }] }))
+  expect(await $.prompt.context({ blocks: [] } as never)).toEqual({
+    blocks: [{ name: 'claudeMd', text: 'one' }],
+  })
+  await mainStep($, 0, 50_000)
+  claudeMd = 'two'
+  await $.prompt.context({ blocks: [] } as never)
+  await mainStep($, 0, 50_100, { turnId: 't2' })
+  expect(await settled($, clock)).toContain('✗ context')
+})
+
+test('a compaction of the main loop gives the cause compact', async ($, on) => {
+  const clock = breakEngine(on)
+  // A compaction leaves one message at least.
+  const KEPT = [{ role: 'user', text: 'summary', toolUses: [] }] as never
+  on('session.compact', () => ({ messages: KEPT, tokensBefore: 171_000, tokensAfter: 38_000 }))
+  await mainStep($, 0, 171_000)
+  // A precompute installs nothing, and a compaction of a subagent is not of the main loop.
+  await $.session.compact({ trigger: 'precompute', messages: KEPT } as never)
+  await $.session.compact({ trigger: 'auto', messages: KEPT, agentId: 'a1' } as never)
+  await mainStep($, 171_002, 10, { index: 1 })
+  expect(await settled($, clock)).not.toContain('✗')
+  await $.session.compact({ trigger: 'auto', messages: KEPT } as never)
+  await mainStep($, 0, 38_000, { turnId: 't2', messageCount: 3 })
+  expect(await settled($, clock)).toContain('✗ compact')
+})
+
+test('a cache break stays with its session', async ($, on) => {
+  let id = 'S1'
+  const clock = breakEngine(on, () => id)
+  await mainStep($, 0, 50_000)
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+  expect(await settled($, clock)).toContain('✗ model')
+  id = 'S2'
+  await measure($, 0.1)
+  expect(await settled($, clock)).not.toContain('✗')
+  // The first step of the other session has no prefix: no break.
+  await mainStep($, 0, 50_000)
+  expect(await settled($, clock)).not.toContain('✗')
+  id = 'S1'
+  await measure($, 0.1)
+  expect(await settled($, clock)).toContain('✗ model')
+})
+
+test('the agents screen shows the cache row, and the cache screen lists the breaks', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'cache:head')).toContain('no break')
+    await ui.press({ key: 'cache' })
+    expect(await paneText(ui)).toContain('No cache break yet.')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+  // 50,002 tokens at Sonnet 5.5 and a 1-hour lifetime: (4 - 0.1) x 50,002 / 1,000,000.
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'cache:head')).toContain('1 break · ≈$0.20 lost')
+    await ui.press({ key: 'cache' })
+    const text = await paneText(ui)
+    expect(text).toContain('1 break · ≈$0.20 lost')
+    expect(text).toContain('rewritten')
+    expect(text).toContain('lost($)')
+    expect(await cellOf(ui, 'cache:cause:0')).toContain('model')
+    expect(await cellOf(ui, 'cache:detail:0')).toContain('opus-5-5 → sonnet-5-5')
+    expect(await cellOf(ui, 'cache:rewritten:0')).toContain('50.0k')
+    expect(await cellOf(ui, 'cache:lost:0')).toContain('≈0.20')
+    // The agents table and the dashboard are not on this screen.
+    expect(text).not.toContain('No agents yet.')
+    expect(text).not.toContain('cost(%)')
+    await ui.press({ key: 'back' })
+    expect(await paneText(ui)).toContain('No agents yet.')
+    await ui.unmount()
+  }
+})
+
+test('the cache screen stays one row wide in a narrow pane', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 20)
+    await ui.press({ key: 'cache' })
+    const widths = (await ui.findAll({ type: 'Box' }))
+      .map((b) => b.props.width)
+      .filter((w): w is number => typeof w === 'number')
+    expect(widths.every((w) => w >= 0)).toBe(true)
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the cache screen says how many older breaks the list does not show', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  // 52 breaks: the model changes at each step.
+  for (let i = 0; i < 52; i++)
+    await mainStep($, 0, 50_000, { model: i % 2 === 0 ? 'claude-sonnet-5-5' : 'claude-opus-5-5' })
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'cache' })
+  const text = await paneText(ui)
+  expect(text).toContain('52 breaks')
+  expect(text).toContain('2 earlier breaks not shown')
+  await ui.unmount()
+})
+
+test('a prompt that another loop renders during step 0 is not the prompt of that step', async ($, on) => {
+  const clock = breakEngine(on)
+  let memory = 'one'
+  on('prompt.compose', () => ({ sections: [{ id: 'memory', text: memory, scope: 'session' }] }))
+  const compose = (engine: Engine) =>
+    engine.prompt.compose({
+      model: 'm',
+      promptModel: 'm',
+      surfaces: [],
+      tools: [],
+      outputStyle: null,
+      traits: [],
+    } as never)
+  await compose($)
+  // The step waits at a gate. Another loop renders its own prompt while it waits.
+  let enter: () => void = () => {}
+  let release: () => void = () => {}
+  const entered = new Promise<void>((r) => {
+    enter = r
+  })
+  const gate = new Promise<void>((r) => {
+    release = r
+  })
+  duringStep = async () => {
+    enter()
+    await gate
+  }
+  const running = mainStep($, 0, 50_000)
+  await entered
+  memory = 'subagent'
+  await compose($)
+  memory = 'one'
+  release()
+  await running
+  duringStep = null
+  await compose($)
+  await mainStep($, 0, 50_100, { turnId: 't2' })
+  // The sections are the same as the step before had: no change seen.
+  expect(await settled($, clock)).toContain('✗ unknown')
+})
+
+test('a rule closes the cache row of the agents screen', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await ui.find({ key: 'cache:rowrule' })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+// A desktop font is not fixed-width: each cell there is a Client of a width in cells, and a
+// rule is a box of the content width. The terminal takes no box width from the pane.
+test('the cache row, its rule and the cache screen follow the rules of each surface', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+
+  const desktop = await mountPane($, 'desktop', true, 80)
+  const type = async (key: string) => (await desktop.find({ key }))?.type
+  // The row: a real button, then a Client cell, then a rule as wide as the pane.
+  expect(await type('cache')).toBe('Button')
+  expect(await type('cache:head')).toBe('Client')
+  expect((await desktop.find({ key: 'cache:rowrule' }))?.props).toMatchObject({
+    width: 80,
+    height: 1,
+    overflow: 'hidden',
+  })
+  // The rule is below the row and above the agents table: the same order as the terminal.
+  const order = (await desktop.findAll({ type: 'Box' })).map((b) => b.props.key ?? b.key)
+  expect(order.indexOf('cache:row')).toBeLessThan(order.indexOf('cache:rowrule'))
+  await desktop.press({ key: 'cache' })
+  for (const key of [
+    'cache:sum',
+    'cache:head:time',
+    'cache:head:cause',
+    'cache:head:rewritten',
+    'cache:head:lost',
+    'cache:time:0',
+    'cache:cause:0',
+    'cache:rewritten:0',
+    'cache:lost:0',
+    'cache:pad:0',
+    'cache:detail:0',
+  ])
+    expect(`${key} ${await type(key)}`).toBe(`${key} Client`)
+  // Each Client has a width in cells: a count of characters gives no width on a desktop.
+  const clients = await desktop.findAll({ type: 'Client' })
+  expect(clients.every((c) => typeof c.props.width === 'number' && c.props.width >= 0)).toBe(true)
+  expect((await desktop.find({ key: 'cache:rule' }))?.props).toMatchObject({ width: 80, height: 1 })
+  await desktop.press({ key: 'back' })
+  expect(await type('cache:rowrule')).toBe('Box')
+  await desktop.unmount()
+
+  const terminal = await mountPane($, 'terminal', true, 80)
+  const rule = (await terminal.find({ key: 'cache:rowrule' }))?.props
+  // A long line in a box of one row that cuts it: no width from the pane.
+  expect(rule).toMatchObject({ height: 1, overflow: 'hidden' })
+  expect(rule?.width).toBeUndefined()
+  expect((await terminal.find({ key: 'cache:head' }))?.type).not.toBe('Client')
+  await terminal.unmount()
+})
+
+// A step that waits at a gate: `entered` resolves when the step is in flight, `release` lets
+// it answer.
+const stepGate = () => {
+  let enter: () => void = () => {}
+  let release: () => void = () => {}
+  const entered = new Promise<void>((r) => {
+    enter = r
+  })
+  const gate = new Promise<void>((r) => {
+    release = r
+  })
+  duringStep = async () => {
+    enter()
+    await gate
+  }
+  return { entered, release: () => release() }
+}
+
+test('a context that the engine computes during a step is not the context of that step', async ($, on) => {
+  const clock = breakEngine(on)
+  let claudeMd = 'one'
+  on('prompt.context', () => ({ blocks: [{ name: 'claudeMd', text: claudeMd }] }))
+  const compute = () => $.prompt.context({ blocks: [] } as never)
+  await compute()
+  const { entered, release } = stepGate()
+  const running = mainStep($, 0, 50_000)
+  await entered
+  // The context of another conversation: the event has no agent id.
+  claudeMd = 'subagent'
+  await compute()
+  claudeMd = 'one'
+  release()
+  await running
+  duringStep = null
+  await compute()
+  await mainStep($, 0, 50_100, { turnId: 't2' })
+  expect(await settled($, clock)).toContain('✗ unknown')
+})
+
+test('a compaction of one session is not the cause of a break of another session', async ($, on) => {
+  let id = 'S2'
+  const clock = breakEngine(on, () => id)
+  const KEPT = [{ role: 'user', text: 'summary', toolUses: [] }] as never
+  on('session.compact', () => ({ messages: KEPT, tokensBefore: 171_000, tokensAfter: 38_000 }))
+  await mainStep($, 0, 50_000)
+  id = 'S1'
+  await mainStep($, 0, 50_000)
+  await $.session.compact({ trigger: 'auto', messages: KEPT } as never)
+  // The person goes back to the other session, with another model.
+  id = 'S2'
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+  expect(await settled($, clock)).toContain('✗ model')
+})
+
+test('the cache screen names one older break in the singular', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  for (let i = 0; i < 51; i++)
+    await mainStep($, 0, 50_000, { model: i % 2 === 0 ? 'claude-sonnet-5-5' : 'claude-opus-5-5' })
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'cache' })
+  expect(await paneText(ui)).toContain('1 earlier break not shown')
   await ui.unmount()
 })
