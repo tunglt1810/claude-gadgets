@@ -1096,6 +1096,36 @@ test('an event of another agent does not replace the open transcript', async ($,
   await band.unmount()
 })
 
+test('the terminal draws a table of a transcript to the columns of the pane', async ($, on) => {
+  const table = ['| File | Problem |', '| --- | --- |', `| a.ts | ${'word '.repeat(40)}|`].join(
+    '\n',
+  )
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on, () => [{ role: 'assistant', text: `Found:\n\n${table}`, toolUses: [] }])
+  await spawn($)
+
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 40)
+    await ui.press({ key: 'agent:a1' })
+    const markdown = (await ui.findAll({ type: 'Markdown' })).map((m) => String(m.props.text))
+    const rows = (await ui.findAll({ type: 'Text', text: /[│┌├└]/ })).map((t) => t.text)
+    if (surface === 'desktop') {
+      // A desktop scrolls a wide table sideways: the engine draws it.
+      expect(markdown.join('\n')).toContain('| File | Problem |')
+      expect(rows).toEqual([])
+    } else {
+      expect(markdown).toEqual(['Found:\n'])
+      expect(rows[0]).toMatch(/^┌─+┬─+┐$/)
+      expect(rows.length).toBeGreaterThan(5)
+      for (const row of rows) expect(row.length).toBeLessThanOrEqual(40)
+    }
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
 test('the wrap toggle switches the transcript between cut rows and wrapped text', async ($, on) => {
   const long = `Count the lines. ${'x'.repeat(200)} END`
   mock.clock(on, { now: 1000 })

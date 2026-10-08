@@ -19,6 +19,7 @@ import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
 import { formatDuration, formatTokens, formatUsd } from './format'
 import { statSegments } from './layout'
+import { mdParts, tableLines } from './mdTable'
 import { PALETTE } from './palette'
 import { agentTitle, modelLabel, workedMs } from './registry'
 import { inputCode, toolSummary } from './summary'
@@ -853,6 +854,46 @@ export const AgentPane = ({
     )
   }
 
+  // The rows of the tables of `text`, by the place of each table among the parts. The engine
+  // sizes a table of a `Markdown` to a width that is not the pane's, and the pane wraps its
+  // rows: the terminal's pane draws a table itself, to its columns. A desktop scrolls a wide
+  // table sideways. A drawing reads the parts of a text two times, for its size and for its
+  // rows: it makes them one time.
+  const drawn = new Map<string, (string | string[])[]>()
+  const tables = (text: string) => {
+    if (isClient) return null
+    let parts = drawn.get(text)
+    if (parts === undefined) {
+      parts = mdParts(text).map((p) =>
+        p.kind === 'md' ? p.text : tableLines(p.head, p.rows, columns, p.align),
+      )
+      drawn.set(text, parts)
+    }
+    return parts
+  }
+  const markdown = (key: string | undefined, text: string) => {
+    const parts = tables(text)
+    if (parts === null || parts.every((p) => typeof p === 'string'))
+      return <Markdown key={key} text={text} />
+    return (
+      <Box key={key} flexDirection="column">
+        {parts.map((p, n) =>
+          typeof p === 'string' ? (
+            <Markdown key={String(n)} text={p} />
+          ) : (
+            <Box key={String(n)} flexDirection="column">
+              {p.map((line, l) => (
+                <Text key={String(l)} wrap="truncate">
+                  {line}
+                </Text>
+              ))}
+            </Box>
+          ),
+        )}
+      </Box>
+    )
+  }
+
   const item = (it: TranscriptItem, i: number) => {
     if (it.kind === 'prompt') {
       const prompt = (
@@ -872,12 +913,12 @@ export const AgentPane = ({
         </Box>
       )
     }
-    if (it.kind === 'text') return <Markdown key={String(i)} text={it.text} />
+    if (it.kind === 'text') return markdown(String(i), it.text)
     if (it.kind === 'answer')
       return (
         <Box key={String(i)} flexDirection="column">
           <Text dimColor>answer:</Text>
-          <Markdown text={it.text} />
+          {markdown(undefined, it.text)}
         </Box>
       )
     const isOpen = view.expanded.includes(it.id)
@@ -919,7 +960,10 @@ export const AgentPane = ({
   // The characters that an item draws: its text, or the summary of a tool call with the input
   // and the result of an open one.
   const drawnChars = (it: TranscriptItem): number => {
-    if (it.kind !== 'tool') return it.text.length
+    if (it.kind === 'prompt') return it.text.length
+    // A table that the pane draws has its borders and the pad of its cells too.
+    if (it.kind !== 'tool')
+      return (tables(it.text) ?? [it.text]).flat().reduce((n, row) => n + row.length, 0)
     const open = view.expanded.includes(it.id)
       ? inputCode(it.tool, it.input, MAX_LINES).source.length +
         clipLines(it.result ?? '', MAX_LINES).length

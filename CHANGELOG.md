@@ -9,6 +9,10 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+#### Fixed
+
+- A table in a transcript on the terminal fits the width of the pane: its cells wrap, and a table that is too wide shows each row as a list.
+
 ### [0.7.0] - 2026-10-08
 
 Tested on Claude Code 2.1.293.
