@@ -46,3 +46,14 @@ test('paneData gives the context to the tree screen only', () => {
   expect(paneData('S1', {}, null, emptySnapshot(), 0, context).context).toBe(context)
   expect(paneData('S1', {}, 'a1', emptySnapshot(), 0, context).context).toBeNull()
 })
+
+test('the tree screen takes the cache breaks, a transcript screen does not', () => {
+  const entry = { at: 5, cause: 'model' as const, detail: 'a → b', rewritten: 9000, lostUsd: 0.5 }
+  const snap = { ...emptySnapshot(), breaks: [entry], breakCount: 3, lostUsd: 1.5 }
+  expect(paneData('S1', {}, null, snap, 0, null).breaks).toEqual({
+    count: 3,
+    lostUsd: 1.5,
+    entries: [entry],
+  })
+  expect(paneData('S1', {}, 'a1', snap, 0, null).breaks).toBeNull()
+})

@@ -189,6 +189,8 @@ export type PaneView = {
   collapsedAgents: string[]
   transcript: Transcript | null
   isContext: boolean
+  // The cache screen is in place of the tree.
+  isCache: boolean
   openCategories: string[]
   compose: string | null
   stopAsk: string | null
@@ -203,6 +205,7 @@ export type PaneAction =
   | { kind: 'back' }
   | { kind: 'wrap' }
   | { kind: 'context' }
+  | { kind: 'cache' }
   | { kind: 'recount' }
   | { kind: 'category'; name: string }
   | { kind: 'tool'; toolUseId: string }
@@ -253,6 +256,8 @@ export type PaneData = {
   dashboard: Dashboard | null
   // The context of the main loop, on the tree screen; null with no sample.
   context: ContextView | null
+  // The cache breaks of the main loop, on the tree screen; null on a transcript screen.
+  breaks: BreaksView | null
 }
 
 // One item below a category of the context: an MCP server (`count` is its loaded tools), a

@@ -106,6 +106,7 @@ const initialPane: PaneView = {
   collapsedAgents: [],
   transcript: null,
   isContext: false,
+  isCache: false,
   openCategories: [],
   compose: null,
   stopAsk: null,
@@ -119,6 +120,7 @@ const initialData: PaneData = {
   stats: null,
   dashboard: null,
   context: null,
+  breaks: null,
 }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
 // The context of the main loop: the latest breakdown that an event read, and its growth.
@@ -477,6 +479,20 @@ async function closeContext($: Api): Promise<void> {
   })
 }
 
+// The cache screen, with the focus on its back button.
+async function openCache($: Api): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isCache: true }))
+  })
+}
+
+// Back to the tree, with the focus on the button that opened the cache screen.
+async function closeCache($: Api): Promise<void> {
+  await focusAfter($, 'cache', async () => {
+    await update($, pane, (c) => ({ ...c, isCache: false }))
+  })
+}
+
 // Changes the pane only when the change gives another state: each write draws the pane again,
 // and a desktop drops a click on a button that a redraw replaced.
 async function patchPane($: Api, change: (c: PaneView) => PaneView): Promise<void> {
@@ -691,10 +707,17 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'send') return sendMessage($, action.agentId, action.text)
   if (action.kind === 'allow') return allowSend($, action.agentId)
   if (action.kind === 'open') return openAgent($, action.agentId)
-  if (action.kind === 'back')
+  if (action.kind === 'back') {
     // State of an older shape (a hot reload) has no flag.
-    return (await read($, pane)).isContext === true ? closeContext($) : backToTree($)
+    const cur = await read($, pane)
+    return cur.isContext === true
+      ? closeContext($)
+      : cur.isCache === true
+        ? closeCache($)
+        : backToTree($)
+  }
   if (action.kind === 'context') return openContext($)
+  if (action.kind === 'cache') return openCache($)
   if (action.kind === 'recount') {
     void countFull($)
     return
@@ -1354,6 +1377,8 @@ export const register: Register = (on, options) => {
         dashboard={isCurrent ? data.dashboard : null}
         // State of an older shape (a hot reload) has no context.
         context={isCurrent ? (data.context ?? null) : null}
+        // State of an older shape (a hot reload) has no breaks.
+        breaks={isCurrent ? (data.breaks ?? null) : null}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -1370,6 +1395,7 @@ export const register: Register = (on, options) => {
         onWrap={() => act($, { kind: 'wrap' })}
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
         onContext={() => act($, { kind: 'context' })}
+        onCache={() => act($, { kind: 'cache' })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}
         drafts={drafts}

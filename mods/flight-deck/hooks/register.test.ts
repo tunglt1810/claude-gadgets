@@ -937,8 +937,8 @@ test('a child agent is listed below its parent', async ($, on) => {
 
   const ui = await mountPane($, 'terminal')
   // Each agent has five buttons: the expand button, the name, the text of its detail row, and
-  // the message and the stop of its control row.
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(10)
+  // the message and the stop of its control row. The screen has the cache button too.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(11)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -3087,4 +3087,68 @@ test('a cache break stays with its session', async ($, on) => {
   id = 'S1'
   await measure($, 0.1)
   expect(await settled($, clock)).toContain('✗ model')
+})
+
+test('the agents screen shows the cache row, and the cache screen lists the breaks', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'cache:head')).toContain('no break')
+    await ui.press({ key: 'cache' })
+    expect(await paneText(ui)).toContain('No cache break yet.')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+  // 50,002 tokens at Sonnet 5.5 and a 1-hour lifetime: (4 - 0.1) x 50,002 / 1,000,000.
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'cache:head')).toContain('1 break · ≈$0.20 lost')
+    await ui.press({ key: 'cache' })
+    const text = await paneText(ui)
+    expect(text).toContain('1 break · ≈$0.20 lost')
+    expect(text).toContain('rewritten')
+    expect(text).toContain('lost($)')
+    expect(await cellOf(ui, 'cache:cause:0')).toContain('model')
+    expect(await cellOf(ui, 'cache:detail:0')).toContain('opus-5-5 → sonnet-5-5')
+    expect(await cellOf(ui, 'cache:rewritten:0')).toContain('50.0k')
+    expect(await cellOf(ui, 'cache:lost:0')).toContain('≈0.20')
+    // The agents table and the dashboard are not on this screen.
+    expect(text).not.toContain('No agents yet.')
+    expect(text).not.toContain('cost(%)')
+    await ui.press({ key: 'back' })
+    expect(await paneText(ui)).toContain('No agents yet.')
+    await ui.unmount()
+  }
+})
+
+test('the cache screen stays one row wide in a narrow pane', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 20)
+    await ui.press({ key: 'cache' })
+    const widths = (await ui.findAll({ type: 'Box' }))
+      .map((b) => b.props.width)
+      .filter((w): w is number => typeof w === 'number')
+    expect(widths.every((w) => w >= 0)).toBe(true)
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the cache screen says how many older breaks the list does not show', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  // 52 breaks: the model changes at each step.
+  for (let i = 0; i < 52; i++)
+    await mainStep($, 0, 50_000, { model: i % 2 === 0 ? 'claude-sonnet-5-5' : 'claude-opus-5-5' })
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'cache' })
+  const text = await paneText(ui)
+  expect(text).toContain('52 breaks')
+  expect(text).toContain('2 earlier breaks not shown')
+  await ui.unmount()
 })
