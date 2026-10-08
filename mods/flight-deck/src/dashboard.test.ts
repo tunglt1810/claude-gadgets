@@ -145,3 +145,28 @@ test('usdTargets names the costs the pane animates: the total and each priced ro
     }),
   ).toEqual({ total: 5, 'row:opus-5-5': 4 })
 })
+
+test('dashboard notes the row of a model whose price the engine counts at another rate', () => {
+  const totals = { input: 1, output: 0, cacheRead: 0, cacheWrite: 0 }
+  const snap = {
+    ...emptySnapshot(),
+    byModel: { 'claude-sonnet-5-5': totals, 'claude-opus-5-5': totals },
+  }
+  const rows = dashboard(snap, {}, 0).rows
+  expect(rows.find((r) => r.model === 'sonnet-5-5')?.note).toBe(
+    'cache read $0.10/MTok, engine $0.20',
+  )
+  expect(rows.find((r) => r.model === 'opus-5-5')?.note).toBeUndefined()
+})
+
+test('dashboard keeps the cost that the engine counts over the listed price out of the side row', () => {
+  const read = { input: 0, output: 0, cacheRead: 1e7, cacheWrite: 0 }
+  // The rows hold $1 at the listed price, and the engine counted $2.
+  const snap = {
+    ...emptySnapshot(),
+    costUsd: 2,
+    byModel: { 'claude-sonnet-5-5': read },
+    engineGap: 1,
+  }
+  expect(dashboard(snap, {}, 0).rows.map((r) => r.model)).toEqual(['sonnet-5-5'])
+})

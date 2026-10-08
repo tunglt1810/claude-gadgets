@@ -191,6 +191,7 @@ Source: `agentTable` in `table.ts`, `board` and `AgentPane` in `pane.tsx`.
 - The `runs` and `time` columns end at the same right edge in the two tables.
 - A rule closes the dashboard (`dash:rule`). It has the width of the pane.
 - The dashboard has a bold headline cell above the table: `total ≈$1.42`.
+- A dashboard row with a warning (`note` of `ModelRow`, from `priceNote` in `price.ts`) has a second row below it. The row is the warning text in `yellow`. It starts at the left edge and takes the width of the pane.
 - A cell keeps its width when its value changes.
 - Each row is one row. A row never wraps.
 - A detail row below an agent has the same leading cells as the agent row (indent, mark width, expand width), so the two rows align.

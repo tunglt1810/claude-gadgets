@@ -41,6 +41,8 @@ test('each native prefix gives 1M and an older model gives 200k', () => {
     'claude-sonnet-5',
     'claude-fable-5-1',
     'claude-mythos-5',
+    'claude-haiku-5-5',
+    'claude-haiku-5-5-20261001',
     'opus-5-5',
   ])
     expect(contextWindow(m, false)).toBe(1_000_000)

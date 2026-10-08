@@ -146,7 +146,7 @@ export const contextView = (
     growth === null || s.threshold === null
       ? null
       : Math.max(0, Math.floor((s.threshold - s.tokens) / growth))
-  const price = snap.mainModel === undefined ? null : readPrice(snap.mainModel)
+  const price = snap.mainModel === undefined ? null : readPrice(snap.mainModel, s.tokens)
   // A session of an older version has no record of its steps and its calls: a carry cost from
   // it is too small, and no server is known as unused.
   const isPartial = snap.mcpCalls.includes(UNKNOWN_CALLS)

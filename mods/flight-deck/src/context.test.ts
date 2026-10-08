@@ -376,3 +376,10 @@ test('sampled adds the turns that gave no sample, and a new base drops them', ()
   const compacted = sampled(next, 'S1', { ...SAMPLE, detail: 'summary', tokens: 20000 }, true, 2)
   expect(compacted.turns).toBe(0)
 })
+
+test('the carry cost of a long prompt uses the long rate of the model', () => {
+  const haiku = { ...SNAP, mainModel: 'claude-haiku-5-5' }
+  const short = view({ sample: { ...SAMPLE, tokens: 100_000 } as never }, haiku)
+  const long = view({ sample: { ...SAMPLE, tokens: 100_001 } as never }, haiku)
+  expect(usd(long.carryUsd)).toBe(usd((short.carryUsd ?? Number.NaN) * 5))
+})

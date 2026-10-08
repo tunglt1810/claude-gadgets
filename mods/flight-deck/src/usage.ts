@@ -29,9 +29,10 @@ export const cacheHitPct = (t: Totals): number => {
 
 type ServerToolUse = { name: string; startedAt: number; endedAt?: number }
 
-// The ledger cost that no step holds.
-export const restOf = (s: Pick<Snapshot, 'costUsd' | 'costByModel'>): number =>
-  s.costUsd - Object.values(s.costByModel).reduce((sum, c) => sum + c, 0)
+// The ledger cost that no step holds. The steps are priced at the listed price: what the
+// engine counts over it is of the steps too.
+export const restOf = (s: Pick<Snapshot, 'costUsd' | 'costByModel' | 'engineGap'>): number =>
+  s.costUsd - Object.values(s.costByModel).reduce((sum, c) => sum + c, 0) - (s.engineGap ?? 0)
 
 // The advisor calls of one step added to the session's: the API ran them inside the request.
 // `model` is the settings' `advisorModel`. A call with a result took time and has a cost to

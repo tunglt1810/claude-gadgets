@@ -12,11 +12,14 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 #### Changed
 
 - In auto mode, the pane asks one time before it sends a message to an agent: no permission rule in the settings is necessary.
+- The dashboard shows a warning below the row of a model when Claude Code counts a price that is not the listed price.
 
 #### Fixed
 
 - A message that you send from a transcript, and the answer of the agent, come into view.
 - A long message in the field of a transcript does not cover the rows below the field, and the terminal does not cut it to one row.
+- An agent on Haiku 5.5 shows its context against a 1M window, and the dashboard shows the cost of Haiku 5.5.
+- The cost of Sonnet 5.5 uses the listed cache read price, $0.10 for each million tokens.
 
 ### [0.6.0] - 2026-10-07
 
