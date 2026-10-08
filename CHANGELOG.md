@@ -9,6 +9,15 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### [Unreleased]
 
+### [0.7.0] - 2026-10-08
+
+Tested on Claude Code 2.1.293.
+
+#### Added
+
+- The band shows `✗` and a cause when a step of the main loop does not read the prompt cache.
+- A cache screen lists each cache break of the session: the time, the cause, the tokens that the API wrote again and the estimated cost.
+
 #### Changed
 
 - In auto mode, the pane asks one time before it sends a message to an agent: no permission rule in the settings is necessary.

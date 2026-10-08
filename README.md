@@ -66,6 +66,16 @@ Limits:
 - The numbers are for the main loop. The engine gives no breakdown of the context of a subagent.
 - A tool that loads on demand is not in the window, and thus not in the overhead.
 
+## Cache screen
+
+A cache break is a step of the main loop that reads much less from the prompt cache than the step before it wrote or read. The API then writes the prompt again, at the cache write price.
+
+- The band shows `✗` and the cause after a break.
+- Press `cache` on the agents screen to see each break of the session.
+- The causes: `compact` (a compaction), `history` (messages were removed), `model` (another model), `ttl` (the cache expired), `tools` (the tool list changed), `prompt` (the system prompt changed), `context` (an instruction file or the date changed), `unknown`.
+- `rewritten` is the tokens that the API wrote again. `lost($)` is an estimate: their cost as cache writes less their cost as cache reads.
+- The mod finds the breaks of the main loop only. A subagent has its own cache.
+
 ## No-verdict question
 
 `verdict-gate` is for auto mode. Load it with `claude --plugin-dir mods/verdict-gate`.
