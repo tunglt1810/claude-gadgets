@@ -33,15 +33,18 @@ export const hashes = (rows: readonly { name: string; text: string }[]): Record<
 
 // The listed tools of a tool list, each as the hash of its description, and the names of the
 // deferred ones. A deferred tool has no schema in a request, so its change breaks no cache.
-// `known` holds the `tool.describe` results of this process. With no result, a stored name is
-// deferred, and so is an MCP tool: the engine defers those by its rule.
+// `known` holds the `tool.describe` results of this process. With no result (the engine
+// raises none again after a hot reload), a stored name is deferred, and a name that the step
+// before listed is listed. A tool that is in neither is deferred when it is an MCP tool: the
+// engine defers those by its rule.
 export const listedTools = (
   list: readonly { name: string; description: string; mcp: boolean }[],
   known: ReadonlyMap<string, boolean>,
   stored: readonly string[],
+  listedBefore: readonly string[],
 ): { tools: Record<string, string>; deferred: string[] } => {
   const isDeferred = (t: { name: string; mcp: boolean }) =>
-    known.get(t.name) ?? (stored.includes(t.name) || t.mcp)
+    known.get(t.name) ?? (stored.includes(t.name) || (!listedBefore.includes(t.name) && t.mcp))
   return {
     tools: hashes(
       list.filter((t) => !isDeferred(t)).map((t) => ({ name: t.name, text: t.description })),

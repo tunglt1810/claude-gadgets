@@ -58,7 +58,7 @@ test('listedTools leaves out the deferred tools', () => {
     ['NotebookEdit', true],
     ['mcp__a__c', false],
   ])
-  const res = listedTools(list, known, ['WebFetch'])
+  const res = listedTools(list, known, ['WebFetch'], [])
   expect(Object.keys(res.tools).sort()).toEqual(['Read', 'mcp__a__c'])
   expect(res.tools.Read).toBe(hashOf('reads'))
   expect(res.deferred.sort()).toEqual(['NotebookEdit', 'WebFetch', 'mcp__a__b'])
@@ -245,4 +245,21 @@ test('clockText is the local time of a moment, and causeColor the tone of a caus
   expect(causeColor('compact')).toBe(PALETTE.yellow)
   expect(causeColor('model')).toBe(PALETTE.red)
   expect(causeColor('unknown')).toBe(PALETTE.red)
+})
+
+test('listedTools keeps a tool that the step before listed, with no describe result', () => {
+  // After a hot reload the engine raises no `tool.describe` again. With tool search off, an
+  // MCP tool is a listed tool: the fingerprint of the step before says so.
+  const list = [
+    { name: 'mcp__a__b', description: 'b', mcp: true },
+    { name: 'mcp__a__c', description: 'c', mcp: true },
+  ]
+  const res = listedTools(list, new Map(), [], ['mcp__a__b'])
+  expect(Object.keys(res.tools)).toEqual(['mcp__a__b'])
+  expect(res.deferred).toEqual(['mcp__a__c'])
+  // A stored deferred name stays deferred.
+  expect(listedTools(list, new Map(), ['mcp__a__b'], ['mcp__a__b']).deferred.sort()).toEqual([
+    'mcp__a__b',
+    'mcp__a__c',
+  ])
 })

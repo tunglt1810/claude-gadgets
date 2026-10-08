@@ -282,14 +282,27 @@ let missedTurns = 0
 
 // What the mod knows of the next request of the main loop, for the cause of a cache break.
 // Kept here, not in state: no drawing reads it, and the session record gets it with a step.
-// The sections of the last render of the system prompt that sends a request.
-let pendingSections: Record<string, string> | null = null
-// The blocks of the first user message, as the engine last computed them.
-let contextHashes: Record<string, string> | null = null
+// `sections` is the last render of the system prompt that sends a request, `context` the
+// blocks of the first user message as the engine last computed them, and `compaction` the
+// compaction of the main loop that came after its last step. They are of one session:
+// `session.start` does not fire on `/clear` or on a resume in the process.
+type Seen = {
+  sessionId: string | null
+  sections: Record<string, string> | null
+  context: Record<string, string> | null
+  compaction: Compaction | null
+}
+let seen: Seen = { sessionId: null, sections: null, context: null, compaction: null }
 // Whether each tool is deferred, by the `tool.describe` results of this process.
 const deferral = new Map<string, boolean>()
-// The compaction of the main loop that came after its last step.
-let compaction: Compaction | null = null
+
+// What the hooks saw for the current session: the values of another session are dropped.
+async function seenOf($: Api): Promise<Seen> {
+  const id = await $.session.id()
+  if (seen.sessionId !== id)
+    seen = { sessionId: id, sections: null, context: null, compaction: null }
+  return seen
+}
 
 // Keeps the breakdown of a usage reply as the context sample of the session `id`, and says
 // if it did: a reply with no breakdown or no window is no sample, and it changes nothing.
@@ -914,9 +927,11 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     // The cache is refreshed when the request is processed, not when the response ends.
     const sentAt = await $.clock.now()
-    // The sections of the prompt that this request carries: read before the request goes out.
-    // A prompt that another loop renders while the step streams is not the prompt of the step.
-    const sections = e.index === 0 && e.agentId === undefined ? pendingSections : null
+    // What this request of the main loop carries: read before the request goes out. A prompt
+    // or a context of another loop that comes while the step streams is not of this step.
+    const mine = e.agentId === undefined ? await seenOf($) : null
+    const sections = mine !== null && e.index === 0 ? mine.sections : null
+    const context = mine?.context ?? null
     stepsInFlight++
     // A run of an agent has no start event: its first step opens its working time.
     const runner = e.agentId
@@ -926,13 +941,20 @@ export const register: Register = (on, options) => {
       startTimer($, (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl))
     }
     // The listed tools of this request: a main step compares them with those of the step
-    // before it. A list that fails gives no tools part.
-    const tools = e.agentId === undefined ? await $.tool.list().catch(() => null) : null
+    // before it. The request does not wait for the list, and a list that fails gives no tools
+    // part.
+    const listing =
+      e.agentId === undefined
+        ? Promise.resolve()
+            .then(() => $.tool.list())
+            .catch(() => null)
+        : null
     try {
       // The agent runs from the start of its step. The end of a step does not say so: the end
       // of a stopped step can come after the end of the run.
       if (runner !== undefined) await markAgent($, runner)
       const res = yield* next(e)
+      const tools = listing === null ? null : await listing
       const id = await ensureLoaded($)
       await stamp($)
       // Subagents (agentId set) have their own caches: count their tokens but do not
@@ -946,8 +968,8 @@ export const register: Register = (on, options) => {
       const stepCost = costOf(e.model, stepTotals, isMain ? ttls.main : ttls.agent, true)
       // A main step with a usage: is it a cache break? The compaction is read one time.
       const usage = res.usage
-      const squeezed = compaction
-      if (isMain && usage !== null) compaction = null
+      const squeezed = mine?.compaction ?? null
+      if (mine !== null && usage !== null) mine.compaction = null
       const advisorModel = settings.advisorModel
       // Compute inside the updater: concurrent events must not overwrite each other.
       const nextMeter = await update($, meter, (c) => ({
@@ -967,7 +989,15 @@ export const register: Register = (on, options) => {
         engineGap: (c.engineGap ?? 0) + engineGap(e.model, stepTotals),
         ...(isMain && usage !== null
           ? (() => {
-              const listed = tools === null ? null : listedTools(tools, deferral, c.deferred ?? [])
+              const listed =
+                tools === null
+                  ? null
+                  : listedTools(
+                      tools,
+                      deferral,
+                      c.deferred ?? [],
+                      Object.keys(c.lastPrompt?.fingerprint.tools ?? {}),
+                    )
               return {
                 ...withStep(
                   c,
@@ -980,7 +1010,7 @@ export const register: Register = (on, options) => {
                     at: sentAt,
                     fingerprint: {
                       ...(sections === null ? {} : { sections }),
-                      ...(contextHashes === null ? {} : { context: contextHashes }),
+                      ...(context === null ? {} : { context }),
                       ...(listed === null ? {} : { tools: listed.tools }),
                     },
                   },
@@ -1040,21 +1070,21 @@ export const register: Register = (on, options) => {
 
   // The system prompt of the next request. A render that measures the prompt sends nothing,
   // and a teammate renders the prompt of its lead.
-  on('prompt.compose', async (_$, e, next) => {
+  on('prompt.compose', async ($, e, next) => {
     const res = await next(e)
     try {
       if (!e.traits.includes('analysis') && !e.traits.includes('teammate'))
-        pendingSections = hashes(res.sections.map((s) => ({ name: s.id, text: s.text })))
+        (await seenOf($)).sections = hashes(res.sections.map((s) => ({ name: s.id, text: s.text })))
     } catch {
       // The next render gives the sections.
     }
     return res
   })
 
-  on('prompt.context', async (_$, e, next) => {
+  on('prompt.context', async ($, e, next) => {
     const res = await next(e)
     try {
-      contextHashes = hashes(res.blocks)
+      ;(await seenOf($)).context = hashes(res.blocks)
     } catch {
       // The next read gives the blocks.
     }
@@ -1063,19 +1093,27 @@ export const register: Register = (on, options) => {
 
   on('tool.describe', async (_$, e, next) => {
     const res = await next(e)
-    deferral.set(e.tool, (res.isDeferred ?? e.isDeferred) === true)
+    try {
+      deferral.set(e.tool, (res.isDeferred ?? e.isDeferred) === true)
+    } catch {
+      // The rule for a tool with no result applies.
+    }
     return res
   })
 
   // A precompute installs nothing. A compaction of a subagent is not of the main loop.
-  on('session.compact', async (_$, e, next) => {
+  on('session.compact', async ($, e, next) => {
     const res = await next(e)
-    if (e.trigger !== 'precompute' && e.agentId === undefined && res.skip === undefined)
-      compaction = {
-        trigger: e.trigger,
-        ...(res.tokensBefore === undefined ? {} : { before: res.tokensBefore }),
-        ...(res.tokensAfter === undefined ? {} : { after: res.tokensAfter }),
-      }
+    try {
+      if (e.trigger !== 'precompute' && e.agentId === undefined && res.skip === undefined)
+        (await seenOf($)).compaction = {
+          trigger: e.trigger,
+          ...(res.tokensBefore === undefined ? {} : { before: res.tokensBefore }),
+          ...(res.tokensAfter === undefined ? {} : { after: res.tokensAfter }),
+        }
+    } catch {
+      // The break after this compaction then gets another cause.
+    }
     return res
   })
 

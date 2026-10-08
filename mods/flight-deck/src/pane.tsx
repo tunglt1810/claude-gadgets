@@ -650,7 +650,10 @@ export const AgentPane = ({
             <Box key="cache:body" flexDirection="column">
               {cell('cache:sum', { ...breaksHead(b), bold: true })}
               {hidden > 0 &&
-                cell('cache:hidden', { text: `${hidden} earlier breaks not shown`, dim: true })}
+                cell('cache:hidden', {
+                  text: `${hidden} earlier ${hidden === 1 ? 'break' : 'breaks'} not shown`,
+                  dim: true,
+                })}
               <Box key="cache:headrow" flexDirection="row" gap={1}>
                 {head('cache:head:time', 'time', CLOCK_WIDTH)}
                 {rest('cache:head:cause', 'cause', causeWidth, { dim: true })}

@@ -69,7 +69,10 @@ The fingerprint has three parts. Each part is a map from a name to a hash of a t
 Rules:
 
 - A `prompt.compose` event with the trait `analysis` or `teammate` gives no sections. The engine sends nothing for an `analysis` render.
-- A tool is deferred when its last `tool.describe` result says so. A tool with no `tool.describe` result is deferred when it is an MCP tool (`mcp` of `ToolInfo`). Section 9 gives the reason.
+- A tool is deferred when its last `tool.describe` result says so. Section 9 gives the reason.
+- A tool with no `tool.describe` result is deferred when the session record has its name as deferred. It is listed when the fingerprint of the step before has it. A tool that is in neither is deferred when it is an MCP tool (`mcp` of `ToolInfo`).
+- A main step takes the sections and the context as they are when the step starts. An event of another loop during the step does not change them.
+- The sections, the context and the compaction are of one session. The mod drops them when the session id changes.
 - The mod keeps the fingerprint of the last main step and the fingerprint of the step before it. A cause compares the two.
 
 ### 4.3 State
@@ -94,7 +97,7 @@ One break entry:
 | `rewritten` | Tokens. |
 | `lostUsd` | The lost cost, or `null` for a model with no price. |
 
-A module variable holds the compaction that came after the last main step: its `trigger` and its two token counts. The next main step reads it and clears it.
+A module variable holds the compaction of the session that came after the last main step: its `trigger` and its two token counts. The next main step of that session reads it and clears it.
 
 ## 5. Calculations
 
@@ -242,7 +245,7 @@ Thus:
 - A changed input schema of a tool, with the same name and description, gives `unknown`.
 - The mod reads the sections at the start of step 0. It thus does not see a system prompt that changes in a turn before the next turn. A break of a later step of that turn can give `unknown`.
 - `prompt.compose` has no agent id. A background agent can raise it between the event of the main loop and the start of step 0 of the main loop. The fingerprint then has the sections of that agent. A render during step 0 changes nothing: the mod reads the sections when the step starts.
-- After a hot reload of the mod, the engine does not raise `tool.describe` again in the session. The stored list of deferred tools and the MCP rule of section 4.2 replace it.
+- After a hot reload of the mod, the engine does not raise `tool.describe` again in the session. The rules of section 4.2 for a tool with no result replace it. A tool that the session gets after the reload then follows the MCP rule only.
 - The spike ran with `claude -p`. No MCP server connected or disconnected in it, and no desktop ran it.
 - The first main step of a session that an earlier version stored has no prefix. Its break is not found.
 - The lost cost is an estimate. It uses the listed prices, as each cost of the dashboard.

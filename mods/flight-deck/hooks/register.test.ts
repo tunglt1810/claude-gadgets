@@ -3259,3 +3259,68 @@ test('the cache row, its rule and the cache screen follow the rules of each surf
   expect((await terminal.find({ key: 'cache:head' }))?.type).not.toBe('Client')
   await terminal.unmount()
 })
+
+// A step that waits at a gate: `entered` resolves when the step is in flight, `release` lets
+// it answer.
+const stepGate = () => {
+  let enter: () => void = () => {}
+  let release: () => void = () => {}
+  const entered = new Promise<void>((r) => {
+    enter = r
+  })
+  const gate = new Promise<void>((r) => {
+    release = r
+  })
+  duringStep = async () => {
+    enter()
+    await gate
+  }
+  return { entered, release: () => release() }
+}
+
+test('a context that the engine computes during a step is not the context of that step', async ($, on) => {
+  const clock = breakEngine(on)
+  let claudeMd = 'one'
+  on('prompt.context', () => ({ blocks: [{ name: 'claudeMd', text: claudeMd }] }))
+  const compute = () => $.prompt.context({ blocks: [] } as never)
+  await compute()
+  const { entered, release } = stepGate()
+  const running = mainStep($, 0, 50_000)
+  await entered
+  // The context of another conversation: the event has no agent id.
+  claudeMd = 'subagent'
+  await compute()
+  claudeMd = 'one'
+  release()
+  await running
+  duringStep = null
+  await compute()
+  await mainStep($, 0, 50_100, { turnId: 't2' })
+  expect(await settled($, clock)).toContain('✗ unknown')
+})
+
+test('a compaction of one session is not the cause of a break of another session', async ($, on) => {
+  let id = 'S2'
+  const clock = breakEngine(on, () => id)
+  const KEPT = [{ role: 'user', text: 'summary', toolUses: [] }] as never
+  on('session.compact', () => ({ messages: KEPT, tokensBefore: 171_000, tokensAfter: 38_000 }))
+  await mainStep($, 0, 50_000)
+  id = 'S1'
+  await mainStep($, 0, 50_000)
+  await $.session.compact({ trigger: 'auto', messages: KEPT } as never)
+  // The person goes back to the other session, with another model.
+  id = 'S2'
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+  expect(await settled($, clock)).toContain('✗ model')
+})
+
+test('the cache screen names one older break in the singular', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  for (let i = 0; i < 51; i++)
+    await mainStep($, 0, 50_000, { model: i % 2 === 0 ? 'claude-sonnet-5-5' : 'claude-opus-5-5' })
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'cache' })
+  expect(await paneText(ui)).toContain('1 earlier break not shown')
+  await ui.unmount()
+})

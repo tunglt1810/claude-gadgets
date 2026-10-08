@@ -92,6 +92,9 @@ const priceOf = (name: string) => {
 // The cache read price of a price row: its own, or a tenth of the input price.
 const readOf = (p: { input: number; read?: number }): number => p.read ?? p.input * 0.1
 
+// The cache write price of a price row, by the lifetime of the cache entry.
+const writeOf = (p: { input: number }, ttl: Ttl): number => p.input * (ttl === '1h' ? 2 : 1.25)
+
 // The rate of a model for one request with a prompt of `prompt` tokens: the long rate above
 // its limit, else the base rate.
 const rateOf = (p: Rate & { long?: Rate & { above: number } }, prompt: number): Rate =>
@@ -123,7 +126,7 @@ export const rewriteCost = (
   const base = priceOf(model)
   if (base === undefined) return null
   const p = rateOf(base, prompt)
-  return (tokens * (p.input * (ttl === '1h' ? 2 : 1.25) - readOf(p))) / 1e6
+  return (tokens * (writeOf(p, ttl) - readOf(p))) / 1e6
 }
 
 // What the dashboard says below the row of a model whose cache read price the engine counts
@@ -151,7 +154,7 @@ export const costOf = (
     (t.input * p.input +
       t.output * p.output +
       t.cacheRead * read +
-      t.cacheWrite * p.input * (ttl === '1h' ? 2 : 1.25)) /
+      t.cacheWrite * writeOf(p, ttl)) /
     1e6
   )
 }

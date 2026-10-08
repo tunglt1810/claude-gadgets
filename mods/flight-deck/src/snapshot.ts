@@ -148,6 +148,7 @@ const parseBreaks = (raw: unknown): BreakEntry[] =>
 export const parseSnapshot = (raw: unknown): Snapshot => {
   if (!isRecord(raw)) return emptySnapshot()
   const r = raw
+  const lastPrompt = parseLastPrompt(r.lastPrompt)
   return {
     totals: parseTotals(r.totals),
     tools: num(r.tools),
@@ -174,9 +175,7 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
       : typeof r.tools === 'number'
         ? [UNKNOWN_CALLS]
         : [],
-    ...(parseLastPrompt(r.lastPrompt) === undefined
-      ? {}
-      : { lastPrompt: parseLastPrompt(r.lastPrompt) as LastPrompt }),
+    ...(lastPrompt === undefined ? {} : { lastPrompt }),
     ...(Array.isArray(r.breaks) ? { breaks: parseBreaks(r.breaks) } : {}),
     ...(isCount(r.breakCount) ? { breakCount: r.breakCount } : {}),
     ...(isCount(r.lostUsd) ? { lostUsd: r.lostUsd } : {}),
