@@ -3207,3 +3207,55 @@ test('a rule closes the cache row of the agents screen', async ($, on) => {
     await ui.unmount()
   }
 })
+
+// A desktop font is not fixed-width: each cell there is a Client of a width in cells, and a
+// rule is a box of the content width. The terminal takes no box width from the pane.
+test('the cache row, its rule and the cache screen follow the rules of each surface', async ($, on) => {
+  breakEngine(on)
+  await mainStep($, 0, 50_000)
+  await mainStep($, 0, 50_100, { model: 'claude-sonnet-5-5' })
+
+  const desktop = await mountPane($, 'desktop', true, 80)
+  const type = async (key: string) => (await desktop.find({ key }))?.type
+  // The row: a real button, then a Client cell, then a rule as wide as the pane.
+  expect(await type('cache')).toBe('Button')
+  expect(await type('cache:head')).toBe('Client')
+  expect((await desktop.find({ key: 'cache:rowrule' }))?.props).toMatchObject({
+    width: 80,
+    height: 1,
+    overflow: 'hidden',
+  })
+  // The rule is below the row and above the agents table: the same order as the terminal.
+  const order = (await desktop.findAll({ type: 'Box' })).map((b) => b.props.key ?? b.key)
+  expect(order.indexOf('cache:row')).toBeLessThan(order.indexOf('cache:rowrule'))
+  await desktop.press({ key: 'cache' })
+  for (const key of [
+    'cache:sum',
+    'cache:head:time',
+    'cache:head:cause',
+    'cache:head:rewritten',
+    'cache:head:lost',
+    'cache:time:0',
+    'cache:cause:0',
+    'cache:rewritten:0',
+    'cache:lost:0',
+    'cache:pad:0',
+    'cache:detail:0',
+  ])
+    expect(`${key} ${await type(key)}`).toBe(`${key} Client`)
+  // Each Client has a width in cells: a count of characters gives no width on a desktop.
+  const clients = await desktop.findAll({ type: 'Client' })
+  expect(clients.every((c) => typeof c.props.width === 'number' && c.props.width >= 0)).toBe(true)
+  expect((await desktop.find({ key: 'cache:rule' }))?.props).toMatchObject({ width: 80, height: 1 })
+  await desktop.press({ key: 'back' })
+  expect(await type('cache:rowrule')).toBe('Box')
+  await desktop.unmount()
+
+  const terminal = await mountPane($, 'terminal', true, 80)
+  const rule = (await terminal.find({ key: 'cache:rowrule' }))?.props
+  // A long line in a box of one row that cuts it: no width from the pane.
+  expect(rule).toMatchObject({ height: 1, overflow: 'hidden' })
+  expect(rule?.width).toBeUndefined()
+  expect((await terminal.find({ key: 'cache:head' }))?.type).not.toBe('Client')
+  await terminal.unmount()
+})
