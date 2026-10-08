@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { costOf, engineGap, priceNote, readPrice } from './price'
+import { costOf, engineGap, priceNote, readPrice, rewriteCost } from './price'
 
 // Dollars rounded to a millionth: float sums are not exact.
 const usd = (n: number | null): number => Math.round((n ?? Number.NaN) * 1e6) / 1e6
@@ -94,4 +94,14 @@ test('readPrice gives the long rate for a prompt above the limit of the model', 
   expect(usd(readPrice('claude-haiku-5-5', 100_000))).toBe(0.01)
   expect(usd(readPrice('claude-haiku-5-5', 100_001))).toBe(0.05)
   expect(readPrice('claude-opus-5-5', 500_000)).toBe(0.2)
+})
+
+test('rewriteCost is the cost of a cache write less the cost of a cache read', () => {
+  // Sonnet 5.5: a 1-hour write is 2 x $2, a 5-minute write 1.25 x $2, a read $0.10.
+  expect(usd(rewriteCost('claude-sonnet-5-5', 1e6, '1h', 0))).toBe(3.9)
+  expect(usd(rewriteCost('claude-sonnet-5-5', 1e6, '5m', 0))).toBe(2.4)
+  // Haiku 5.5 with a long prompt: 1.25 x $0.50 less $0.05.
+  expect(usd(rewriteCost('claude-haiku-5-5', 1e6, '5m', 150_000))).toBe(0.575)
+  expect(usd(rewriteCost('claude-haiku-5-5', 1e6, '5m', 100_000))).toBe(0.115)
+  expect(rewriteCost('m', 1e6, '5m', 0)).toBeNull()
 })

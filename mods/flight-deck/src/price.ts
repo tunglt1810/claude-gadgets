@@ -111,6 +111,21 @@ export const engineGap = (model: string, t: Totals): number => {
   return p?.engineRead === undefined ? 0 : (t.cacheRead * (p.engineRead - readOf(p))) / 1e6
 }
 
+// What a cache break costs for `tokens` tokens of one request: their cost as cache writes
+// less their cost as cache reads, or null for a model with no price. `prompt` is the tokens
+// of the prompt of the request: it selects the long rate of the model.
+export const rewriteCost = (
+  model: string,
+  tokens: number,
+  ttl: Ttl,
+  prompt: number,
+): number | null => {
+  const base = priceOf(model)
+  if (base === undefined) return null
+  const p = rateOf(base, prompt)
+  return (tokens * (p.input * (ttl === '1h' ? 2 : 1.25) - readOf(p))) / 1e6
+}
+
 // What the dashboard says below the row of a model whose cache read price the engine counts
 // at another rate, or null where the two prices agree.
 export const priceNote = (model: string): string | null => {
