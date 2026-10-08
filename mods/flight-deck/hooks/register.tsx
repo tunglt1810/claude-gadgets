@@ -202,6 +202,11 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     engineGap: s.engineGap ?? 0,
     steps: s.steps,
     mcpCalls: s.mcpCalls,
+    ...(s.lastPrompt === undefined ? {} : { lastPrompt: s.lastPrompt }),
+    ...(s.breaks === undefined ? {} : { breaks: s.breaks }),
+    ...(s.breakCount === undefined ? {} : { breakCount: s.breakCount }),
+    ...(s.lostUsd === undefined ? {} : { lostUsd: s.lostUsd }),
+    ...(s.deferred === undefined ? {} : { deferred: s.deferred }),
     ...(s.mainModel === undefined ? {} : { mainModel: s.mainModel }),
   })
 }
