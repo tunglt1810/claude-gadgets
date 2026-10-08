@@ -2937,12 +2937,16 @@ const stepOf = (read: number, write: number) =>
 
 // The steps of a test read their usage from here.
 let nextUsage = { read: 0, write: 0 }
+// What a test does while step 0 streams, and before it answers: another loop renders a prompt.
+let duringStep: (() => Promise<void>) | null = null
 const breakEngine = (on: Parameters<typeof mock.store>[0], id: () => string = () => 'S1') => {
+  duringStep = null
   const clock = mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on, id)
   paneEngine(on)
-  on('turn.step', async function* ($: unknown, e: { turnId: string; index: number }) {
+  on('turn.step', async function* ($: Engine, e: { turnId: string; index: number }) {
+    await duringStep?.()
     return yield* stepOf(nextUsage.read, nextUsage.write)($, e)
   } as never)
   return clock
@@ -3151,4 +3155,45 @@ test('the cache screen says how many older breaks the list does not show', async
   expect(text).toContain('52 breaks')
   expect(text).toContain('2 earlier breaks not shown')
   await ui.unmount()
+})
+
+test('a prompt that another loop renders during step 0 is not the prompt of that step', async ($, on) => {
+  const clock = breakEngine(on)
+  let memory = 'one'
+  on('prompt.compose', () => ({ sections: [{ id: 'memory', text: memory, scope: 'session' }] }))
+  const compose = (engine: Engine) =>
+    engine.prompt.compose({
+      model: 'm',
+      promptModel: 'm',
+      surfaces: [],
+      tools: [],
+      outputStyle: null,
+      traits: [],
+    } as never)
+  await compose($)
+  // The step waits at a gate. Another loop renders its own prompt while it waits.
+  let enter: () => void = () => {}
+  let release: () => void = () => {}
+  const entered = new Promise<void>((r) => {
+    enter = r
+  })
+  const gate = new Promise<void>((r) => {
+    release = r
+  })
+  duringStep = async () => {
+    enter()
+    await gate
+  }
+  const running = mainStep($, 0, 50_000)
+  await entered
+  memory = 'subagent'
+  await compose($)
+  memory = 'one'
+  release()
+  await running
+  duringStep = null
+  await compose($)
+  await mainStep($, 0, 50_100, { turnId: 't2' })
+  // The sections are the same as the step before had: no change seen.
+  expect(await settled($, clock)).toContain('✗ unknown')
 })

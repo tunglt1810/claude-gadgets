@@ -30,6 +30,7 @@ const last = (over: Partial<LastPrompt> = {}): LastPrompt => ({
 const step = (over: Partial<StepPrompt> = {}): StepPrompt => ({
   tokens: 101_000,
   cacheRead: 0,
+  cacheWrite: 1000,
   model: 'claude-opus-5-5',
   messageCount: 42,
   at: 2000,
@@ -78,6 +79,8 @@ test('detect finds a step that reads less than half of the expected tokens', () 
     expected: 38_000,
     rewritten: 38_000,
   })
+  // A step that wrote nothing to the cache: caching is off, and no step reads it.
+  expect(detect(last(), step({ cacheRead: 0, cacheWrite: 0 }))).toBeNull()
   // A short prompt can be below the minimum that the API caches.
   expect(detect(last({ tokens: 3999 }), step({ cacheRead: 0 }))).toBeNull()
   expect(detect(last({ tokens: 4000 }), step({ cacheRead: 0 }))).not.toBeNull()

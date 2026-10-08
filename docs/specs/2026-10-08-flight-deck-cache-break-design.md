@@ -62,7 +62,7 @@ The fingerprint has three parts. Each part is a map from a name to a hash of a t
 
 | Part | When the mod reads it | Content |
 |---|---|---|
-| sections | At step 0 of a main turn: the last `prompt.compose` result before that step. | The hash of the text of each section, by its `id`. |
+| sections | At the start of step 0 of a main turn: the last `prompt.compose` result at that moment. | The hash of the text of each section, by its `id`. |
 | context | At each `prompt.context` event. | The hash of the text of each block, by its `name`. |
 | tools | Before each main step, from `$.tool.list()`. | The hash of the description of each listed tool, by its name. |
 
@@ -107,6 +107,7 @@ All functions are in `src/breaks.ts`. They are pure and have unit tests.
 - With no `lastPrompt`, there is no break. The first step of a session has no prefix.
 - `expected` = the smaller of `last.tokens` and the prompt of the step.
 - There is no break when `expected` is less than 4,000 tokens. A short prompt can be below the minimum that the API caches.
+- There is no break when the step wrote nothing to the cache (`cache_creation_input_tokens` is 0). The cache is then off, and no step reads it.
 - There is a break when the cache read of the step is less than 50 percent of `expected`.
 - `rewritten` = `expected` less the cache read.
 - The lost cost = `rewritten` × (the cache write price less the cache read price) ÷ 1,000,000.
@@ -238,8 +239,8 @@ Thus:
 ## 10. Known limits
 
 - A changed input schema of a tool, with the same name and description, gives `unknown`.
-- The mod reads the sections at step 0. It thus does not see a system prompt that changes in a turn before the next turn. A break of a later step of that turn can give `unknown`.
-- `prompt.compose` has no agent id. A background agent can raise it between the event of the main loop and step 0 of the main loop. The fingerprint then has the sections of that agent.
+- The mod reads the sections at the start of step 0. It thus does not see a system prompt that changes in a turn before the next turn. A break of a later step of that turn can give `unknown`.
+- `prompt.compose` has no agent id. A background agent can raise it between the event of the main loop and the start of step 0 of the main loop. The fingerprint then has the sections of that agent. A render during step 0 changes nothing: the mod reads the sections when the step starts.
 - After a hot reload of the mod, the engine does not raise `tool.describe` again in the session. The stored list of deferred tools and the MCP rule of section 4.2 replace it.
 - The spike ran with `claude -p`. No MCP server connected or disconnected in it, and no desktop ran it.
 - The first main step of a session that an earlier version stored has no prefix. Its break is not found.

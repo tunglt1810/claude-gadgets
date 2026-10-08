@@ -914,6 +914,9 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     // The cache is refreshed when the request is processed, not when the response ends.
     const sentAt = await $.clock.now()
+    // The sections of the prompt that this request carries: read before the request goes out.
+    // A prompt that another loop renders while the step streams is not the prompt of the step.
+    const sections = e.index === 0 && e.agentId === undefined ? pendingSections : null
     stepsInFlight++
     // A run of an agent has no start event: its first step opens its working time.
     const runner = e.agentId
@@ -945,7 +948,6 @@ export const register: Register = (on, options) => {
       const usage = res.usage
       const squeezed = compaction
       if (isMain && usage !== null) compaction = null
-      const sections = e.index === 0 ? pendingSections : null
       const advisorModel = settings.advisorModel
       // Compute inside the updater: concurrent events must not overwrite each other.
       const nextMeter = await update($, meter, (c) => ({
@@ -972,6 +974,7 @@ export const register: Register = (on, options) => {
                   {
                     tokens: contextTokens(usage),
                     cacheRead: usage.cache_read_input_tokens ?? 0,
+                    cacheWrite: usage.cache_creation_input_tokens ?? 0,
                     model: e.model,
                     messageCount: e.messageCount,
                     at: sentAt,

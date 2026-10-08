@@ -55,6 +55,8 @@ export const listedTools = (
 export type StepPrompt = {
   tokens: number
   cacheRead: number
+  // The tokens that the step wrote to the cache. A step that wrote none ran with no cache.
+  cacheWrite: number
   model: string
   messageCount: number
   at: number
@@ -71,6 +73,9 @@ export const detect = (
   step: StepPrompt,
 ): { expected: number; rewritten: number } | null => {
   if (last === undefined) return null
+  // With the cache off (a setting, or a gateway that does not cache), no step reads or writes it.
+  // A break writes the prefix again.
+  if (step.cacheWrite === 0) return null
   const expected = Math.min(last.tokens, step.tokens)
   if (expected < MIN_EXPECTED || step.cacheRead >= expected * BREAK_SHARE) return null
   return { expected, rewritten: expected - step.cacheRead }
