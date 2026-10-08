@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { bandSegments, statSegments } from './layout'
 import { PALETTE } from './palette'
-import type { Snapshot } from './snapshot'
+import { emptySnapshot, type Snapshot } from './snapshot'
 
 const snap: Snapshot = {
   totals: { input: 12400, output: 3100, cacheRead: 80, cacheWrite: 10 },
@@ -315,4 +315,34 @@ test('a narrow agent view keeps the context length after the tokens are dropped'
 
 test('the band of the session has no context length', () => {
   expect(text(200)).not.toContain('ctx ')
+})
+
+test('the band shows the cause of a cache break after the countdown, and drops it first', () => {
+  const snap = {
+    ...emptySnapshot(),
+    lastStepAt: 0,
+    lastPrompt: {
+      tokens: 9000,
+      model: 'm',
+      messageCount: 1,
+      at: 0,
+      fingerprint: {},
+      cause: 'model' as const,
+    },
+  }
+  const input = { snap, busySince: null, now: 1000, ttl: '1h' as const, columns: 200 }
+  const text = (segs: { text: string }[]) => segs.map((s) => s.text).join('')
+  const wide = bandSegments(input)
+  expect(text(wide)).toContain('◔ 59:59  ✗ model │')
+  expect(wide.find((s) => s.text === '✗ model')?.color).toBe(PALETTE.red)
+  // No cause, no part.
+  const calm = { ...snap, lastPrompt: { ...snap.lastPrompt, cause: undefined } }
+  expect(text(bandSegments({ ...input, snap: calm as never }))).not.toContain('✗')
+  // The band of an agent view has no part.
+  expect(text(bandSegments({ ...input, isAgentView: true }))).not.toContain('✗')
+  // One cell too narrow for the whole band: the cause goes, and `bg` stays.
+  const full = wide.reduce((n, s) => n + s.text.length + (s.isButton ? 4 : 0), 0)
+  const narrow = text(bandSegments({ ...input, columns: full - 1 }))
+  expect(narrow).not.toContain('✗')
+  expect(narrow).toContain('◇ bg')
 })
