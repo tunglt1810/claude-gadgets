@@ -74,12 +74,13 @@ Rules:
 
 ### 4.3 State
 
-The snapshot of the session (`Snapshot`) gets four optional fields. The store keeps them with the session id, so a resume in a new process has them.
+The snapshot of the session (`Snapshot`) gets five optional fields. The store keeps them with the session id, so a resume in a new process has them.
 
 | Field | Content |
 |---|---|
-| `lastPrompt` | Of the last main step with a usage: `tokens`, `model`, `messageCount`, `at`, and the fingerprint. |
+| `lastPrompt` | Of the last main step with a usage: `tokens`, `model`, `messageCount`, `at`, and the fingerprint. It has `cause` when that step was a break. |
 | `breaks` | The break entries, the oldest first. The list keeps the newest 50. |
+| `breakCount` | The count of all breaks of the session, also of the entries that left the list. |
 | `lostUsd` | The sum of the lost cost of all breaks of the session, also of the entries that left the list. |
 | `deferred` | The names of the deferred tools that a `tool.describe` result gave. |
 
