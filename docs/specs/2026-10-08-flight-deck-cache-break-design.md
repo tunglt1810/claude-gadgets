@@ -81,7 +81,7 @@ The snapshot of the session (`Snapshot`) gets five optional fields. The store ke
 
 | Field | Content |
 |---|---|
-| `lastPrompt` | Of the last main step with a usage: `tokens`, `model`, `messageCount`, `at`, and the fingerprint. It has `cause` when that step was a break. |
+| `lastPrompt` | Of the last main step with a usage: `tokens`, `model`, `messageCount`, `at`, and the fingerprint. It has `cause` when that step was a break, and `ttl`: the cache lifetime of the main loop at that step. |
 | `breaks` | The break entries, the oldest first. The list keeps the newest 50. |
 | `breakCount` | The count of all breaks of the session, also of the entries that left the list. |
 | `lostUsd` | The sum of the lost cost of all breaks of the session, also of the entries that left the list. |
@@ -127,7 +127,7 @@ A step that adds a large tool result is not a break: its cache read is the full 
 | 1 | `compact` | A compaction of the main loop came after the last main step. | `auto · 171.0k → 38.0k` (the trigger and the two token counts, when the result has them) |
 | 2 | `history` | `messageCount` is less than that of the last main step. | `214 → 96 messages` |
 | 3 | `model` | The model is not the model of the last main step. | `opus-5-5 → sonnet-5-5` (`shortModel`) |
-| 4 | `ttl` | The time from the last main step is more than the cache lifetime of the main loop. | `idle 1:12:04` (`formatDuration`) |
+| 4 | `ttl` | The time from the last main step is more than the cache lifetime that the last main step had. | `idle 1:12:04` (`formatDuration`) |
 | 5 | `tools` | The tools part of the two fingerprints is different. | `- Write`, `+ mcp__a__b`, or `Bash changed` |
 | 6 | `prompt` | The sections part is different. | `memory changed` |
 | 7 | `context` | The context part is different. | `claudeMd changed` |

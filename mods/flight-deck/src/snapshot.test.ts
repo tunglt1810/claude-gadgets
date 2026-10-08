@@ -142,6 +142,7 @@ test('parseSnapshot keeps the cache break fields, and a record without them has 
     at: 5,
     fingerprint: { tools: { Read: 'x' }, sections: { memory: 'y' } },
     cause: 'model',
+    ttl: '5m',
   }
   const s = parseSnapshot({
     tools: 3,

@@ -122,6 +122,7 @@ const parseLastPrompt = (raw: unknown): LastPrompt | undefined => {
     at,
     fingerprint: parseFingerprint(raw.fingerprint),
     ...(isCause(raw.cause) ? { cause: raw.cause } : {}),
+    ...(raw.ttl === '5m' || raw.ttl === '1h' ? { ttl: raw.ttl } : {}),
   }
 }
 

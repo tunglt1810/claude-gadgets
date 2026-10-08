@@ -77,7 +77,9 @@ export type Fingerprint = {
 }
 
 // `tokens` is the prompt: the input, the cache reads and the cache writes. `at` is the time
-// of the request. `cause` is present when the step was a cache break.
+// of the request. `cause` is present when the step was a cache break. `ttl` is the cache
+// lifetime of the main loop at the step: the prefix was written with it. A record of an
+// earlier build has none.
 export type LastPrompt = {
   tokens: number
   model: string
@@ -85,6 +87,7 @@ export type LastPrompt = {
   at: number
   fingerprint: Fingerprint
   cause?: BreakCause
+  ttl?: '5m' | '1h'
 }
 
 // One cache break. `rewritten` is the tokens that the API wrote again. `lostUsd` is their

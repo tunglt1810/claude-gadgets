@@ -153,7 +153,8 @@ export const withStep = (
   const why =
     found === null || s.lastPrompt === undefined
       ? null
-      : causeOf(s.lastPrompt, now, ttlMs(ttl), compaction)
+      : // The entry expires by the lifetime that it was written with.
+        causeOf(s.lastPrompt, now, ttlMs(s.lastPrompt.ttl ?? ttl), compaction)
   const entry: BreakEntry | null =
     found === null || why === null
       ? null
@@ -170,6 +171,7 @@ export const withStep = (
       messageCount: step.messageCount,
       at: step.at,
       fingerprint,
+      ttl,
       ...(entry === null ? {} : { cause: entry.cause }),
     },
     breaks: entry === null ? (s.breaks ?? []) : [...(s.breaks ?? []), entry].slice(-MAX_BREAKS),

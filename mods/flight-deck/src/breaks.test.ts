@@ -180,6 +180,7 @@ test('withStep keeps the prompt of the step and adds an entry for a break', () =
     messageCount: 42,
     at: 2000,
     fingerprint: { sections: { a: '1' } },
+    ttl: '1h',
   })
   // A step with no sections keeps the sections of the step before it.
   const warm = withStep(first, step({ cacheRead: 101_000, tokens: 102_000, at: 3000 }), '1h', null)
@@ -262,4 +263,19 @@ test('listedTools keeps a tool that the step before listed, with no describe res
     'mcp__a__b',
     'mcp__a__c',
   ])
+})
+
+test('the ttl cause uses the lifetime that the prefix was written with', () => {
+  // Written with a lifetime of 5 minutes. The lifetime of the loop is 1 hour now.
+  const short = withStep({}, step({ at: 0 }), '5m', null)
+  expect(short.lastPrompt.ttl).toBe('5m')
+  expect(withStep(short, step({ at: 600_000 }), '1h', null).lastPrompt.cause).toBe('ttl')
+  // Written with a lifetime of 1 hour: 10 minutes later the entry is not expired.
+  const long = withStep({}, step({ at: 0 }), '1h', null)
+  expect(withStep(long, step({ at: 600_000 }), '5m', null).lastPrompt.cause).toBe('unknown')
+  // A prompt of a record with no lifetime uses the lifetime of the loop.
+  const { ttl: _ttl, ...bare } = short.lastPrompt
+  expect(withStep({ lastPrompt: bare }, step({ at: 600_000 }), '5m', null).lastPrompt.cause).toBe(
+    'ttl',
+  )
 })
