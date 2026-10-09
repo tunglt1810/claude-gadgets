@@ -7,6 +7,14 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [0.8.1] - 2026-10-09
+
+#### Fixed
+
+- The pane draws again on a desktop that runs Claude Code before 2.1.295: the context length is a cell after the button there.
+- On a desktop, a pane with many agents no longer changes its cells to `flooded the page with messages`.
+- On a desktop, the first click on the agents button of the band opens or closes the pane. The band shows a new count at once there.
+
 ### [0.8.0] - 2026-10-09
 
 Tested on Claude Code 2.1.295.

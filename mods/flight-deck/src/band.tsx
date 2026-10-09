@@ -1,4 +1,5 @@
 import type { Elements } from 'claude-code'
+import type { BandProps } from './bandClient'
 import { bandSegments, type Segment } from './layout'
 import type { Snapshot } from './snapshot'
 import type { Counts } from './tween'
@@ -17,6 +18,8 @@ type Props = {
   name?: string
   context?: { tokens: number; window: number }
   isPaneOpen: boolean
+  // A desktop: the text is a `Client`.
+  isDesktop: boolean
   onToggle: () => void
 }
 
@@ -39,6 +42,7 @@ export const Band = ({
   name,
   context,
   isPaneOpen,
+  isDesktop,
   onToggle,
 }: Props) => {
   const { Box, Text, Button } = ui
@@ -66,6 +70,30 @@ export const Band = ({
   )
   const at = segments.findIndex((s) => s.isButton)
   const button = segments[at]
+  if (isDesktop && 'Client' in ui) {
+    // A desktop holds the handle of a button for one drawing: the text, whose times change
+    // each second, is a `Client` with a timer of its own, and this tree changes only with its
+    // data. The parts of the snapshot that the band does not draw are left out.
+    const props: BandProps = {
+      snap: { ...snap, byAgent: {}, byModel: {}, costByModel: {}, mcpCalls: [] },
+      busySince,
+      ttl,
+      columns,
+      isPaneOpen,
+      ...(isAgentView === undefined ? {} : { isAgentView }),
+      ...(model === undefined ? {} : { model }),
+      ...(name === undefined ? {} : { name }),
+      ...(context === undefined ? {} : { context }),
+    }
+    return (
+      <Box flexDirection="row">
+        <ui.Client key="band" module="./bandClient.tsx" props={props} flexGrow={1} height={1} />
+        {button !== undefined && (
+          <Button key="agents" variant="primary" label={button.text} onPress={onToggle} />
+        )}
+      </Box>
+    )
+  }
   if (button === undefined) return run(segments, 'all')
   return (
     <Box flexDirection="row">

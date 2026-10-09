@@ -47,6 +47,8 @@ type Props = {
   // The spinner's tick count: a running mark turns with it. Null where the pane must not be
   // drawn again on each frame (a desktop): each cell is a `Client` with its own timer then.
   spin: number | null
+  // True when the engine draws a Button that holds a Text.
+  holdsText: boolean
   // The time the working times are read at.
   now: number
   columns: number
@@ -179,6 +181,7 @@ export const AgentPane = ({
   breaks,
   shownUsd,
   spin,
+  holdsText,
   now,
   columns,
   scrollTop,
@@ -758,7 +761,7 @@ export const AgentPane = ({
             .filter((c) => c.ctx === undefined)
             .map((c) => c.text)
             .join(' ')
-          const isJoined = isClient && lead !== '' && ctx !== undefined
+          const isJoined = isClient && holdsText && lead !== '' && ctx !== undefined
           return (
             <Box key={`agentrow:${agent.id}`} flexDirection="column">
               {/* A Button takes no color: the status is the colored mark before it, and an
@@ -814,7 +817,8 @@ export const AgentPane = ({
                   {lead !== '' &&
                     (isJoined ? (
                       // A desktop's button holds the context as a colored text: a cell after
-                      // the button stands apart from it.
+                      // the button stands apart from it. An engine before 2.1.295 refuses
+                      // such a button: the context is a cell there.
                       <Button
                         key={`detail:${agent.id}`}
                         plain

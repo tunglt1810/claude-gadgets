@@ -14,6 +14,8 @@ const DONE = { answer: '', durationMs: 1, isAborted: false, reason: 'answer' } a
 
 // What `$.tool.list()` answers. A test sets it before a step.
 let toolList: { name: string; description: string; mcp: boolean }[] = []
+// The release of the engine that a test runs on; `engine` sets it back.
+let engineBase = '2.1.295'
 
 const stepResult = (usage: typeof USAGE | null) => ({
   turnId: 't1',
@@ -56,9 +58,21 @@ const bandText = async (
   // button between them; in an agent view there is one Text and no button.
   const runs = (await ui.findAll({ type: 'Text' })).filter((t) => t.props.wrap === 'truncate')
   const button = await ui.find({ type: 'Button' })
+  // A desktop draws the text in a `Client`. Its clock is the real one, not the test's: a
+  // test does not read a time of the band there (`bandClient.test.ts` does).
+  const client = await ui.find({ key: 'band' })
+  const inClient = client === undefined ? '' : textOf(await ui.drawn({ in: 'band' }))
   await ui.unmount()
   const label = button === undefined ? [] : [String(button.props.label)]
-  return [runs[0]?.text ?? '', ...label, runs[1]?.text ?? ''].join('')
+  return [inClient, runs[0]?.text ?? '', ...label, runs[1]?.text ?? ''].join('')
+}
+
+// The text of a drawn tree: the strings of its leaves, in the order drawn.
+const textOf = (n: unknown): string => {
+  if (typeof n === 'string' || typeof n === 'number') return String(n)
+  if (Array.isArray(n)) return n.map(textOf).join('')
+  if (typeof n !== 'object' || n === null) return ''
+  return textOf((n as { children?: unknown }).children)
 }
 
 // A changed count runs to its new value over a short time: let it arrive, then read.
@@ -83,7 +97,9 @@ const engine = (
   usage: () => object = () => ({}),
 ) => {
   toolList = []
+  engineBase = '2.1.295'
   mock.env(on, env)
+  on('session.version', () => ({ value: { version: engineBase, base: engineBase } }) as never)
   on(
     'session.usage',
     () => ({ value: { startedAt: 0, context: {}, rateLimits: [], ...usage() } }) as never,
@@ -570,12 +586,16 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await settled($, clock, surface)).toContain('↑ in 100 ')
 
     await runStep($, { ...STEP, index: 1 })
-    expect(await bandText($, surface)).toContain('↑ in 100 ')
+    // A desktop does not draw the band again on a frame (a drawing drops a click on the
+    // button): the new count is there at once.
+    if (surface === 'terminal') {
+      expect(await bandText($, surface)).toContain('↑ in 100 ')
 
-    await clock.advance(120)
-    const mid = Number(/↑ in (\d+) /.exec(await bandText($, surface))?.[1])
-    expect(mid).toBeGreaterThan(100)
-    expect(mid).toBeLessThan(200)
+      await clock.advance(120)
+      const mid = Number(/↑ in (\d+) /.exec(await bandText($, surface))?.[1])
+      expect(mid).toBeGreaterThan(100)
+      expect(mid).toBeLessThan(200)
+    } else expect(await bandText($, surface)).toContain('↑ in 200 ')
 
     expect(await settled($, clock, surface)).toContain('↑ in 200 ')
   })
@@ -704,13 +724,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
       // An agent's band has no agents button: the diff is its last part.
       expect(sub).toMatch(/± diff \+1 -1$/)
       // The agent's own cache: its step was sent 10s after the main one.
-      expect(sub).toContain('◔ 5:00')
+      if (surface === 'terminal') expect(sub).toContain('◔ 5:00')
       expect(sub).not.toContain('$ cost')
 
       const main = await bandText($, surface)
       expect(main).toContain('↑ in 400 ')
       expect(main).toMatch(/▸ agents 3$/)
-      expect(main).toContain('◔ 4:50')
+      if (surface === 'terminal') expect(main).toContain('◔ 4:50')
     },
   )
 }
@@ -2107,9 +2127,38 @@ test('the agents button is at the right end of the band, after a part that takes
       children: { type: string; props: { flexGrow?: number } }[]
     }
     await ui.unmount()
-    expect(root.children.map((c) => c.type)).toEqual(['Text', 'Box', 'Button'])
-    expect(root.children[1]?.props.flexGrow).toBe(1)
+    // A desktop draws the text in a `Client` that takes the free room.
+    const types = surface === 'desktop' ? ['Client', 'Button'] : ['Text', 'Box', 'Button']
+    expect(root.children.map((c) => c.type)).toEqual(types)
+    expect(root.children[surface === 'desktop' ? 0 : 1]?.props.flexGrow).toBe(1)
   }
+})
+
+test('a desktop does not draw the band again on a tick: a drawing drops a click on its button', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  on('turn.step', stepHook(USAGE))
+  await runStep($, STEP)
+  await clock.advance(SETTLE_MS)
+
+  const draws = { terminal: 0, desktop: 0 }
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({
+      plugin: 'flight-deck',
+      surface,
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
+    })
+    const before = JSON.stringify(await ui.drawn())
+    // The countdown of the cache runs: the terminal draws it each second.
+    await clock.advance(3000)
+    if (JSON.stringify(await ui.drawn()) !== before) draws[surface] += 1
+    if (surface === 'desktop')
+      expect((await ui.find({ key: 'band' }))?.props.module).toBe('src/bandClient.tsx')
+    await ui.unmount()
+  }
+  expect(draws).toEqual({ terminal: 1, desktop: 0 })
 })
 
 test('a changed context length runs to its new value', async ($, on) => {
@@ -2204,6 +2253,25 @@ test('the text of a detail row is one button, as the name above it is, on each s
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
+})
+
+test('a desktop on an engine before 2.1.295 keeps the context as a cell after the button', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  engineBase = '2.1.293'
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', effort: 'high', agentId: 'a1' } as never)
+
+  const ui = await mountPane($, 'desktop')
+  // That engine refuses a Button that holds a Text, and then draws nothing in the pane.
+  const lead = await ui.find({ key: 'detail:a1' })
+  expect(lead?.type).toBe('Button')
+  expect(String(lead?.props.label)).toBe('sonnet-5-5 · high ·')
+  expect(await ui.find({ key: 'detail:ctx:a1' })).toBeDefined()
+  await ui.unmount()
 })
 
 test('a scrolled transcript keeps a bar with the back button, the agent and its context in view', async ($, on) => {

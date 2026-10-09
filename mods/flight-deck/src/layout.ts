@@ -17,7 +17,7 @@ export type Segment = {
   isButton?: boolean
 }
 
-type Input = {
+export type BandInput = {
   snap: Snapshot
   busySince: number | null
   now: number
@@ -131,7 +131,7 @@ export const bandSegments = ({
   model,
   name,
   context,
-}: Input): Segment[] => {
+}: BandInput): Segment[] => {
   const total = ttlMs(ttl)
   const rem = remainingMs(snap.lastStepAt, now, total)
   const tone = countdownTone(rem)
