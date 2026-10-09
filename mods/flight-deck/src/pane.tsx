@@ -758,6 +758,7 @@ export const AgentPane = ({
             .filter((c) => c.ctx === undefined)
             .map((c) => c.text)
             .join(' ')
+          const isJoined = isClient && lead !== '' && ctx !== undefined
           return (
             <Box key={`agentrow:${agent.id}`} flexDirection="column">
               {/* A Button takes no color: the status is the colored mark before it, and an
@@ -810,17 +811,34 @@ export const AgentPane = ({
                       desktop draws a button's label after a margin of its own, and its font is
                       not fixed-width, so separate cells start at another place and stand
                       apart. It has no box of a fixed width: the context comes right after it. */}
-                  {lead !== '' && (
-                    <Button
-                      key={`detail:${agent.id}`}
-                      plain
-                      dimColor
-                      label={lead}
-                      onPress={() => onOpen(agent.id)}
-                    />
-                  )}
-                  {/* A Button takes no color: the context stays a cell. */}
-                  {ctx !== undefined && cell(`detail:ctx:${agent.id}`, shownCtx(agent.id, ctx))}
+                  {lead !== '' &&
+                    (isJoined ? (
+                      // A desktop's button holds the context as a colored text: a cell after
+                      // the button stands apart from it.
+                      <Button
+                        key={`detail:${agent.id}`}
+                        plain
+                        dimColor
+                        onPress={() => onOpen(agent.id)}
+                      >
+                        {`${lead} `}
+                        <Text {...(ctx.color === undefined ? {} : { color: ctx.color })}>
+                          {cellText(shownCtx(agent.id, ctx), 0, now)}
+                        </Text>
+                      </Button>
+                    ) : (
+                      <Button
+                        key={`detail:${agent.id}`}
+                        plain
+                        dimColor
+                        label={lead}
+                        onPress={() => onOpen(agent.id)}
+                      />
+                    ))}
+                  {/* The terminal's Button takes no color: the context stays a cell. */}
+                  {ctx !== undefined &&
+                    !isJoined &&
+                    cell(`detail:ctx:${agent.id}`, shownCtx(agent.id, ctx))}
                 </Box>
               )}
               {isOpen && (

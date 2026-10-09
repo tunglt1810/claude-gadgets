@@ -150,7 +150,7 @@ A call matches a rule when the rule of the call (sections 7.1 and 7.2) is that r
 On a match, the mod asks no question:
 
 1. It approves the call as `Run once` does.
-2. It shows a toast: `verdict-gate ran <rule> with no review`.
+2. It shows a toast: `Ran <rule> with no review`. The engine shows the name of the mod above the text.
 
 The 2000-character limit does not apply to a match, because the user approved the rule.
 

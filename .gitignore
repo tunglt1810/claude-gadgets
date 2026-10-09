@@ -1,3 +1,6 @@
 /.tmp
 mods/*/.claude-plugin/types/
 node_modules/
+
+.DS_Store
+**/*/.DS_Store

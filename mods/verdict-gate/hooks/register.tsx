@@ -97,8 +97,7 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
     let added: Set<string> | undefined
     try {
       const known = await sessionRules($)
-      if (rule !== undefined && known.has(rule))
-        $.ui.toast(`verdict-gate ran ${rule} with no review`)
+      if (rule !== undefined && known.has(rule)) $.ui.toast(`Ran ${rule} with no review`)
       else {
         const text = question(e.tool, detail)
         if (text === undefined) return res

@@ -167,7 +167,7 @@ test('a remembered rule runs a later match with no question and shows a toast', 
   expect(seen.asks).toHaveLength(1)
   expect(seen.runs).toBe(2)
   expect(res.text).toBe('ok')
-  expect(seen.toasts).toEqual(['verdict-gate ran Bash(git push:*) with no review'])
+  expect(seen.toasts).toEqual(['Ran Bash(git push:*) with no review'])
 })
 
 test('a match longer than the limit of the question runs', async ($, on) => {
