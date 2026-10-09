@@ -7,7 +7,9 @@ Mods (hot-reloadable function-hook plugins) for Claude Code. One self-contained 
 - Built and tested against **Claude Code 2.1.295** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.295.`
 - Bun 1.4.2 (not pinned in the repo).
 - The plugin API may change between Claude Code releases without notice. After an update: let the engine rewrite `mods/<name>/.claude-plugin/types/` (load the mod once), run `bun run check`, then update the version on this line.
-- Not verified on any other Claude Code version, and not yet run live on Claude Desktop.
+- Claude Desktop runs its own Claude Code (`~/Library/Application Support/Claude/claude-code/<version>/`), which is older than the CLI for some days after a release. An engine refuses the whole tree of a pane that has one element or prop it does not know, and the pane is then empty.
+- Thus a mod stays backward compatible: put an API that is newer than the desktop's engine behind a check of `$.session.version()` (`src/engine.ts`), and keep the old drawing as the other branch. To check, run `"<that folder>/<hash>/claude.app/Contents/MacOS/claude" plugin test mods/<name>`. The tests answer `session.version` as the CLI's release (`engineBase`), so only the tests of the new branch fail there; a failure of another test is a tree that the desktop refuses.
+- Not verified on any other Claude Code version.
 
 ## Commands
 
@@ -66,8 +68,9 @@ The styling rules (palette, tones, number formats, glyphs, tables) are in [docs/
 
 ### Desktop (each of these failed live once)
 
-- A Button handle lives for one drawing: a redraw during a click drops the click. `ui.render` reads only the data it draws, and that data is written only when its JSON changes.
+- A Button handle lives for one drawing: a redraw during a click drops the click (`ui_press not handled` in `~/Library/Logs/Claude/claude.ai-web.log`), and the second click lands. This applies to the band too: on a desktop its text is a `Client` (`src/bandClient.tsx`) and its hook reads no value that a timer writes. `ui.render` reads only the data it draws, and that data is written only when its JSON changes.
 - Animate in a `Client` module with its own timer (`surface.every`), never by redrawing the pane.
+- A desktop unmounts every `Client` of a mod (`flooded the page with messages`) when they send more than 400 messages in one second. A drawing sends one, a `setState` two more, a new timer one. A `Client` that does not change sets no state; a timer reads `surface.state` and sets it only while its cell changes, because the props of an instance change (an agent ends) and the timer stays.
 - In a row next to a Button, draw every other cell as a `Client` too: a `Text` does not line up with a Button. Give each cell a fixed width.
 - Text that must start below a Button's label is a Button too: a desktop draws a label after a margin of its own. Put words that belong together in one label: the font is not fixed-width, so cells of a fixed width stand apart.
 - A click on a pane that does not hold the keys raises only `ui.focus`, not `ui.press`. Read the focus state before `next(e)`: landing the ring redraws the pane focused inside `next`.

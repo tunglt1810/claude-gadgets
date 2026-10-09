@@ -17,6 +17,7 @@ import {
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
+import { holdsText } from '../src/engine'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
 import { costOf, engineGap } from '../src/price'
@@ -1424,6 +1425,7 @@ export const register: Register = (on, options) => {
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
         spin={e.surface === 'terminal' ? await read($, spin) : null}
+        holdsText={holdsText((await $.session.version()).base)}
         now={now}
         columns={e.props.bodyColumns - pad * 2}
         scrollTop={e.surface === 'terminal' ? Math.max(0, offset - above) : 0}
@@ -1468,8 +1470,11 @@ export const register: Register = (on, options) => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
     const session = await currentMeter($)
-    const now = (await read($, nowAtom)) || (await $.clock.now())
-    const tweens = await read($, shown)
+    // A desktop holds the handle of a button for one drawing: its band reads no value that a
+    // timer writes, and its text is a `Client` with a clock of its own.
+    const isDesktop = e.surface === 'desktop'
+    const now = (isDesktop ? 0 : await read($, nowAtom)) || (await $.clock.now())
+    const tweens = isDesktop ? null : await read($, shown)
     // An agent's transcript is on screen: draw that agent's numbers, which are not animated.
     const isPaneOpen = (await read($, pane)).isOpen
     const viewed = e.props.view.agentId
@@ -1483,7 +1488,7 @@ export const register: Register = (on, options) => {
         ui={$.ui.resolve(e)}
         snap={snap}
         shown={
-          viewed === undefined && tweens.sessionId === session.sessionId
+          tweens !== null && viewed === undefined && tweens.sessionId === session.sessionId
             ? shownAt(tweens, now)
             : undefined
         }
@@ -1498,6 +1503,7 @@ export const register: Register = (on, options) => {
         ttl={viewed === undefined ? ttls.main : ttls.agent}
         columns={e.props.bodyColumns ?? 120}
         isPaneOpen={isPaneOpen}
+        isDesktop={isDesktop}
         onToggle={() => togglePane($)}
       />
     )
