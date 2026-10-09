@@ -7,7 +7,13 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
-### [Unreleased]
+### [0.8.0] - 2026-10-09
+
+Tested on Claude Code 2.1.295.
+
+#### Changed
+
+- On a desktop, the detail row of an agent is one button: the context length follows the model and the effort with no space between them, and it shows a new count at once.
 
 #### Fixed
 
@@ -185,6 +191,14 @@ Tested on Claude Code 2.1.291.
 ## verdict-gate
 
 ### [Unreleased]
+
+### [0.1.1] - 2026-10-09
+
+Tested on Claude Code 2.1.295.
+
+#### Changed
+
+- The toast for a call that a rule ran does not show the name of the mod two times.
 
 ### [0.1.0] - 2026-10-07
 

@@ -2152,8 +2152,11 @@ test('a changed context length runs to its new value', async ($, on) => {
   await term.press({ key: 'back' })
   await term.unmount()
 
-  // A desktop cell holds the new count and runs to it with its own timer.
+  // A desktop's detail button holds the new count: a text in a button has no timer.
   const desk = await mountPane($, 'desktop')
+  expect((await desk.find({ key: 'detail:a1' }))?.text).toContain('ctx 300.1k/1M 30%')
+  // The transcript screen keeps a cell, which runs to the count with its own timer.
+  await desk.press({ key: 'agent:a1' })
   const cells = (await desk.findAll({ type: 'Client' })).map((c) => c.props.props as Cell)
   expect(cells).toContainEqual({
     text: '',
@@ -2179,10 +2182,19 @@ test('the text of a detail row is one button, as the name above it is, on each s
     // fixed-width: one button starts where the name starts and has no room between its parts.
     const lead = await ui.find({ key: 'detail:a1' })
     expect(lead?.type).toBe('Button')
-    expect(String(lead?.props.label)).toBe('sonnet-5-5 · high ·')
-    // The context length keeps its color: it is a cell after the button, not a button.
-    expect((await ui.find({ key: 'detail:ctx:a1' }))?.type).not.toBe('Button')
-    expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+    if (surface === 'desktop') {
+      // A desktop's button holds the context length too, as a colored text: a cell after
+      // the button stands apart from it.
+      expect(lead?.text).toBe('sonnet-5-5 · high · ctx 100/1M 0%')
+      expect(await ui.find({ key: 'detail:ctx:a1' })).toBeUndefined()
+      const ctx = (await ui.findAll({ type: 'Text' })).find((t) => t.text === 'ctx 100/1M 0%')
+      expect(ctx?.props.color).toBe('#a9dc76')
+    } else {
+      expect(String(lead?.props.label)).toBe('sonnet-5-5 · high ·')
+      // The context length keeps its color: it is a cell after the button, not a button.
+      expect((await ui.find({ key: 'detail:ctx:a1' }))?.type).not.toBe('Button')
+      expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+    }
     // With no context the button has no dot at its end.
     expect(String((await ui.find({ key: 'detail:a2' }))?.props.label)).toBe('no step yet')
     expect(await ui.find({ key: 'detail:ctx:a2' })).toBeUndefined()
