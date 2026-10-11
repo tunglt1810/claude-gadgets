@@ -64,7 +64,7 @@ Use one source for a mod: the installed plugin or a directory, not the two toget
 Limits:
 
 - An agent that started before the mod loaded is not in the list.
-- In auto mode the engine does not send a message from the pane. The pane then shows the button `allow messages in auto mode`. Press it one time: the mod keeps your answer and sends the messages of the pane. A message that the model sends stays under the check of the engine. The answer is for all sessions. To take it back, delete `allowSend` from the store file of the mod (`plugins/store/flight-deck_*.json` in the configuration directory of Claude Code).
+- In auto mode the engine does not send a message from the pane: the classifier gives no verdict for it. The pane then shows `not sent: add "SendMessage" to permissions.allow`. Add that rule to your settings and send the message again. The mod does not change a permission decision.
 - `» message` puts the cursor in the message field only while the prompt of the session is empty. With text in the prompt, click the field.
 - Each answer of an agent, and each stop, makes the main loop run one turn: the engine sends it a notification.
 - The engine does not let a mod read the agents of a workflow run. The same is true for a teammate in its own terminal pane. The pane shows the refusal text of the engine.
