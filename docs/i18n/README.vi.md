@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `d7a3600`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `894bcbd`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -26,16 +26,20 @@ bun run check      # biome + tsc + claude plugin validate + claude plugin test
 
 ## Cài đặt
 
-Chạy các lệnh sau trong Claude Code:
+Gõ một dòng cho mỗi mod tại ô prompt của Claude Code trong terminal:
 
 ```text
-/plugin marketplace add tunglt1810/claude-gadgets
-/plugin install flight-deck@claude-gadgets
-/plugin install verdict-gate@claude-gadgets
-/reload-plugins
+/plugin install flight-deck --marketplace tunglt1810/claude-gadgets
+/plugin install verdict-gate --marketplace tunglt1810/claude-gadgets
 ```
 
-Một mod bắt đầu chạy khi các plugin được nạp lại. Nếu một mod không hiện ra, hãy khởi động lại Claude Code.
+1. Trả lời `y` cho câu hỏi `Add marketplace?`. Dòng đầu tiên hỏi câu này, dòng thứ hai thì không.
+2. Chọn một scope rồi nhấn Enter. Scope user cài mod cho mọi project.
+3. Chạy `/reload-plugins`. Nếu một mod không hiện ra, hãy khởi động lại Claude Code.
+
+Claude Desktop không có lệnh `/plugin install` trong tab Code. Hãy cài mod từ terminal ở scope user, rồi khởi động lại Claude Desktop: mod cũng được nạp ở đó.
+
+Để lấy phiên bản mới, hãy chạy `claude plugin marketplace update claude-gadgets`, rồi `claude plugin update flight-deck@claude-gadgets` trong terminal.
 
 Một mod là code chạy trong Claude Code trên máy của bạn, với quyền truy cập mà Claude Code có. Hãy đọc mã nguồn trước khi bạn cài nó.
 
