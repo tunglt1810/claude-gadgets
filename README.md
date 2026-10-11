@@ -24,16 +24,20 @@ bun run check      # biome + tsc + claude plugin validate + claude plugin test
 
 ## Install
 
-Run these commands in Claude Code:
+Type one line for each mod at the prompt of Claude Code in a terminal:
 
 ```text
-/plugin marketplace add tunglt1810/claude-gadgets
-/plugin install flight-deck@claude-gadgets
-/plugin install verdict-gate@claude-gadgets
-/reload-plugins
+/plugin install flight-deck --marketplace tunglt1810/claude-gadgets
+/plugin install verdict-gate --marketplace tunglt1810/claude-gadgets
 ```
 
-A mod starts when the plugins load again. If a mod does not show, start Claude Code again.
+1. Answer `y` to the question `Add marketplace?`. The first line asks it, and the second line does not.
+2. Select a scope and press Enter. The user scope installs the mod for each project.
+3. Run `/reload-plugins`. If a mod does not show, start Claude Code again.
+
+Claude Desktop does not have the `/plugin install` command in its Code tab. Install the mod from a terminal at the user scope, then start Claude Desktop again: the mod loads there too.
+
+To get a new version, run `claude plugin marketplace update claude-gadgets`, then `claude plugin update flight-deck@claude-gadgets` in a terminal.
 
 A mod is code that runs in Claude Code on your machine, with the access that Claude Code has. Read the source before you install it.
 

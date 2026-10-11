@@ -6,11 +6,13 @@ The full description is in the [README of the repository](https://github.com/tun
 
 ## Install
 
+Type this line at the prompt of Claude Code in a terminal:
+
 ```text
-/plugin marketplace add tunglt1810/claude-gadgets
-/plugin install flight-deck@claude-gadgets
-/reload-plugins
+/plugin install flight-deck --marketplace tunglt1810/claude-gadgets
 ```
+
+Answer `y` to add the marketplace, select a scope, then run `/reload-plugins`. A mod that you install at the user scope loads in Claude Desktop too.
 
 ## What the mod does on your machine
 
