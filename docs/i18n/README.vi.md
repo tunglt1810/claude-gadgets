@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `0a5f498`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `d7a3600`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -66,7 +66,7 @@ Tuỳ chọn `cacheTtl` của `flight-deck` nhận `1h` (mặc định) hoặc `
 Giới hạn:
 
 - Một agent đã khởi chạy trước khi mod được nạp thì không có trong danh sách.
-- Ở auto mode, engine không gửi tin nhắn từ pane. Khi đó pane hiện nút `allow messages in auto mode`. Bấm một lần: mod lưu câu trả lời và gửi các tin nhắn của pane. Tin nhắn do model gửi vẫn qua kiểm tra của engine. Câu trả lời áp dụng cho mọi session. Để rút lại, xoá `allowSend` trong file store của mod (`plugins/store/flight-deck_*.json` trong thư mục cấu hình của Claude Code).
+- Ở auto mode, engine không gửi tin nhắn từ pane: classifier không đưa ra verdict cho tin nhắn đó. Khi đó pane hiện `not sent: add "SendMessage" to permissions.allow`. Hãy thêm rule đó vào settings rồi gửi lại tin nhắn. Mod không thay đổi một quyết định về quyền.
 - `» message` chỉ đưa con trỏ vào ô nhập khi prompt của session đang trống. Khi prompt có chữ, hãy bấm vào ô nhập.
 - Mỗi câu trả lời của một agent, và mỗi lần stop, làm vòng lặp chính chạy một turn: engine gửi cho nó một thông báo.
 - Engine không cho một mod đọc các agent của một lần chạy workflow. Một teammate chạy trong pane terminal riêng cũng vậy. Pane hiển thị thông báo từ chối của engine.
