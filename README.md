@@ -22,12 +22,31 @@ bun run check      # biome + tsc + claude plugin validate + claude plugin test
 
 `tsc` needs the engine's typings in `mods/<name>/.claude-plugin/types/claude-code/index.d.ts`. Claude Code writes them when it loads a mod; to type-check before the first load, copy the file the `plugin-authoring` skill names (it is gitignored).
 
-## Loading a mod
+## Install
+
+Run these commands in Claude Code:
+
+```text
+/plugin marketplace add tunglt1810/claude-gadgets
+/plugin install flight-deck@claude-gadgets
+/plugin install verdict-gate@claude-gadgets
+/reload-plugins
+```
+
+A mod starts when the plugins load again. If a mod does not show, start Claude Code again.
+
+A mod is code that runs in Claude Code on your machine, with the access that Claude Code has. Read the source before you install it.
+
+The mods are tested on Claude Code 2.1.296.
+
+## Loading a mod from a clone
+
+Use one source for a mod: the installed plugin or a directory, not the two together.
 
 - CLI: `claude --plugin-dir mods/flight-deck` (hot reloads on save).
 - Claude Desktop (Code tab): set `CLAUDE_CODE_PLUGIN_DIRS` to the absolute mod path in the `env` block of `~/.claude/settings.json`.
 
-`flight-deck` option `cacheTtl` is `5m` (default) or `1h`. Set `1h` when your session uses the 1-hour prompt cache.
+`flight-deck` option `cacheTtl` is `1h` (default) or `5m`. Set `5m` when your session uses the 5-minute prompt cache.
 
 ## Agents pane
 
