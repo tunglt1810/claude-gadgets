@@ -102,7 +102,7 @@ All functions are pure and are in `src/context.ts`.
 The block keeps its three rows. The context length uses the compaction window, and the first row gets the room to compact (section 6.3).
 
 ```
-[ context ]  ctx 226.9k/400k 57% · +3.1k/turn · 140k to compact
+[ context ]  ctx 226.9k/400k 57% · +3.1k/turn · 140.1k to compact
 ████████████████████████████████████████
 overhead 52.2k · messages 174.7k · dead weight 11.6k
 ```
@@ -131,10 +131,10 @@ The parts are in this order:
 ### 6.3 Head row
 
 ```
-ctx 226.9k/400k 57% · +3.1k/turn · 140k to compact · ≈45 turns
+ctx 226.9k/400k 57% · +3.1k/turn · 140.1k to compact · ≈45 turns
 ```
 
-- `140k to compact` is the room to compact. `≈45 turns` replaces `≈45 turns to compact`.
+- `140.1k to compact` is the room to compact, as `formatTokens` gives it. `≈45 turns` replaces `≈45 turns to compact`.
 - The parts after the context length are dim.
 - A narrow row drops the turns first, then the growth, then the room to compact, then the counts of the context length.
 - The window label shows the count of the window: `400k`, `200k` or `1M`.
@@ -143,7 +143,7 @@ ctx 226.9k/400k 57% · +3.1k/turn · 140k to compact · ≈45 turns
 
 ```
 [ ← agents ]  context                              full  [ recount ]
-ctx 226.9k/400k 57% · +3.1k/turn · 140k to compact · ≈45 turns
+ctx 226.9k/400k 57% · +3.1k/turn · 140.1k to compact · ≈45 turns
 ████████████████████████████████████████
 ──────────────────────────────────────────────────────────────────
 overhead 52.2k · 13% of window · ≈$0.42 over 38 steps
@@ -151,12 +151,12 @@ overhead 52.2k · 13% of window · ≈$0.42 over 38 steps
   Messages                        174.7k     43.7%
 ▸ System tools                     15.9k      4.0%    ≈0.11
 ▸ MCP tools                        14.7k      3.7%    ≈0.19
-▸ Skills                             10k      2.5%    ≈0.03
+▸ Skills                           10.0k      2.5%    ≈0.03
   System prompt                     4.9k      1.2%    ≈0.02
 ▸ Memory files                      4.1k      1.0%    ≈0.02
 ▸ Custom agents                     1.6k      0.4%    ≈0.01
-  MCP server instructions             1k      0.3%    ≈0.01
-  Autocompact buffer                 33k      8.3%
+  MCP server instructions           1.0k      0.3%    ≈0.01
+  Autocompact buffer               33.0k      8.3%
   Free space                      140.1k     35.0%
 ▸ MCP tools (deferred)            118.4k         —
   System tools (deferred)          24.4k         —
