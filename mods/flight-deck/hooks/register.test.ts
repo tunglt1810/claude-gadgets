@@ -2487,10 +2487,10 @@ const CONTEXT = {
 }
 
 // The engine with a usage that has the breakdown above.
-const contextEngine = (on: Parameters<typeof mock.store>[0]) => {
+const contextEngine = (on: Parameters<typeof mock.store>[0], context: object = CONTEXT) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
-  engine(on, undefined, undefined, undefined, undefined, {}, () => ({ context: CONTEXT }))
+  engine(on, undefined, undefined, undefined, undefined, {}, () => ({ context }))
   paneEngine(on)
 }
 
@@ -2542,7 +2542,7 @@ test('the context button opens the context screen and back returns', async ($, o
   await turn($, 't1')
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
-    expect(await paneText(ui)).not.toContain('share(%)')
+    expect(await paneText(ui)).not.toContain('window(%)')
     await ui.press({ key: 'context' })
     const text = await paneText(ui)
     // The press read a full breakdown.
@@ -2550,10 +2550,14 @@ test('the context button opens the context screen and back returns', async ($, o
     expect(text).toContain('ctx 84.2k/200k 42%')
     expect(text).toContain('overhead 31.4k')
     expect(text).toContain('16% of window')
-    expect(text).toContain('share(%)')
+    expect(text).toContain('window(%)')
     expect(text).toContain('▸ MCP tools')
     expect(text).toContain('14.2k')
-    expect(text).toContain('45%')
+    // The share of a row is its share of the window.
+    expect(text).toContain('7.1%')
+    expect(text).toContain('Messages')
+    expect(text).toContain('26.4%')
+    expect(text).toContain('Free space')
     // The model of the test has no price.
     expect(text).toContain('—')
     expect(text).toContain('dead weight 11.6k')
@@ -2562,11 +2566,11 @@ test('the context button opens the context screen and back returns', async ($, o
     expect(text).not.toContain('No agents yet.')
 
     await ui.press({ key: 'recount' })
-    expect(await paneText(ui)).toContain('share(%)')
+    expect(await paneText(ui)).toContain('window(%)')
 
     await ui.press({ key: 'back' })
     expect(await ui.find({ key: 'context' })).toBeDefined()
-    expect(await paneText(ui)).not.toContain('share(%)')
+    expect(await paneText(ui)).not.toContain('window(%)')
     await ui.unmount()
   }
 })
@@ -2585,6 +2589,45 @@ test('a category row opens and closes its items', async ($, on) => {
     expect(open).toContain('chrome · 1 tools')
     await ui.press({ key: 'cat:MCP tools' })
     expect(await paneText(ui)).not.toContain('figma · 2 tools')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the context of the main loop uses the compaction window', async ($, on) => {
+  // A model window of 1M with a compaction window of 200k.
+  contextEngine(on, {
+    ...CONTEXT,
+    window: 1_000_000,
+    breakdown: {
+      ...CONTEXT.breakdown,
+      rawMaxTokens: 200000,
+      categories: [
+        ...CONTEXT.breakdown.categories,
+        { name: 'Autocompact buffer', tokens: 33000, kind: 'buffer' },
+        { name: 'MCP tools (deferred)', tokens: 9000, kind: 'deferred' },
+      ],
+      mcpTools: [
+        ...CONTEXT.breakdown.mcpTools,
+        { name: 'mcp__linear__issue', serverName: 'linear', tokens: 9000, isLoaded: false },
+      ],
+    },
+  })
+  await turn($, 't1')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).toContain('ctx 84.2k/200k 42%')
+    await ui.press({ key: 'context' })
+    const text = await paneText(ui)
+    expect(text).toContain('ctx 84.2k/200k 42%')
+    expect(text).not.toContain('/1M')
+    expect(text).toContain('Autocompact buffer')
+    expect(text).toContain('16.5%')
+    expect(text).toContain('▸ MCP tools (deferred)')
+    await ui.press({ key: 'cat:MCP tools (deferred)' })
+    expect(await paneText(ui)).toContain('linear · 1 tools')
+    // The open rows stay for the next surface: close the row.
+    await ui.press({ key: 'cat:MCP tools (deferred)' })
     await ui.press({ key: 'back' })
     await ui.unmount()
   }

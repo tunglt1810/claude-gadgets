@@ -8,7 +8,9 @@ import {
   contextSummary,
   contextView,
   darker,
+  isOverhead,
   overheadHead,
+  rowColor,
   sampled,
   sampleOf,
 } from './context'
@@ -67,18 +69,34 @@ const view = (over: Partial<ContextState> = {}, snap: Parameters<typeof contextV
 const usd = (n: number | null): number => Math.round((n ?? Number.NaN) * 1e6) / 1e6
 const texts = (cells: Parameters<typeof cellText>[0][]) => cells.map((c) => cellText(c, 0, 0))
 
-test('sampleOf keeps the used categories without the messages, the costliest first', () => {
+test('sampleOf keeps each row with tokens: used by cost, then buffer, free and deferred', () => {
   expect(SAMPLE.detail).toBe('full')
   expect(SAMPLE.tokens).toBe(84200)
   expect(SAMPLE.window).toBe(200000)
   expect(SAMPLE.threshold).toBe(167000)
-  expect(SAMPLE.categories.map((r) => r.name)).toEqual([
-    'MCP tools',
-    'System tools',
-    'Memory files',
-    'System prompt',
-    'Skills',
+  expect(SAMPLE.rows.map((r) => [r.name, r.kind])).toEqual([
+    ['Messages', 'used'],
+    ['MCP tools', 'used'],
+    ['System tools', 'used'],
+    ['Memory files', 'used'],
+    ['System prompt', 'used'],
+    ['Skills', 'used'],
+    ['Autocompact buffer', 'buffer'],
+    ['Free space', 'free'],
+    ['MCP tools (deferred)', 'deferred'],
   ])
+})
+
+test('the window of a sample is the compaction window', () => {
+  const b = { ...CONTEXT.breakdown, rawMaxTokens: 400000 }
+  expect(sampleOf({ ...CONTEXT, window: 1_000_000, breakdown: b }, 'full')?.window).toBe(400000)
+  // No compaction window (an engine of a different version): the window of the model.
+  expect(sampleOf({ ...CONTEXT, window: 1_000_000 }, 'full')?.window).toBe(1_000_000)
+  expect(
+    sampleOf({ ...CONTEXT, breakdown: { ...CONTEXT.breakdown, rawMaxTokens: 0 } }, 'full')?.window,
+  ).toBe(200000)
+  // A reply with no window of the model has the compaction window.
+  expect(sampleOf({ breakdown: b }, 'summary')?.window).toBe(400000)
 })
 
 test('sampleOf groups the loaded MCP tools by server and names the items of a category', () => {
@@ -86,7 +104,7 @@ test('sampleOf groups the loaded MCP tools by server and names the items of a ca
     { name: 'figma', tokens: 9800, tools: ['mcp__figma__get', 'mcp__figma__set'] },
     { name: 'chrome', tokens: 1800, tools: ['mcp__chrome__click'] },
   ])
-  const items = (name: string) => SAMPLE.categories.find((r) => r.name === name)?.items
+  const items = (name: string) => SAMPLE.rows.find((r) => r.name === name)?.items
   expect(items('MCP tools')).toEqual([
     { name: 'figma', tokens: 9800, count: 2 },
     { name: 'chrome', tokens: 1800, count: 1 },
@@ -97,6 +115,9 @@ test('sampleOf groups the loaded MCP tools by server and names the items of a ca
   ])
   expect(items('Skills')).toEqual([{ name: 'docs', tokens: 1900 }])
   expect(items('System prompt')).toEqual([])
+  // The tools that are not loaded are the items of the deferred row.
+  expect(items('MCP tools (deferred)')).toEqual([{ name: 'linear', tokens: 9000, count: 1 }])
+  expect(items('Messages')).toEqual([])
 })
 
 test('sampleOf gives null for a reply with no breakdown or no window', () => {
@@ -121,7 +142,7 @@ test('sampleOf reads a breakdown with no lists, no tokens and no compaction', ()
   expect(s?.tokens).toBe(84000)
   expect(s?.threshold).toBeNull()
   expect(s?.servers).toEqual([])
-  expect(s?.categories.every((r) => r.items.length === 0)).toBe(true)
+  expect(s?.rows.every((r) => r.items.length === 0)).toBe(true)
 })
 
 test('sampled starts a base, counts the turns that end, and starts again on a compaction', () => {
@@ -159,20 +180,53 @@ test('sampled starts a base, counts the turns that end, and starts again on a co
   })
 })
 
-test('contextView parts the tokens into overhead, messages and buffer', () => {
+test('contextView parts the tokens into overhead and messages', () => {
   const v = view()
   expect(v.overhead).toBe(31400)
   expect(v.messages).toBe(52800)
-  expect(v.buffer).toBe(33000)
   expect(v.perTurn).toBeNull()
   expect(v.turnsLeft).toBeNull()
   expect(contextView(state({ sample: null }), SNAP)).toBeNull()
+  // A sample with no Messages row: the tokens less the overhead.
+  const rows = SAMPLE.rows.filter((r) => r.name !== 'Messages')
+  expect(view({ sample: { ...SAMPLE, rows } }).messages).toBe(52800)
+})
+
+test('contextView gives each row its share of the window and the room to compact', () => {
+  const v = view()
+  const share = (name: string) => v.rows.find((r) => r.name === name)?.share
+  expect(share('Messages')).toBe(26.4)
+  expect(share('MCP tools')).toBe(7.1)
+  expect(share('Autocompact buffer')).toBe(16.5)
+  expect(share('MCP tools (deferred)')).toBeNull()
+  expect(v.toCompact).toBe(82800)
+  expect(view({ sample: { ...SAMPLE, threshold: null } }).toCompact).toBeNull()
+  // More tokens than the threshold: no negative room.
+  expect(view({ sample: { ...SAMPLE, tokens: 190000 } }).toCompact).toBe(0)
+})
+
+test('a sample of version 0.8.1 gives no view', () => {
+  const { rows: _, ...old } = SAMPLE
+  expect(contextView(state({ sample: { ...old, categories: [] } as never }), SNAP)).toBeNull()
+})
+
+test('rowColor gives the color of the bar part of a used row, and none for the other kinds', () => {
+  expect(rowColor({ name: 'Messages', kind: 'used' })).toBe(PALETTE.cyan)
+  expect(rowColor({ name: 'System tools', kind: 'used' })).toBe(PALETTE.orange)
+  expect(rowColor({ name: 'MCP tools', kind: 'used' })).toBe(PALETTE.green)
+  expect(rowColor({ name: 'Skills', kind: 'used' })).toBe(PALETTE.yellow)
+  expect(rowColor({ name: 'Memory files', kind: 'used' })).toBe(PALETTE.dim)
+  expect(rowColor({ name: 'constructor', kind: 'used' })).toBe(PALETTE.dim)
+  expect(rowColor({ name: 'Free space', kind: 'free' })).toBeNull()
+  expect(rowColor({ name: 'MCP tools (deferred)', kind: 'deferred' })).toBeNull()
+  expect(isOverhead({ name: 'Skills', kind: 'used' })).toBe(true)
+  expect(isOverhead({ name: 'Messages', kind: 'used' })).toBe(false)
+  expect(isOverhead({ name: 'Free space', kind: 'free' })).toBe(false)
 })
 
 test('contextView keeps the overhead at or below the tokens', () => {
   const v = view({ sample: { ...SAMPLE, tokens: 10000 } })
   expect(v.overhead).toBe(10000)
-  expect(v.messages).toBe(0)
 })
 
 test('contextView gives the growth of a turn and the turns before a compaction', () => {
@@ -184,7 +238,6 @@ test('contextView gives the growth of a turn and the turns before a compaction',
   expect(
     view({ base: 74900, turns: 3, sample: { ...SAMPLE, threshold: null } }).turnsLeft,
   ).toBeNull()
-  expect(view({ sample: { ...SAMPLE, threshold: null } }).buffer).toBe(0)
 })
 
 test('contextView estimates the carry cost from the steps and the cache read price', () => {
@@ -192,10 +245,15 @@ test('contextView estimates the carry cost from the steps and the cache read pri
   expect(v.steps).toBe(38)
   // 31400 tokens at 38 steps at $0.20 per million tokens.
   expect(usd(v.carryUsd)).toBe(0.23864)
-  expect(usd(v.categories[0]?.carryUsd ?? null)).toBe(0.10792)
+  const carryOf = (c: ReturnType<typeof view>, name: string) =>
+    c.rows.find((r) => r.name === name)?.carryUsd
+  expect(usd(carryOf(v, 'MCP tools') ?? null)).toBe(0.10792)
+  // The conversation, the free room and the deferred tools carry no overhead cost.
+  expect(carryOf(v, 'Messages')).toBeNull()
+  expect(carryOf(v, 'Free space')).toBeNull()
   const unpriced = view({}, { ...SNAP, mainModel: 'm' })
   expect(unpriced.carryUsd).toBeNull()
-  expect(unpriced.categories[0]?.carryUsd).toBeNull()
+  expect(carryOf(unpriced, 'MCP tools')).toBeNull()
   expect(view({}, { steps: 38, mcpCalls: [] }).carryUsd).toBeNull()
 })
 
@@ -300,15 +358,6 @@ test('overheadHead shows the share of the window and the carry cost', () => {
   ])
 })
 
-test('the buffer is the buffer row of the breakdown, not the window less the threshold', () => {
-  // A model window of 1M with a compaction window of 200k: the threshold is far below the window.
-  const wide = sampleOf({ ...CONTEXT, window: 1_000_000 }, 'full')
-  expect(wide?.buffer).toBe(33000)
-  if (wide === null) throw new Error('no sample')
-  const v = contextView({ sessionId: 'S1', sample: wide, base: null, turns: 0 }, SNAP)
-  expect(v?.buffer).toBe(33000)
-})
-
 test('a sample from the API after an estimate starts the base again', () => {
   // With no response yet the tokens are a local estimate, which is higher than the API count.
   const { tokens: _, ...noTokens } = CONTEXT
@@ -337,7 +386,7 @@ test('a session with no record of its steps shows no carry cost', () => {
   // A snapshot of an older version has no count of steps: a cost from it is too small.
   const v = contextView(state(), { ...SNAP, steps: 4, mcpCalls: [UNKNOWN_CALLS] })
   expect(v?.carryUsd).toBeNull()
-  expect(v?.categories.every((r) => r.carryUsd === null)).toBe(true)
+  expect(v?.rows.every((r) => r.carryUsd === null)).toBe(true)
 })
 
 test('a category with the name of an object method has no items', () => {
@@ -351,7 +400,7 @@ test('a category with the name of an object method has no items', () => {
     },
     'full',
   )
-  expect(odd?.categories).toEqual([{ name: 'constructor', tokens: 10, items: [] }])
+  expect(odd?.rows).toEqual([{ name: 'constructor', tokens: 10, kind: 'used', items: [] }])
 })
 
 test('a context that got shorter since its base shows no growth', () => {

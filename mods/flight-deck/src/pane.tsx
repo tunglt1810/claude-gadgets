@@ -13,7 +13,14 @@ import type {
 import { breaksHead, causeColor, clockText } from './breaks'
 import { cellText } from './cell'
 import { clipLines, cut } from './clip'
-import { barSegments, contextHead, contextSummary, overheadHead } from './context'
+import {
+  barSegments,
+  contextHead,
+  contextSummary,
+  isOverhead,
+  overheadHead,
+  rowColor,
+} from './context'
 import { ALLOW_LABEL, controlLabels, fieldLayout } from './control'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
@@ -128,9 +135,9 @@ const CLOCK_WIDTH = 5
 const REWRITTEN_WIDTH = 9
 const LOST_WIDTH = 8
 // The columns of the context screen: a count of tokens fits `123.4k`, a share its header
-// `share(%)`, a carry cost its header `carry($)`, a count of tools its header.
+// `window(%)`, a carry cost its header `carry($)`, a count of tools its header.
 const TOKENS_WIDTH = 7
-const SHARE_WIDTH = 8
+const SHARE_WIDTH = 9
 const CARRY_WIDTH = 8
 const TOOLS_WIDTH = 7
 
@@ -495,8 +502,8 @@ export const AgentPane = ({
     const num = (key: string, text: string, width: number, tone: Tone = {}) =>
       cell(key, { text, ...tone, width, align: 'right' })
 
-    // The context screen: the overhead by category, what it costs to carry, and the MCP
-    // servers that the session did not call.
+    // The context screen: each row of the window, what the overhead costs to carry, and the
+    // MCP servers that the session did not call.
     const contextScreen = () => {
       const nameWidth = Math.max(
         MIN_MODEL,
@@ -533,16 +540,16 @@ export const AgentPane = ({
               <Box key="ovh:cols" flexDirection="row" alignItems="center" gap={1}>
                 {quiet('head:cat', '  category', nameWidth)}
                 {head('head:tokens', 'tokens', TOKENS_WIDTH, 'right')}
-                {head('head:share', 'share(%)', SHARE_WIDTH, 'right')}
+                {head('head:share', 'window(%)', SHARE_WIDTH, 'right')}
                 {head('head:carry', 'carry($)', CARRY_WIDTH, 'right')}
               </Box>
-              {context.categories.map((r) => {
+              {context.rows.map((r) => {
                 const isOpen = open.includes(r.name)
                 // A category with no items has no mark, and its press does nothing.
                 const mark = r.items.length === 0 ? ' ' : isOpen ? '▾' : '▸'
                 const label = cut(`${mark} ${r.name}`, nameWidth)
-                const pct =
-                  context.overhead > 0 ? Math.round((r.tokens / context.overhead) * 100) : 0
+                // A part of the bar that is too dark for text, and a deferred row: dim.
+                const color = rowColor(r)
                 return (
                   <Box key={`catrow:${r.name}`} flexDirection="column">
                     <Box flexDirection="row" alignItems="center" gap={1}>
@@ -558,12 +565,20 @@ export const AgentPane = ({
                         />,
                       )}
                       {num(`catnum:tokens:${r.name}`, formatTokens(r.tokens), TOKENS_WIDTH)}
-                      {num(`catnum:share:${r.name}`, `${pct}%`, SHARE_WIDTH, {
-                        color: shareColor(pct),
-                      })}
+                      {num(
+                        `catnum:share:${r.name}`,
+                        r.share === null ? '—' : `${r.share.toFixed(1)}%`,
+                        SHARE_WIDTH,
+                        color === null ? { dim: true } : { color },
+                      )}
                       {num(
                         `catnum:carry:${r.name}`,
-                        r.carryUsd === null ? '—' : `≈${formatUsd(r.carryUsd)}`,
+                        // Only the overhead has a carry cost; `—` is a model with no price.
+                        !isOverhead(r)
+                          ? ''
+                          : r.carryUsd === null
+                            ? '—'
+                            : `≈${formatUsd(r.carryUsd)}`,
                         CARRY_WIDTH,
                       )}
                     </Box>

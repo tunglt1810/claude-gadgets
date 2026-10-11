@@ -738,7 +738,7 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'category') {
     // A category with no items has no rows to open: a click that only gave the pane the
     // focus gets here too.
-    const rows = (await read($, shownData)).context?.categories ?? []
+    const rows = (await read($, shownData)).context?.rows ?? []
     if ((rows.find((r) => r.name === action.name)?.items.length ?? 0) === 0) return
     await update($, pane, (c) => ({
       ...c,
