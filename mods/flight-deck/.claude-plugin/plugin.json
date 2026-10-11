@@ -18,5 +18,9 @@
   "license": "MIT",
   "homepage": "https://github.com/tunglt1810/claude-gadgets/tree/main/mods/flight-deck",
   "repository": "https://github.com/tunglt1810/claude-gadgets",
+  "documentationUrl": "https://github.com/tunglt1810/claude-gadgets/blob/main/mods/flight-deck/README.md",
+  "supportUrl": "https://github.com/tunglt1810/claude-gadgets/issues",
+  "privacyPolicyUrl": "https://github.com/tunglt1810/claude-gadgets/blob/main/mods/flight-deck/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/tunglt1810/claude-gadgets/blob/main/LICENSE",
   "keywords": ["mod", "tokens", "cost", "prompt-cache", "subagents", "context"]
 }
