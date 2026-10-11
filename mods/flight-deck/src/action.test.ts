@@ -53,10 +53,6 @@ test('focusAction reads the keys of the context screen', () => {
   expect(focusAction('cat:', null)).toBeNull()
 })
 
-test('focusAction reads the button that allows the messages of the pane', () => {
-  expect(focusAction('allow:a1', null)).toEqual({ kind: 'allow', agentId: 'a1' })
-})
-
 test('the cache button has the cache action', () => {
   expect(focusAction('cache', null)).toEqual({ kind: 'cache' })
 })

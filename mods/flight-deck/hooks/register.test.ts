@@ -2710,44 +2710,30 @@ test('the message button of an agent opens a field, and Enter sends its text', a
 
 const NO_VERDICT = 'The server-side auto mode classifier gave no verdict for SendMessage'
 
-test('a message that auto mode does not judge asks the person, then goes', async ($, on) => {
+test('a message that auto mode does not judge shows the rule and no allow button', async ($, on) => {
   mock.clock(on, { now: 1000 })
-  mock.store(on, {})
+  // An answer that an older version of the mod kept changes nothing.
+  mock.store(on, { allowSend: true })
   engine(on)
   paneEngine(on)
-  // The engine gives no verdict until the person answers.
-  let isAllowed = false
-  const sent = sendEngine(on, () =>
-    isAllowed ? { isDelivered: true } : { isDelivered: false, reason: NO_VERDICT },
-  )
+  const sent = sendEngine(on, () => ({ isDelivered: false, reason: NO_VERDICT }))
   await spawn($)
 
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
     if ((await ui.find({ key: 'say:a1' })) === undefined) await ui.press({ key: 'msg:a1' })
     await ui.input({ key: 'say:a1', text: `hello ${surface}` })
-    if (surface === SURFACES[0]) {
-      // The first message: the pane asks, and the text stays in the field.
-      expect((await ui.find({ key: 'allow:a1' }))?.props.label).toBe('allow messages in auto mode')
-      expect(await paneText(ui)).not.toContain('permissions.allow')
-      expect((await ui.find({ key: 'say:a1' }))?.props.value).toBe(`hello ${surface}`)
-      isAllowed = true
-      const before = sent.length
-      await ui.press({ key: 'allow:a1' })
-      // The message that waited in the field goes.
-      expect(sent).toHaveLength(before + 1)
-    }
-    expect(sent.at(-1)?.text).toBe(`hello ${surface}`)
     expect(await ui.find({ key: 'allow:a1' })).toBeUndefined()
+    expect(await paneText(ui)).toContain('not sent: add "SendMessage" to permissions.allow')
+    expect((await ui.find({ key: 'say:a1' }))?.props.value).toBe(`hello ${surface}`)
     await ui.unmount()
   }
+  expect(sent).toHaveLength(SURFACES.length)
 })
 
-// A check that the test raises has not the mod as its origin, as a call of the model or of
-// another plugin: the hook of the mod leaves the verdict, with a message of the pane on its
-// way to the same agent and the answer of the person in the store. `control.test.ts` has the
-// call of the mod.
-test('a SendMessage call that the mod did not make keeps the verdict of the engine', async ($, on) => {
+// The mod has no hook on a permission check: the verdict of the engine stays, with a message
+// of the pane on its way to the same agent and an answer of an older version in the store.
+test('a SendMessage call keeps the verdict of the engine', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, { allowSend: true })
   engine(on)
@@ -2776,7 +2762,7 @@ test('a SendMessage call that the mod did not make keeps the verdict of the engi
 
 test('a message that is not sent shows the reason and keeps its text', async ($, on) => {
   mock.clock(on, { now: 1000 })
-  mock.store(on, { allowSend: true })
+  mock.store(on, {})
   engine(on)
   paneEngine(on)
   sendEngine(on, () => ({

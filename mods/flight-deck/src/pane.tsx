@@ -21,7 +21,7 @@ import {
   overheadHead,
   rowColor,
 } from './context'
-import { ALLOW_LABEL, controlLabels, fieldLayout } from './control'
+import { controlLabels, fieldLayout } from './control'
 import { rowKey, runsText, SIDE, shareColor, sharePct } from './dashboard'
 import { detailCells } from './detail'
 import { formatDuration, formatTokens, formatUsd } from './format'
@@ -78,7 +78,6 @@ type Props = {
   onCompose: (agentId: string) => void
   onStop: (agentId: string) => void
   onDraft: (agentId: string, text: string, width: number) => void
-  onAllow: (agentId: string) => void
   onSend: (agentId: string, text: string) => void
 }
 
@@ -206,7 +205,6 @@ export const AgentPane = ({
   onCompose,
   onStop,
   onDraft,
-  onAllow,
   onSend,
 }: Props) => {
   const { Box, Text, Button, Code, Markdown } = ui
@@ -282,28 +280,9 @@ export const AgentPane = ({
     </Box>
   )
 
-  const allow = (id: string) => {
-    const button = <Button key={`allow:${id}`} label={ALLOW_LABEL} onPress={() => onAllow(id)} />
-    // A real button of the terminal: its box has room for the label and the `[ ]` around it.
-    return isClient ? (
-      button
-    ) : (
-      <Box key={`allowbox:${id}`} flexShrink={1} overflow="hidden">
-        <Box width={ALLOW_LABEL.length + BUTTON_CHROME} flexShrink={0}>
-          {button}
-        </Box>
-      </Box>
-    )
-  }
   // The reason of a message or a stop that the engine refused, below the controls of the agent.
-  // A message that auto mode did not judge has a button there: it lets the messages of the
-  // pane go.
   const controlError = (key: string, id: string) =>
-    view.controlError?.agentId !== id ? null : 'isAsk' in view.controlError ? (
-      <Box key={key} flexDirection="row" {...oneRowOnly}>
-        {allow(id)}
-      </Box>
-    ) : (
+    view.controlError?.agentId !== id ? null : (
       <Text key={key} color={PALETTE.red} wrap="truncate">
         {view.controlError.reason}
       </Text>

@@ -7,6 +7,19 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [0.10.0] - 2026-10-11
+
+Tested on Claude Code 2.1.296.
+
+#### Removed
+
+- The button `allow messages in auto mode`: the mod no longer changes a permission verdict, and the pane names the rule to add to your settings.
+
+#### Added
+
+- A README of the mod that lists the tools it calls, the data it reads and the data it sends.
+- An icon for a listing.
+
 ### [0.9.0] - 2026-10-11
 
 Tested on Claude Code 2.1.296.

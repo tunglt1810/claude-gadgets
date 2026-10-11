@@ -2,6 +2,8 @@
 
 Date: 2026-10-07. Tested on Claude Code 2.1.292.
 
+> **Changed on 2026-10-11 (0.10.0).** The mod has no `tool.check` hook, no `allow messages in auto mode` button and no `allowSend` answer. The Claude directory accepts a permission hook only when it passes the check on or answers `deny` or `ask`. When the classifier gives no verdict, the row is `not sent: add "SendMessage" to permissions.allow`. The rules below about the button, the answer and the hook do not apply.
+
 ## 1. Goal
 
 The person sends a message to a subagent from the pane, and stops a subagent from the pane. The main loop does not spend a turn to pass the message on.
