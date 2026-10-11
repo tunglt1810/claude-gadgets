@@ -201,10 +201,6 @@ export const contextView = (
     window: s.window,
     overhead,
     messages: conversation?.tokens ?? s.tokens - overhead,
-    buffer:
-      s.threshold === null
-        ? 0
-        : s.rows.filter((r) => r.kind === 'buffer').reduce((n, r) => n + r.tokens, 0),
     toCompact,
     perTurn: growth,
     turnsLeft,
@@ -223,20 +219,6 @@ export const contextView = (
 // The cells of the bar: a fixed count, so no box takes its width from the pane.
 export const BAR_CELLS = 40
 
-// How many cells of the bar each part of the window has. The used parts come first, then the
-// free room, then the room that auto-compaction keeps. An overhead has one cell at least.
-export const barCells = (
-  v: Pick<ContextView, 'tokens' | 'window' | 'overhead' | 'buffer'>,
-  width = BAR_CELLS,
-): { overhead: number; messages: number; free: number; buffer: number } => {
-  if (v.window <= 0) return { overhead: 0, messages: 0, free: width, buffer: 0 }
-  const cells = (n: number) => Math.min(width, Math.max(0, Math.round((n / v.window) * width)))
-  const overhead = v.overhead > 0 ? Math.max(1, cells(v.overhead)) : 0
-  const used = Math.max(overhead, cells(v.tokens))
-  const buffer = Math.min(width - used, cells(v.buffer))
-  return { overhead, messages: used - overhead, free: width - used - buffer, buffer }
-}
-
 export type BarSegment = { text: string; color: string }
 
 // A hex color with each channel at 55 percent: the darker shade of a tone.
@@ -251,22 +233,38 @@ export const darker = (hex: string): string =>
 
 // The bar as segments of one character, the full block: a second glyph (a shade, a lower
 // block) is from another font or has another height, and is a few pixels off beside it. So
-// only the color tells the parts: the context tone for the overhead, its darker shade for the
-// messages, the strip color for the free room and the dim color for the compact buffer.
-export const barSegments = (v: ContextView): BarSegment[] => {
-  const c = barCells(v)
-  const tone = contextColor(v)
-  const segs: BarSegment[] = [
-    { text: '█'.repeat(c.overhead), color: tone },
-    { text: '█'.repeat(c.messages), color: darker(tone) },
-    { text: '█'.repeat(c.free), color: PALETTE.strip },
-    { text: '█'.repeat(c.buffer), color: PALETTE.dim },
-  ]
-  return segs.filter((s) => s.text !== '')
+// only the color tells the parts: a color for each large category, the dim color for the rest
+// of the used rows, its darker shade for the compact buffer and the strip color for the free
+// room. A part with tokens has one cell at least, and the free room has the cells that stay.
+export const barSegments = (v: Pick<ContextView, 'rows' | 'window'>): BarSegment[] => {
+  const used = v.rows.filter((r) => r.kind === 'used')
+  const sum = (rows: { tokens: number }[]) => rows.reduce((n, r) => n + r.tokens, 0)
+  const isNamed = (r: { name: string }) => Object.hasOwn(PART_COLORS, r.name)
+  const parts =
+    v.window <= 0
+      ? []
+      : [
+          ...used
+            .filter(isNamed)
+            .map((r) => ({ tokens: r.tokens, color: PART_COLORS[r.name] ?? PALETTE.dim })),
+          { tokens: sum(used.filter((r) => !isNamed(r))), color: PALETTE.dim },
+          {
+            tokens: sum(v.rows.filter((r) => r.kind === 'buffer')),
+            color: darker(PALETTE.dim),
+          },
+        ].filter((p) => p.tokens > 0)
+  let left = BAR_CELLS
+  const segs = parts.map((p) => {
+    const n = Math.min(left, Math.max(1, Math.round((p.tokens / v.window) * BAR_CELLS)))
+    left -= n
+    return { text: '█'.repeat(n), color: p.color }
+  })
+  return [...segs, { text: '█'.repeat(left), color: PALETTE.strip }].filter((s) => s.text !== '')
 }
 
-// The row of a context length: the length, the growth of a turn and the turns before a
-// compaction. A row wider than `room` drops the turns, then the growth, then the counts.
+// The row of a context length: the length, the growth of a turn, the tokens before a
+// compaction and the turns before it. A row wider than `room` drops the turns, then the
+// growth, then the tokens before a compaction, then the counts.
 export const contextHead = (v: ContextView, room: number): Cell[] => {
   const ctx = (isFull: boolean): Cell => ({
     text: '',
@@ -275,11 +273,13 @@ export const contextHead = (v: ContextView, room: number): Cell[] => {
   })
   const growth: Cell[] =
     v.perTurn === null ? [] : [{ text: `+${formatTokens(v.perTurn)}/turn`, dim: true }]
-  const left: Cell[] =
-    v.turnsLeft === null ? [] : [{ text: `≈${v.turnsLeft} turns to compact`, dim: true }]
+  const toCompact: Cell[] =
+    v.toCompact === null ? [] : [{ text: `${formatTokens(v.toCompact)} to compact`, dim: true }]
+  const turns: Cell[] = v.turnsLeft === null ? [] : [{ text: `≈${v.turnsLeft} turns`, dim: true }]
   const rows = [
-    dotted([ctx(true), ...growth, ...left]),
-    dotted([ctx(true), ...growth]),
+    dotted([ctx(true), ...growth, ...toCompact, ...turns]),
+    dotted([ctx(true), ...growth, ...toCompact]),
+    dotted([ctx(true), ...toCompact]),
     [ctx(true)],
   ]
   return rows.find((cells) => rowWidth(cells) <= room) ?? [ctx(false)]

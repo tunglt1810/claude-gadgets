@@ -295,9 +295,8 @@ export type ContextState = {
 }
 
 // What the pane draws of a context. `overhead` is the used rows without the conversation,
-// `messages` the conversation, `buffer` the room that auto-compaction keeps. `share` is the
-// part of the window that a row has, as a percentage with one decimal; null for a deferred
-// row. `carryUsd` is the estimated cost of reading tokens from the cache at each of `steps`
+// `messages` the conversation. `share` is the part of the window that a row has, as a
+// percentage with one decimal; null for a deferred row. `carryUsd` is the estimated cost of reading tokens from the cache at each of `steps`
 // steps; null for a model with no price and for a row that is no overhead. `toCompact` is the
 // tokens before auto-compaction starts, null when it is off.
 export type ContextView = {
@@ -306,7 +305,6 @@ export type ContextView = {
   window: number
   overhead: number
   messages: number
-  buffer: number
   toCompact: number | null
   perTurn: number | null
   turnsLeft: number | null

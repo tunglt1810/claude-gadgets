@@ -2,7 +2,6 @@ import { expect, test } from 'claude-code/testing'
 import type { ContextState } from '../types'
 import { cellText } from './cell'
 import {
-  barCells,
   barSegments,
   contextHead,
   contextSummary,
@@ -269,43 +268,43 @@ test('contextView lists the servers that the session did not call', () => {
   expect(called.deadWeight).toBe(1800)
 })
 
-test('barCells shares 40 cells between the parts of the window', () => {
-  expect(barCells(view())).toEqual({ overhead: 6, messages: 11, free: 16, buffer: 7 })
-  // A small overhead has one cell at least.
-  expect(barCells({ tokens: 100, window: 200000, overhead: 100, buffer: 0 })).toEqual({
-    overhead: 1,
-    messages: 0,
-    free: 39,
-    buffer: 0,
-  })
-  // More tokens than the window: the bar is full and has no negative part.
-  expect(barCells({ tokens: 250000, window: 200000, overhead: 31400, buffer: 33000 })).toEqual({
-    overhead: 6,
-    messages: 34,
-    free: 0,
-    buffer: 0,
-  })
-  expect(barCells({ tokens: 0, window: 0, overhead: 0, buffer: 0 })).toEqual({
-    overhead: 0,
-    messages: 0,
-    free: 40,
-    buffer: 0,
-  })
-})
+const cellsOf = (v: Parameters<typeof barSegments>[0]) =>
+  barSegments(v).map((s) => [s.text.length, s.color])
 
-test('barSegments draws one character for each cell and tells the parts by color', () => {
+test('barSegments gives each large category its color, then the buffer and the free room', () => {
   const segs = barSegments(view())
   // One glyph for the whole bar: no part is a pixel off from the part beside it.
-  expect(segs.map((s) => s.text)).toEqual([
-    '█'.repeat(6),
-    '█'.repeat(11),
-    '█'.repeat(16),
-    '█'.repeat(7),
+  expect(segs.every((s) => /^█+$/.test(s.text))).toBe(true)
+  expect(cellsOf(view())).toEqual([
+    [11, PALETTE.cyan], // Messages 52.8k
+    [3, PALETTE.green], // MCP tools 14.2k
+    [2, PALETTE.orange], // System tools 8.1k
+    [1, PALETTE.yellow], // Skills 1.9k: one cell at least
+    [1, PALETTE.dim], // Memory files and System prompt, 7.2k
+    [7, '#3f3e3f'], // the compact buffer, 33k: the darker shade of dim
+    [15, PALETTE.strip],
   ])
-  // 42 percent: the `ok` tone, and a darker green for the messages.
-  expect(segs.map((s) => s.color)).toEqual([PALETTE.green, '#5d7941', PALETTE.strip, PALETTE.dim])
-  const hot = barSegments(view({ sample: { ...SAMPLE, tokens: 170000 } }))
-  expect(hot.slice(0, 2).map((s) => s.color)).toEqual([PALETTE.red, '#8c354b'])
+})
+
+test('barSegments has 40 cells for a full window, an empty window and a window of 0', () => {
+  const total = (v: Parameters<typeof barSegments>[0]) =>
+    barSegments(v).reduce((n, s) => n + s.text.length, 0)
+  // More tokens than the window: the parts stop at 40 cells and the free room has none.
+  const over = view({ sample: { ...SAMPLE, window: 50000 } })
+  expect(total(over)).toBe(40)
+  expect(barSegments(over).every((s) => s.color !== PALETTE.strip)).toBe(true)
+  expect(cellsOf({ rows: [], window: 200000 })).toEqual([[40, PALETTE.strip]])
+  expect(cellsOf({ rows: view().rows, window: 0 })).toEqual([[40, PALETTE.strip]])
+})
+
+test('barSegments puts a row of an unknown name in the dim part', () => {
+  const rows = [{ name: 'constructor', tokens: 50000, kind: 'used' as const, items: [] }].map(
+    (r) => ({ ...r, share: 25, carryUsd: null }),
+  )
+  expect(cellsOf({ rows, window: 200000 })).toEqual([
+    [10, PALETTE.dim],
+    [30, PALETTE.strip],
+  ])
 })
 
 test('darker scales each channel of a hex color', () => {
@@ -313,20 +312,34 @@ test('darker scales each channel of a hex color', () => {
   expect(darker('#000000')).toBe('#000000')
 })
 
-test('contextHead drops parts until the row fits', () => {
+test('contextHead drops the turns, the growth and the room to compact until the row fits', () => {
   const v = view({ base: 74900, turns: 3 })
   expect(texts(contextHead(v, 80))).toEqual([
     'ctx 84.2k/200k 42%',
     '·',
     '+3.1k/turn',
     '·',
-    '≈26 turns to compact',
+    '82.8k to compact',
+    '·',
+    '≈26 turns',
   ])
-  expect(texts(contextHead(v, 40))).toEqual(['ctx 84.2k/200k 42%', '·', '+3.1k/turn'])
+  expect(texts(contextHead(v, 55))).toEqual([
+    'ctx 84.2k/200k 42%',
+    '·',
+    '+3.1k/turn',
+    '·',
+    '82.8k to compact',
+  ])
+  expect(texts(contextHead(v, 40))).toEqual(['ctx 84.2k/200k 42%', '·', '82.8k to compact'])
   expect(texts(contextHead(v, 20))).toEqual(['ctx 84.2k/200k 42%'])
   expect(texts(contextHead(v, 10))).toEqual(['ctx 42%'])
   expect(texts(contextHead(v, -5))).toEqual(['ctx 42%'])
   expect(contextHead(v, 80)[0]?.color).toBe(PALETTE.green)
+})
+
+test('contextHead has no room to compact and no turns with auto-compaction off', () => {
+  const v = view({ base: 74900, turns: 3, sample: { ...SAMPLE, threshold: null } })
+  expect(texts(contextHead(v, 80))).toEqual(['ctx 84.2k/200k 42%', '·', '+3.1k/turn'])
 })
 
 test('contextSummary shows the dead weight only when there is one', () => {
