@@ -15,6 +15,7 @@
 - Work on the branch `feat/flight-deck-0.9.0`. Do not push.
 - TDD: write the test, run it, see it fail, then write the code.
 - `bun run check` must be green at the end of each task.
+- Run `bun run fix` before `bun run check`: Biome wraps a line at 100 columns, and a snippet of this plan can be longer.
 - Run the tests of the mod with `claude plugin test mods/flight-deck`.
 - Docs, comments, identifiers, commit messages and drawn text are English.
 - Draw a color from `PALETTE` only. Write no hex value in another file.
