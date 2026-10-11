@@ -167,7 +167,7 @@ figma-mcp-go                                    62    9.8k
 ```
 
 - The table has each row of the sample, in the order of section 5.
-- `window(%)` replaces `share(%)`. It is the share of the row in the window. Its color is the color of the part of the bar that holds the row. A row of kind `deferred` shows `—`, dim.
+- `window(%)` replaces `share(%)`. It is the share of the row in the window. For a row of kind `used`, its color is the color of the part of the bar that holds the row. For the compact buffer and the free room, the cell is dim: the colors of those parts are too dark for text. A row of kind `deferred` shows `—`, dim.
 - `carry($)` has a value for an overhead row only. Each other row has an empty cell. `—` stays the text for a model with no price.
 - A row with items is a Button with the mark `▸` or `▾`, as before. An item of `MCP tools (deferred)` shows the server and the number of its deferred tools.
 - The `overhead` headline and the dead weight section do not change.
