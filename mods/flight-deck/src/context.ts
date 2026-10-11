@@ -1,6 +1,8 @@
 import type {
   Cell,
   ContextGroup,
+  ContextKind,
+  ContextRow,
   ContextSample,
   ContextState,
   ContextView,
@@ -17,6 +19,30 @@ import { contextColor } from './window'
 // from the overhead.
 const MESSAGES = 'Messages'
 
+// The color of each row that has its own part of the bar. Each other used row is in one part.
+export const PART_COLORS: Record<string, string> = {
+  [MESSAGES]: PALETTE.cyan,
+  'System tools': PALETTE.orange,
+  'MCP tools': PALETTE.green,
+  Skills: PALETTE.yellow,
+}
+
+// The order of the kinds on the screen.
+const KINDS: ContextKind[] = ['used', 'buffer', 'free', 'deferred']
+
+// A row of the overhead: content of the window that is not the conversation.
+export const isOverhead = (r: Pick<ContextRow, 'name' | 'kind'>): boolean =>
+  r.kind === 'used' && r.name !== MESSAGES
+
+// The color of the part of the bar that holds a used row; null for a row of another kind,
+// whose part is too dark for text.
+export const rowColor = (r: Pick<ContextRow, 'name' | 'kind'>): string | null =>
+  r.kind !== 'used'
+    ? null
+    : Object.hasOwn(PART_COLORS, r.name)
+      ? (PART_COLORS[r.name] ?? PALETTE.dim)
+      : PALETTE.dim
+
 // The part of `$.session.usage({ breakdown })`'s context that a sample reads. A list can be
 // absent: a summary breakdown, or an engine of another version.
 export type UsageContext = {
@@ -25,6 +51,8 @@ export type UsageContext = {
   breakdown?: {
     categories: { name: string; tokens: number; kind: string }[]
     totalTokens: number
+    // The window that the engine measures against: the compaction window.
+    rawMaxTokens?: number
     mcpTools?: { name: string; serverName: string; tokens: number; isLoaded: boolean }[]
     memoryFiles?: { path: string; type: string; tokens: number }[]
     agents?: { agentType: string; tokens: number }[]
@@ -43,24 +71,36 @@ const memoryName = (f: { path: string; type: string }): string =>
   `${f.type}/${f.path.slice(f.path.lastIndexOf('/') + 1)}`
 
 // What the mod keeps of a usage reply, or null for a reply with no breakdown or no window.
-// The items of a category go by the category's name: a category of another name has none.
+// The items of a row go by the row's name: a row of another name has none.
 export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSample | null => {
   const b = c.breakdown
-  if (b === undefined || c.window === undefined || c.window <= 0) return null
+  if (b === undefined) return null
+  // The engine measures the context against the compaction window.
+  const window = b.rawMaxTokens !== undefined && b.rawMaxTokens > 0 ? b.rawMaxTokens : c.window
+  if (window === undefined || window <= 0) return null
+  type Tool = NonNullable<typeof b.mcpTools>[number]
+  const serversOf = (tools: Tool[]) =>
+    byTokens(
+      [...new Set(tools.map((t) => t.serverName))].map((name) => {
+        const own = tools.filter((t) => t.serverName === name)
+        return {
+          name,
+          tokens: own.reduce((n, t) => n + t.tokens, 0),
+          tools: own.map((t) => t.name),
+        }
+      }),
+    )
+  const group = (s: { name: string; tokens: number; tools: string[] }): ContextGroup => ({
+    name: s.name,
+    tokens: s.tokens,
+    count: s.tools.length,
+  })
+  const tools = b.mcpTools ?? []
   // A tool that loads on demand is not in the window.
-  const loaded = (b.mcpTools ?? []).filter((t) => t.isLoaded)
-  const servers = byTokens(
-    [...new Set(loaded.map((t) => t.serverName))].map((name) => {
-      const tools = loaded.filter((t) => t.serverName === name)
-      return {
-        name,
-        tokens: tools.reduce((n, t) => n + t.tokens, 0),
-        tools: tools.map((t) => t.name),
-      }
-    }),
-  )
+  const servers = serversOf(tools.filter((t) => t.isLoaded))
   const items: Record<string, ContextGroup[]> = {
-    'MCP tools': servers.map((s) => ({ name: s.name, tokens: s.tokens, count: s.tools.length })),
+    'MCP tools': servers.map(group),
+    'MCP tools (deferred)': serversOf(tools.filter((t) => !t.isLoaded)).map(group),
     'Memory files': byTokens(
       (b.memoryFiles ?? []).map((f) => ({ name: memoryName(f), tokens: f.tokens })),
     ),
@@ -75,22 +115,22 @@ export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSa
     detail,
     tokens: c.tokens ?? b.totalTokens,
     isEstimate: c.tokens === undefined,
-    window: c.window,
-    // The threshold is measured in the compaction window, which can be smaller than the
-    // window of the model: the buffer is the row of the breakdown, not their difference.
-    buffer: b.categories.filter((r) => r.kind === 'buffer').reduce((n, r) => n + r.tokens, 0),
+    window,
     threshold:
       b.isAutoCompactEnabled && b.autoCompactThreshold !== undefined
         ? b.autoCompactThreshold
         : null,
-    categories: byTokens(
-      b.categories
-        .filter((r) => r.kind === 'used' && r.name !== MESSAGES)
-        .map((r) => ({
-          name: r.name,
-          tokens: r.tokens,
-          items: Object.hasOwn(items, r.name) ? (items[r.name] ?? []) : [],
-        })),
+    rows: KINDS.flatMap((kind) =>
+      byTokens(
+        b.categories
+          .filter((r) => r.kind === kind)
+          .map((r) => ({
+            name: r.name,
+            tokens: r.tokens,
+            kind,
+            items: Object.hasOwn(items, r.name) ? (items[r.name] ?? []) : [],
+          })),
+      ),
     ),
     servers,
   }
@@ -131,21 +171,21 @@ export const contextView = (
   snap: Pick<Snapshot, 'steps' | 'mcpCalls' | 'mainModel'>,
 ): ContextView | null => {
   const s = state.sample
-  if (s === null) return null
+  // A sample of an older shape (a hot reload) has no rows: the next turn end gives a new one.
+  if (s === null || !Array.isArray(s.rows)) return null
   const overhead = Math.min(
     s.tokens,
-    s.categories.reduce((n, r) => n + r.tokens, 0),
+    s.rows.filter(isOverhead).reduce((n, r) => n + r.tokens, 0),
   )
+  const conversation = s.rows.find((r) => r.kind === 'used' && r.name === MESSAGES)
   const perTurn =
     state.base === null || state.turns === 0
       ? null
       : Math.round((s.tokens - state.base) / state.turns)
   // A context that is shorter than its base has no growth to show.
   const growth = perTurn !== null && perTurn > 0 ? perTurn : null
-  const turnsLeft =
-    growth === null || s.threshold === null
-      ? null
-      : Math.max(0, Math.floor((s.threshold - s.tokens) / growth))
+  const toCompact = s.threshold === null ? null : Math.max(0, s.threshold - s.tokens)
+  const turnsLeft = growth === null || toCompact === null ? null : Math.floor(toCompact / growth)
   const price = snap.mainModel === undefined ? null : readPrice(snap.mainModel, s.tokens)
   // A session of an older version has no record of its steps and its calls: a carry cost from
   // it is too small, and no server is known as unused.
@@ -160,14 +200,17 @@ export const contextView = (
     tokens: s.tokens,
     window: s.window,
     overhead,
-    messages: s.tokens - overhead,
-    // A sample of an older shape (a hot reload) has no buffer.
-    buffer: s.threshold === null ? 0 : (s.buffer ?? 0),
+    messages: conversation?.tokens ?? s.tokens - overhead,
+    toCompact,
     perTurn: growth,
     turnsLeft,
     steps: snap.steps,
     carryUsd: carry(overhead),
-    categories: s.categories.map((r) => ({ ...r, carryUsd: carry(r.tokens) })),
+    rows: s.rows.map((r) => ({
+      ...r,
+      share: r.kind === 'deferred' ? null : Math.round((r.tokens / s.window) * 1000) / 10,
+      carryUsd: isOverhead(r) ? carry(r.tokens) : null,
+    })),
     unused,
     deadWeight: unused.reduce((n, v) => n + v.tokens, 0),
   }
@@ -175,20 +218,6 @@ export const contextView = (
 
 // The cells of the bar: a fixed count, so no box takes its width from the pane.
 export const BAR_CELLS = 40
-
-// How many cells of the bar each part of the window has. The used parts come first, then the
-// free room, then the room that auto-compaction keeps. An overhead has one cell at least.
-export const barCells = (
-  v: Pick<ContextView, 'tokens' | 'window' | 'overhead' | 'buffer'>,
-  width = BAR_CELLS,
-): { overhead: number; messages: number; free: number; buffer: number } => {
-  if (v.window <= 0) return { overhead: 0, messages: 0, free: width, buffer: 0 }
-  const cells = (n: number) => Math.min(width, Math.max(0, Math.round((n / v.window) * width)))
-  const overhead = v.overhead > 0 ? Math.max(1, cells(v.overhead)) : 0
-  const used = Math.max(overhead, cells(v.tokens))
-  const buffer = Math.min(width - used, cells(v.buffer))
-  return { overhead, messages: used - overhead, free: width - used - buffer, buffer }
-}
 
 export type BarSegment = { text: string; color: string }
 
@@ -204,22 +233,38 @@ export const darker = (hex: string): string =>
 
 // The bar as segments of one character, the full block: a second glyph (a shade, a lower
 // block) is from another font or has another height, and is a few pixels off beside it. So
-// only the color tells the parts: the context tone for the overhead, its darker shade for the
-// messages, the strip color for the free room and the dim color for the compact buffer.
-export const barSegments = (v: ContextView): BarSegment[] => {
-  const c = barCells(v)
-  const tone = contextColor(v)
-  const segs: BarSegment[] = [
-    { text: '█'.repeat(c.overhead), color: tone },
-    { text: '█'.repeat(c.messages), color: darker(tone) },
-    { text: '█'.repeat(c.free), color: PALETTE.strip },
-    { text: '█'.repeat(c.buffer), color: PALETTE.dim },
-  ]
-  return segs.filter((s) => s.text !== '')
+// only the color tells the parts: a color for each large category, the dim color for the rest
+// of the used rows, its darker shade for the compact buffer and the strip color for the free
+// room. A part with tokens has one cell at least, and the free room has the cells that stay.
+export const barSegments = (v: Pick<ContextView, 'rows' | 'window'>): BarSegment[] => {
+  const used = v.rows.filter((r) => r.kind === 'used')
+  const sum = (rows: { tokens: number }[]) => rows.reduce((n, r) => n + r.tokens, 0)
+  const isNamed = (r: { name: string }) => Object.hasOwn(PART_COLORS, r.name)
+  const parts =
+    v.window <= 0
+      ? []
+      : [
+          ...used
+            .filter(isNamed)
+            .map((r) => ({ tokens: r.tokens, color: PART_COLORS[r.name] ?? PALETTE.dim })),
+          { tokens: sum(used.filter((r) => !isNamed(r))), color: PALETTE.dim },
+          {
+            tokens: sum(v.rows.filter((r) => r.kind === 'buffer')),
+            color: darker(PALETTE.dim),
+          },
+        ].filter((p) => p.tokens > 0)
+  let left = BAR_CELLS
+  const segs = parts.map((p) => {
+    const n = Math.min(left, Math.max(1, Math.round((p.tokens / v.window) * BAR_CELLS)))
+    left -= n
+    return { text: '█'.repeat(n), color: p.color }
+  })
+  return [...segs, { text: '█'.repeat(left), color: PALETTE.strip }].filter((s) => s.text !== '')
 }
 
-// The row of a context length: the length, the growth of a turn and the turns before a
-// compaction. A row wider than `room` drops the turns, then the growth, then the counts.
+// The row of a context length: the length, the growth of a turn, the tokens before a
+// compaction and the turns before it. A row wider than `room` drops the turns, then the
+// growth, then the tokens before a compaction, then the counts.
 export const contextHead = (v: ContextView, room: number): Cell[] => {
   const ctx = (isFull: boolean): Cell => ({
     text: '',
@@ -228,11 +273,13 @@ export const contextHead = (v: ContextView, room: number): Cell[] => {
   })
   const growth: Cell[] =
     v.perTurn === null ? [] : [{ text: `+${formatTokens(v.perTurn)}/turn`, dim: true }]
-  const left: Cell[] =
-    v.turnsLeft === null ? [] : [{ text: `≈${v.turnsLeft} turns to compact`, dim: true }]
+  const toCompact: Cell[] =
+    v.toCompact === null ? [] : [{ text: `${formatTokens(v.toCompact)} to compact`, dim: true }]
+  const turns: Cell[] = v.turnsLeft === null ? [] : [{ text: `≈${v.turnsLeft} turns`, dim: true }]
   const rows = [
-    dotted([ctx(true), ...growth, ...left]),
-    dotted([ctx(true), ...growth]),
+    dotted([ctx(true), ...growth, ...toCompact, ...turns]),
+    dotted([ctx(true), ...growth, ...toCompact]),
+    dotted([ctx(true), ...toCompact]),
     [ctx(true)],
   ]
   return rows.find((cells) => rowWidth(cells) <= room) ?? [ctx(false)]

@@ -77,17 +77,21 @@ Limits:
 
 The pane shows what fills the context window of the main loop.
 
-- Below the dashboard, a block shows the context length (`ctx 84.2k/200k 42%`), a bar and three totals. The bar shows the overhead in the color of the context length, the messages in a darker shade of that color, then the free room and the room that auto-compaction keeps in two greys.
+- Below the dashboard, a block shows the context length (`ctx 226.9k/400k 57%`), a bar and three totals.
+- The window is the compaction window: the count that you set with `/autocompact`, or the window of the model. Thus the numbers agree with the context window of Claude Desktop.
+- The bar shows the messages, the system tools, the MCP tools and the skills each in a color, the rest of the content in grey, then the room that auto-compaction keeps and the free room.
+- The first row also shows the growth of a turn, the tokens before auto-compaction (`140.1k to compact`) and the turns before it.
 - The overhead is the content that each request carries before the conversation: the system prompt, the tools, the memory files and the skills.
-- Press `context` to see the overhead by category. Press a category with a `▸` mark to see its MCP servers, its memory files or its skills.
-- `carry($)` is an estimate of what the overhead cost in this session: its tokens, multiplied by the steps of the main loop and by the cache read price.
+- Press `context` to see each row of the window with its share (`window(%)`). Press a row with a `▸` mark to see its MCP servers, its memory files or its skills.
+- `carry($)` is an estimate of what an overhead row cost in this session: its tokens, multiplied by the steps of the main loop and by the cache read price.
 - `dead weight` lists the MCP servers that have loaded tools and that the session did not call.
 - The screen opens with a full count, which sends one token-count request for each tool and each memory file. Press `recount` to count again.
 
 Limits:
 
 - The numbers are for the main loop. The engine gives no breakdown of the context of a subagent.
-- A tool that loads on demand is not in the window, and thus not in the overhead.
+- A tool that loads on demand is not in the window. Its row (`deferred`) has no share.
+- The context length of a subagent uses the window of its model.
 
 ## Cache screen
 
