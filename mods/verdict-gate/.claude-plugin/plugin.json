@@ -5,5 +5,8 @@
   "author": {
     "name": "bez"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/tunglt1810/claude-gadgets/tree/main/mods/verdict-gate",
+  "repository": "https://github.com/tunglt1810/claude-gadgets",
+  "keywords": ["mod", "auto-mode", "permissions", "classifier"]
 }
