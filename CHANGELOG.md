@@ -7,6 +7,22 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [0.9.0] - 2026-10-11
+
+Tested on Claude Code 2.1.296.
+
+#### Changed
+
+- The context length of the main loop uses the compaction window (`/autocompact`), as the context window of Claude Desktop does.
+- The context screen shows each row of the window: the messages, the overhead, the compact buffer, the free room and the deferred tools.
+- The share of a row is its share of the window (`window(%)`).
+- The bar shows the messages, the system tools, the MCP tools and the skills each in a color.
+- The first row of the context shows the tokens before auto-compaction.
+
+#### Removed
+
+- The note about the cache read price of Sonnet 5.5: Claude Code 2.1.296 counts it at the listed price.
+
 ### [0.8.1] - 2026-10-09
 
 #### Fixed

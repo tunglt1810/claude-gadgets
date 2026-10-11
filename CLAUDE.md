@@ -4,7 +4,7 @@ Mods (hot-reloadable function-hook plugins) for Claude Code. One self-contained 
 
 ## Compatibility
 
-- Built and tested against **Claude Code 2.1.295** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.295.`
+- Built and tested against **Claude Code 2.1.296** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.296.`
 - Bun 1.4.2 (not pinned in the repo).
 - The plugin API may change between Claude Code releases without notice. After an update: let the engine rewrite `mods/<name>/.claude-plugin/types/` (load the mod once), run `bun run check`, then update the version on this line.
 - Claude Desktop runs its own Claude Code (`~/Library/Application Support/Claude/claude-code/<version>/`), which is older than the CLI for some days after a release. An engine refuses the whole tree of a pane that has one element or prop it does not know, and the pane is then empty.

@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `24c1f40`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `dda3edb`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -56,17 +56,21 @@ Giới hạn:
 
 Pane hiển thị những gì đang chiếm context window của vòng lặp chính.
 
-- Bên dưới dashboard, một khối hiển thị độ dài context (`ctx 84.2k/200k 42%`), một thanh và ba tổng số. Thanh hiển thị overhead bằng màu của độ dài context, messages bằng sắc đậm hơn của màu đó, rồi phần còn trống và phần mà auto-compaction giữ lại bằng hai màu xám.
+- Bên dưới dashboard, một khối hiển thị độ dài context (`ctx 226.9k/400k 57%`), một thanh và ba tổng số.
+- Window là compaction window: con số bạn đặt bằng `/autocompact`, hoặc window của model. Nhờ vậy các con số khớp với context window của Claude Desktop.
+- Thanh hiển thị messages, system tools, MCP tools và skills, mỗi phần một màu. Phần nội dung còn lại có màu xám. Sau đó là phần mà auto-compaction giữ lại và phần còn trống.
+- Hàng đầu cũng hiển thị mức tăng của mỗi turn, số token còn lại trước auto-compaction (`140.1k to compact`) và số turn trước lúc đó.
 - Overhead là nội dung mà mỗi request mang theo trước cuộc hội thoại: system prompt, các tool, các file memory và các skill.
-- Bấm `context` để xem overhead theo từng category. Bấm vào một category có dấu `▸` để xem các MCP server, các file memory hoặc các skill của nó.
-- `carry($)` là ước lượng chi phí của overhead trong session này: số token của nó, nhân với số step của vòng lặp chính và với giá cache read.
+- Bấm `context` để xem từng hàng của window cùng tỉ lệ của nó (`window(%)`). Bấm vào một hàng có dấu `▸` để xem các MCP server, các file memory hoặc các skill của nó.
+- `carry($)` là ước lượng chi phí của một hàng overhead trong session này: số token của nó, nhân với số step của vòng lặp chính và với giá cache read.
 - `dead weight` liệt kê các MCP server có tool đã nạp mà session chưa gọi.
 - Màn hình mở ra với một lần đếm đầy đủ. Lần đếm này gửi một request token-count cho mỗi tool và mỗi file memory. Bấm `recount` để đếm lại.
 
 Giới hạn:
 
 - Các con số là của vòng lặp chính. Engine không cho breakdown context của một subagent.
-- Một tool nạp theo yêu cầu thì không nằm trong window, nên không nằm trong overhead.
+- Một tool nạp theo yêu cầu thì không nằm trong window. Hàng của nó (`deferred`) không có tỉ lệ.
+- Độ dài context của một subagent dùng window của model của nó.
 
 ## Màn hình cache
 
