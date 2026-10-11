@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { costOf, engineGap, priceNote, readPrice, rewriteCost } from './price'
+import { costOf, readPrice, rewriteCost } from './price'
 
 // Dollars rounded to a millionth: float sums are not exact.
 const usd = (n: number | null): number => Math.round((n ?? Number.NaN) * 1e6) / 1e6
@@ -65,27 +65,9 @@ test('costOf prices one request with a long prompt at the long rate of its model
   expect(usd(costOf('claude-opus-5-5', MTOK, '5m', true))).toBe(4)
 })
 
-test('priceNote names a price that the engine counts at another rate', () => {
-  expect(priceNote('claude-sonnet-5-5')).toBe('cache read $0.10/MTok, engine $0.20')
-  expect(priceNote('claude-sonnet-5-5-20260901')).toBe(priceNote('claude-sonnet-5-5'))
-  // The engine counts these at the listed price.
-  expect(priceNote('claude-opus-5-5')).toBeNull()
-  expect(priceNote('claude-sonnet-5')).toBeNull()
-  expect(priceNote('m')).toBeNull()
-})
-
-test('engineGap is the cost that the engine counts over the listed price', () => {
-  const t = { input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite: 1e6 }
-  // Sonnet 5.5: the engine counts a cache read at $0.20, and the list has $0.10.
-  expect(usd(engineGap('claude-sonnet-5-5', t))).toBe(0.1)
-  expect(engineGap('claude-opus-5-5', t)).toBe(0)
-  expect(engineGap('m', t)).toBe(0)
-})
-
 test('a [1m] suffix does not change the price of a model', () => {
   expect(usd(costOf('claude-haiku-5-5[1m]', MTOK))).toBe(0.1)
   expect(readPrice('claude-sonnet-5-5[1M]')).toBe(0.1)
-  expect(priceNote('claude-sonnet-5-5[1m]')).toBe(priceNote('claude-sonnet-5-5'))
   // Opus 5.5 is not priced as Opus 5.
   expect(usd(costOf('claude-opus-5-5[1m]', MTOK))).toBe(4)
 })

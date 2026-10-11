@@ -164,3 +164,7 @@ test('parseSnapshot keeps the cache break fields, and a record without them has 
     parseSnapshot({ lastPrompt: { ...last, cause: 'nonsense' } }).lastPrompt?.cause,
   ).toBeUndefined()
 })
+
+test('parseSnapshot drops the engine gap of a 0.8.1 snapshot', () => {
+  expect(Object.hasOwn(parseSnapshot({ engineGap: 0.25 }), 'engineGap')).toBe(false)
+})

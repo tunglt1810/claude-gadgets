@@ -407,14 +407,6 @@ export const AgentPane = ({
                   align: 'right',
                 })}
               </Box>,
-              // A warning has the row below its model, in the warning tone.
-              ...(r.note === undefined
-                ? []
-                : [
-                    <Box key={`dash:noterow:${r.model}`} flexDirection="row">
-                      {rest(`dash:note:${r.model}`, r.note, columns, { color: PALETTE.yellow })}
-                    </Box>,
-                  ]),
             ]
           })}
           {rule('dash:rule')}

@@ -1,5 +1,4 @@
 import type { Totals } from '../types'
-import { formatUsd } from './format'
 import type { Ttl } from './ttl'
 
 // First-party API prices in US dollars per million tokens, as Anthropic lists them
@@ -39,25 +38,8 @@ import type { Ttl } from './ttl'
 //
 // The cache prices of the long rate keep the multipliers of the base rate (1.25 x, 2 x and
 // 0.1 x its input), so a long rate names only its input and its output.
-//
-// `engineRead` is the cache read price that the engine counts where it is not the listed one:
-// the session total of the engine then differs from the costs of this table. Sonnet 5.5, as
-// collected on 2026-10-08:
-//
-// 1. Anthropic's price page, the "Model pricing" table and its second note:
-//
-//      | Claude Sonnet 5.5 | $2 / MTok | $2.50 / MTok | $4 / MTok | $0.10 / MTok (2) | $10 / MTok |
-//
-//      "2 Cache hits and refreshes on Claude Opus 5.5 and Claude Sonnet 5.5 are priced at
-//      0.05x the base input price."
-//
-// 2. The Claude Code 2.1.293 binary: the catalog row of `claude-sonnet-5-5` has
-//    `pricing:"tier_2_10"`, the row of Sonnet 5, and the price table has (minified, as written):
-//
-//      tier_2_10:{input:2,output:10,cache_write_5m:2.5,cache_write_1h:4,cache_read:0.2,
-//        web_search:0.01}
 type Rate = { input: number; output: number; read?: number }
-const PRICES: Record<string, Rate & { long?: Rate & { above: number }; engineRead?: number }> = {
+const PRICES: Record<string, Rate & { long?: Rate & { above: number } }> = {
   'claude-fable-5-1': { input: 10, output: 50, read: 0.25 },
   'claude-mythos-5-1': { input: 10, output: 50, read: 0.25 },
   'claude-fable-5': { input: 10, output: 50 },
@@ -67,7 +49,7 @@ const PRICES: Record<string, Rate & { long?: Rate & { above: number }; engineRea
   'claude-opus-4-8': { input: 5, output: 25 },
   'claude-opus-4-7': { input: 5, output: 25 },
   'claude-opus-4-6': { input: 5, output: 25 },
-  'claude-sonnet-5-5': { input: 2, output: 10, read: 0.1, engineRead: 0.2 },
+  'claude-sonnet-5-5': { input: 2, output: 10, read: 0.1 },
   'claude-sonnet-5': { input: 2, output: 10 },
   'claude-sonnet-4-6': { input: 3, output: 15 },
   'claude-haiku-5-5': {
@@ -107,13 +89,6 @@ export const readPrice = (model: string, prompt = 0): number | null => {
   return p === undefined ? null : readOf(rateOf(p, prompt))
 }
 
-// The cost that the engine counts over the listed price for a model's tokens: the session
-// total of the engine holds it, and no model row does.
-export const engineGap = (model: string, t: Totals): number => {
-  const p = priceOf(model)
-  return p?.engineRead === undefined ? 0 : (t.cacheRead * (p.engineRead - readOf(p))) / 1e6
-}
-
 // What a cache break costs for `tokens` tokens of one request: their cost as cache writes
 // less their cost as cache reads, or null for a model with no price. `prompt` is the tokens
 // of the prompt of the request: it selects the long rate of the model.
@@ -127,14 +102,6 @@ export const rewriteCost = (
   if (base === undefined) return null
   const p = rateOf(base, prompt)
   return (tokens * (writeOf(p, ttl) - readOf(p))) / 1e6
-}
-
-// What the dashboard says below the row of a model whose cache read price the engine counts
-// at another rate, or null where the two prices agree.
-export const priceNote = (model: string): string | null => {
-  const p = priceOf(model)
-  if (p?.engineRead === undefined || p.engineRead === readOf(p)) return null
-  return `cache read $${formatUsd(readOf(p))}/MTok, engine $${formatUsd(p.engineRead)}`
 }
 
 // The estimated cost of a model's tokens, or null for a model with no price. `isOneRequest`

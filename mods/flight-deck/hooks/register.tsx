@@ -20,7 +20,7 @@ import { linesChanged } from '../src/diff'
 import { holdsText } from '../src/engine'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
-import { costOf, engineGap } from '../src/price'
+import { costOf } from '../src/price'
 import {
   agentsKey,
   agentTitle,
@@ -203,7 +203,6 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     byModel: s.byModel,
     costByModel: s.costByModel,
     advisor: s.advisor,
-    engineGap: s.engineGap ?? 0,
     steps: s.steps,
     mcpCalls: s.mcpCalls,
     ...(s.lastPrompt === undefined ? {} : { lastPrompt: s.lastPrompt }),
@@ -987,7 +986,6 @@ export const register: Register = (on, options) => {
                     0) + stepCost,
               },
         advisor: advised(c.advisor, res.serverToolUses ?? [], advisorModel),
-        engineGap: (c.engineGap ?? 0) + engineGap(e.model, stepTotals),
         ...(isMain && usage !== null
           ? (() => {
               const listed =
