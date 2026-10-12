@@ -32,9 +32,6 @@ export type Snapshot = {
   byModel: Record<string, Totals>
   // The cost of those tokens priced at each step, by the cache lifetime of its loop.
   costByModel: Record<string, number>
-  // The cost that the engine counts over the listed price of those steps: the session total
-  // holds it, and it is no side request. Absent in a record of an older version.
-  engineGap?: number
   // The advisor calls the API ran inside the steps: how many, their time, and the model the
   // settings name. A step's usage leaves their tokens out, so their cost is estimated.
   // `usd` is the growth of the ledger cost that no step holds, over the turns that called it.
@@ -244,8 +241,6 @@ export type ModelRow = {
   workMs: number
   runs: number
   main?: true
-  // A warning that the pane draws below the row: a price that the engine counts differently.
-  note?: string
 }
 
 // The numbers above the agents table: the engine's session cost and a row per model.
@@ -267,22 +262,26 @@ export type PaneData = {
 // memory file, a skill or a custom agent.
 export type ContextGroup = { name: string; tokens: number; count?: number }
 
-// One category of the overhead, with its items; a category with no list has none.
-export type ContextCategoryRow = { name: string; tokens: number; items: ContextGroup[] }
+// What a row of the breakdown is: content in the window, the room that auto-compaction
+// keeps, the free room, or tools that load on demand and are not in the window.
+export type ContextKind = 'used' | 'buffer' | 'free' | 'deferred'
 
-// What the mod keeps of one `$.session.usage({ breakdown })` reply. `threshold` is the count
-// at which auto-compaction starts, null when it is off. `servers` holds the loaded tools of
-// each MCP server by their wire names.
+// One row of the breakdown, with its items; a row with no list has none.
+export type ContextRow = { name: string; tokens: number; kind: ContextKind; items: ContextGroup[] }
+
+// What the mod keeps of one `$.session.usage({ breakdown })` reply. `window` is the window
+// that the engine measures against: the compaction window, which can be smaller than the
+// window of the model. `threshold` is the count at which auto-compaction starts, null when it
+// is off. `rows` is in the order of the screen. `servers` holds the loaded tools of each MCP
+// server by their wire names.
 export type ContextSample = {
   detail: 'summary' | 'full'
   tokens: number
   window: number
   threshold: number | null
-  // The room that auto-compaction keeps: the buffer rows of the breakdown.
-  buffer: number
   // The tokens are a local estimate: the session has no response of the API yet.
   isEstimate: boolean
-  categories: ContextCategoryRow[]
+  rows: ContextRow[]
   servers: { name: string; tokens: number; tools: string[] }[]
 }
 
@@ -295,21 +294,24 @@ export type ContextState = {
   turns: number
 }
 
-// What the pane draws of a context. `overhead` is the categories, `messages` the rest of the
-// tokens, `buffer` the room that auto-compaction keeps. `carryUsd` is the estimated cost of
-// reading tokens from the cache at each of `steps` steps; null for a model with no price.
+// What the pane draws of a context. `overhead` is the used rows without the conversation,
+// `messages` the conversation. `share` is the part of the window that a row has, as a
+// percentage with one decimal; null for a deferred row. `carryUsd` is the estimated cost of
+// reading tokens from the cache at each of `steps` steps; null for a model with no price and
+// for a row that is no overhead. `toCompact` is the tokens before auto-compaction starts,
+// null when it is off.
 export type ContextView = {
   detail: 'summary' | 'full'
   tokens: number
   window: number
   overhead: number
   messages: number
-  buffer: number
+  toCompact: number | null
   perTurn: number | null
   turnsLeft: number | null
   steps: number
   carryUsd: number | null
-  categories: (ContextCategoryRow & { carryUsd: number | null })[]
+  rows: (ContextRow & { share: number | null; carryUsd: number | null })[]
   unused: ContextGroup[]
   deadWeight: number
 }

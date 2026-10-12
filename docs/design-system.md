@@ -14,10 +14,10 @@ Source files are in `mods/flight-deck/src/` unless a path says otherwise.
 | `dim` | `#727072` | Separators, an expired countdown, an idle agent mark, a share under 10%. |
 | `strip` | `#403e41` | The background of a bar that lies over other rows (the sticky bar, `pane.tsx`). |
 | `red` | `#ff6188` | Danger, a failed tool call, a stopped agent, `-removed` in a diff, an error text, a share of 50% or more. |
-| `orange` | `#fc9867` | Counts: `calls`, `bg`, the agents button, the `◆ agent` mark. A share from 25% to 49%. |
-| `yellow` | `#ffd866` | Cost (`$ cost`), a warning tone, a running tool call, a recent agent, a share from 10% to 24%. |
-| `green` | `#a9dc76` | The `ok` tone, `+added` in a diff, a running agent, a done tool call. |
-| `cyan` | `#78dce8` | `in` tokens (`↑ in`) and a prompt row in a transcript (`pane.tsx`, `item`). |
+| `orange` | `#fc9867` | Counts: `calls`, `bg`, the agents button, the `◆ agent` mark. A share from 25% to 49%. A part of the context bar. |
+| `yellow` | `#ffd866` | Cost (`$ cost`), a warning tone, a running tool call, a recent agent, a share from 10% to 24%. A part of the context bar. |
+| `green` | `#a9dc76` | The `ok` tone, `+added` in a diff, a running agent, a done tool call. A part of the context bar. |
+| `cyan` | `#78dce8` | `in` tokens (`↑ in`) and a prompt row in a transcript (`pane.tsx`, `item`). A part of the context bar. |
 | `purple` | `#ab9df2` | `out` tokens (`↓ out`). |
 
 Rule: draw a color from `PALETTE` only. Do not write a hex value in another place.
@@ -30,7 +30,10 @@ A dim cell uses the `dim` flag (`dimColor`). A color uses a `PALETTE` value.
 
 Source: `contextTone`, `contextColor` and `contextPct` in `window.ts`.
 
-The percentage is `tokens / window`, rounded, kept between 0 and 100. The window is the window of the model of the step (`contextWindow`): 1M for a model with a `[1m]` suffix or a native 1M id, 200k for the others.
+The percentage is `tokens / window`, rounded, kept between 0 and 100.
+
+- For an agent, the window is the window of the model of the step (`contextWindow`): 1M for a model with a `[1m]` suffix or a native 1M id, 200k for the others.
+- For the main loop, the window is the compaction window: `breakdown.rawMaxTokens` of `$.session.usage` (`sampleOf` in `context.ts`). It can be smaller than the window of the model. If the breakdown does not have it, the window is the window of the model.
 
 | Percentage | Tone | Color |
 |---|---|---|
@@ -126,7 +129,7 @@ The cell after the `cache` button is dim with no break, and `yellow` with a brea
 | Dollars | `formatUsd` (`format.ts`) | Two decimals. No sign. A value that is not finite or not positive gives `0.00`. | `0.42` |
 | Duration | `formatDuration` (`format.ts`) | `m:ss`. With hours: `h:mm:ss`. A bad value gives `0:00`. | `12:05`, `1:02:09` |
 | Countdown | `formatCountdown` (`format.ts`) | `m:ss`. Zero or less: `expired`. Unknown: `--`. | `3:42` |
-| Context | `contextText` (`window.ts`) | Full: `ctx <tokens>/<window> <pct>%`. Short: `ctx <pct>%`. The window is `1M` or `200k` (`windowLabel`). | `ctx 84.2k/200k 42%` |
+| Context | `contextText` (`window.ts`) | Full: `ctx <tokens>/<window> <pct>%`. Short: `ctx <pct>%`. The window is its count in `k` or `M` (`windowLabel`): `200k`, `400k`, `1M`. | `ctx 84.2k/200k 42%` |
 
 Other rules:
 
@@ -203,7 +206,6 @@ Source: `agentTable` in `table.ts`, `board` and `AgentPane` in `pane.tsx`.
 - The `runs` and `time` columns end at the same right edge in the two tables.
 - A rule closes the dashboard (`dash:rule`). It has the width of the pane.
 - The dashboard has a bold headline cell above the table: `total ≈$1.42`.
-- A dashboard row with a warning (`note` of `ModelRow`, from `priceNote` in `price.ts`) has a second row below it. The row is the warning text in `yellow`. It starts at the left edge and takes the width of the pane.
 - A cell keeps its width when its value changes.
 - Each row is one row. A row never wraps.
 - The cache screen table has the columns `time cause rewritten lost($)`. Widths: `CLOCK_WIDTH` 5, `REWRITTEN_WIDTH` 9, `LOST_WIDTH` 8. `cause` takes the rest of the width. The detail of an entry is a second row, dim, that starts below the cause.
@@ -255,7 +257,7 @@ Terminal rules:
 
 ## 10. Bar
 
-Source: `barCells` and `barSegments` in `mods/flight-deck/src/context.ts`, `bar` in `mods/flight-deck/src/pane.tsx`.
+Source: `barSegments` in `mods/flight-deck/src/context.ts`, `bar` in `mods/flight-deck/src/pane.tsx`.
 
 The pane has one bar: the context window of the main loop. The band has no bar.
 
@@ -263,14 +265,20 @@ The pane has one bar: the context window of the main loop. The band has no bar.
 - Each cell is the full block `█`. A second character (a shade, a lower block) comes from a different font or has a different height. It is then some pixels off from the block beside it.
 - Only the color shows the parts:
 
-| Part | Color |
+| Part, in this order | Color |
 |---|---|
-| overhead | the color of the context tone |
-| messages | the darker shade of that color (`darker`: each channel at 55 percent) |
-| free room | `PALETTE.strip` |
-| compact buffer | `PALETTE.dim` |
+| `Messages` | `cyan` |
+| `System tools` | `orange` |
+| `MCP tools` | `green` |
+| `Skills` | `yellow` |
+| each other used row, as one part | `dim` |
+| compact buffer | the darker shade of `dim` (`darker`: each channel at 55 percent) |
+| free room | `strip` |
 
-- An overhead of more than 0 tokens has one cell at least.
+- The first four parts are in the order of their tokens, the costliest first (`PART_COLORS` in `context.ts`).
+- A part with more than 0 tokens has one cell at least. The free room has the cells that stay.
+- The bar does not use the context tone. The tone is on the context length only.
+- In the table of the context screen, the `window(%)` cell of a used row has the color of its part (`rowColor`). The cell of the compact buffer, of the free room and of a deferred row is dim.
 - The bar is one `Text` with a `Text` for each segment, in a `Box` with `height={1}` and `overflow="hidden"`.
 
 ## 11. Known duplicates in the code

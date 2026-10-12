@@ -1,6 +1,6 @@
 # flight-deck: context breakdown design spec
 
-Status: design for version 0.6.0. It adds to `2026-10-04-flight-deck-design.md`. That spec stays the full spec of the mod. The styling rules are in `docs/design-system.md`.
+Status: design for version 0.6.0. It adds to `2026-10-04-flight-deck-design.md`. That spec stays the full spec of the mod. The styling rules are in `docs/design-system.md`. Version 0.9.0 changes sections 4.1, 5, 6.2 and 6.3: see `2026-10-11-flight-deck-context-parity-design.md`.
 
 ## 1. Goal
 
