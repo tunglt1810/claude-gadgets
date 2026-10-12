@@ -1,0 +1,30 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-gadgets",
+  "description": "Mods for Claude Code: a session flight deck and a gate for tool calls that auto mode denied without a verdict",
+  "owner": {
+    "name": "bez"
+  },
+  "plugins": [
+    {
+      "name": "flight-deck",
+      "description": "Band tracking session tokens, tool calls, model working time and cache countdown, with a pane that shows each subagent's transcript",
+      "author": {
+        "name": "bez"
+      },
+      "source": "./mods/flight-deck",
+      "category": "monitoring",
+      "homepage": "https://github.com/tunglt1810/claude-gadgets/tree/main/mods/flight-deck"
+    },
+    {
+      "name": "verdict-gate",
+      "description": "Asks the user to run a tool call that auto mode denied without a verdict",
+      "author": {
+        "name": "bez"
+      },
+      "source": "./mods/verdict-gate",
+      "category": "security",
+      "homepage": "https://github.com/tunglt1810/claude-gadgets/tree/main/mods/verdict-gate"
+    }
+  ]
+}

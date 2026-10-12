@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `24c1f40`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md) tại commit `39e2ae9`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -24,12 +24,35 @@ bun run check      # biome + tsc + claude plugin validate + claude plugin test
 
 `tsc` cần typings của engine tại `mods/<name>/.claude-plugin/types/claude-code/index.d.ts`. Claude Code ghi file này khi nó nạp một mod. Để kiểm tra kiểu trước lần nạp đầu tiên, hãy sao chép file mà skill `plugin-authoring` chỉ ra (file này nằm trong gitignore).
 
-## Nạp một mod
+## Cài đặt
+
+Gõ một dòng cho mỗi mod tại ô prompt của Claude Code trong terminal:
+
+```text
+/plugin install flight-deck --marketplace tunglt1810/claude-gadgets
+/plugin install verdict-gate --marketplace tunglt1810/claude-gadgets
+```
+
+1. Trả lời `y` cho câu hỏi `Add marketplace?`. Dòng đầu tiên hỏi câu này, dòng thứ hai thì không.
+2. Chọn một scope rồi nhấn Enter. Scope user cài mod cho mọi project.
+3. Chạy `/reload-plugins`. Nếu một mod không hiện ra, hãy khởi động lại Claude Code.
+
+Claude Desktop không có lệnh `/plugin install` trong tab Code. Hãy cài mod từ terminal ở scope user, rồi khởi động lại Claude Desktop: mod cũng được nạp ở đó.
+
+Để lấy phiên bản mới, hãy chạy `claude plugin marketplace update claude-gadgets`, rồi `claude plugin update flight-deck@claude-gadgets` trong terminal.
+
+Một mod là code chạy trong Claude Code trên máy của bạn, với quyền truy cập mà Claude Code có. Hãy đọc mã nguồn trước khi bạn cài nó.
+
+Các mod được kiểm thử trên Claude Code 2.1.296.
+
+## Nạp một mod từ bản clone
+
+Hãy dùng một nguồn cho một mod: plugin đã cài hoặc một thư mục, không dùng cả hai cùng lúc.
 
 - CLI: `claude --plugin-dir mods/flight-deck` (nạp lại nóng mỗi khi lưu file).
 - Claude Desktop (tab Code): đặt `CLAUDE_CODE_PLUGIN_DIRS` bằng đường dẫn tuyệt đối của mod trong khối `env` của `~/.claude/settings.json`.
 
-Tuỳ chọn `cacheTtl` của `flight-deck` nhận `5m` (mặc định) hoặc `1h`. Hãy đặt `1h` khi session của bạn dùng prompt cache 1 giờ.
+Tuỳ chọn `cacheTtl` của `flight-deck` nhận `1h` (mặc định) hoặc `5m`. Hãy đặt `5m` khi session của bạn dùng prompt cache 5 phút.
 
 ## Pane agents
 
