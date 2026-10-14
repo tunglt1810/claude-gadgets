@@ -108,6 +108,7 @@ A cache break is a step of the main loop that reads much less from the prompt ca
 
 - The `tools` row on the agents screen shows the number of tool calls and of tools.
 - Press `tools` to see each tool with its calls and its share of all calls (`calls(%)`), the most calls first.
+- Press `▸ Bash` to see the patterns of the Bash commands: the command, and its subcommand for a tool such as `git` or `bun` (`git status`, `bun run`, `rg`). A call counts each command of a list or a pipe. `cd`, variable assignments, wrappers such as `sudo` or `rtk`, and the body of a heredoc are not counted. The mod keeps the patterns only, not the commands. After 100 patterns, a new one counts as `(other)`.
 - The counts include the calls of each subagent.
 - The pane shows a new count after the next step of the model.
 - The mod counts calls, not cost. The engine gives a cost for each request and each model, not for each tool call.

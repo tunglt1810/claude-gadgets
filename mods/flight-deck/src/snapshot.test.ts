@@ -46,6 +46,7 @@ test('parseSnapshot keeps valid data', () => {
     steps: 7,
     mcpCalls: ['mcp__a__b'],
     byTool: { Bash: 3, mcp__a__b: 2 },
+    byBash: { 'git status': 2, rg: 1 },
     mainModel: 'claude-opus-5-5',
   }
   expect(parseSnapshot(JSON.parse(JSON.stringify(s)))).toEqual(s)
@@ -175,6 +176,12 @@ test('the calls of each tool: a record of an older version has none, and a bad c
   expect(parseSnapshot({ byTool: { Bash: 2, Read: 'x', Edit: -1 } }).byTool).toEqual({ Bash: 2 })
 })
 
-test('isComplete refuses a state with no calls by tool', () => {
+test('isComplete refuses a state with no calls by tool or by Bash pattern', () => {
   expect(isComplete({ ...emptySnapshot(), byTool: undefined } as never)).toBe(false)
+  expect(isComplete({ ...emptySnapshot(), byBash: undefined } as never)).toBe(false)
+})
+
+test('the Bash patterns: a record of an older version has none, and a bad count is left out', () => {
+  expect(parseSnapshot({ tools: 4 }).byBash).toEqual({})
+  expect(parseSnapshot({ byBash: { git: 2, rg: 'x', ls: -1 } }).byBash).toEqual({ git: 2 })
 })

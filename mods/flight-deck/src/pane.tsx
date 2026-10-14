@@ -76,6 +76,7 @@ type Props = {
   onContext: () => void
   onCache: () => void
   onTools: () => void
+  onBash: () => void
   onRecount: () => void
   onCategory: (name: string) => void
   // The text of each message field as the person typed it, by agent.
@@ -212,6 +213,7 @@ export const AgentPane = ({
   onContext,
   onCache,
   onTools,
+  onBash,
   onRecount,
   onCategory,
   drafts,
@@ -671,7 +673,32 @@ export const AgentPane = ({
     }
     // The tools screen: each tool, its calls and their share of all calls, the most first.
     const toolsScreen = () => {
-      const v = tools ?? { total: 0, hidden: 0, rows: [] }
+      const v = tools ?? { total: 0, hidden: 0, rows: [], bash: [] }
+      // State of an older shape (a hot reload) has no flag.
+      const isBashOpen = view.isBashOpen === true
+      // The name of a tool row. The Bash row is the button that shows its patterns; on a
+      // desktop each other name is a button too that does nothing: a desktop draws a label
+      // after a margin of its own, so only a button starts where the Bash button starts.
+      const toolName = (i: number, name: string) => {
+        if (name === 'Bash' && v.bash.length > 0) {
+          const label = cut(`${isBashOpen ? '▾' : '▸'} Bash`, nameWidth)
+          return restBox(
+            'bashbox',
+            nameWidth,
+            label,
+            <Button key="bash" plain label={label} onPress={onBash} />,
+          )
+        }
+        const label = cut(`  ${name}`, nameWidth)
+        return isClient
+          ? restBox(
+              `tools:namebox:${i}`,
+              nameWidth,
+              label,
+              <Button key={`tools:name:${i}`} plain label={label} onPress={() => {}} />,
+            )
+          : rest(`tools:name:${i}`, label, nameWidth)
+      }
       const nameWidth = Math.max(MIN_MODEL, columns - (CALLS_WIDTH + 1) - (CALLS_PCT_WIDTH + 1))
       const titleWidth = Math.max(1, columns - (BACK.length + BUTTON_CHROME + 1))
       return (
@@ -694,7 +721,7 @@ export const AgentPane = ({
                 })}
               {v.rows.length > 0 && (
                 <Box key="tools:headrow" flexDirection="row" gap={1}>
-                  {rest('tools:head:name', 'tool', nameWidth, { dim: true })}
+                  {quiet('tools:head:name', '  tool', nameWidth)}
                   {head('tools:head:calls', 'calls', CALLS_WIDTH, 'right')}
                   {head('tools:head:pct', 'calls(%)', CALLS_PCT_WIDTH, 'right')}
                 </Box>
@@ -702,17 +729,40 @@ export const AgentPane = ({
               {v.rows.map((r, i) => {
                 const pct = sharePct(r.calls, v.total)
                 return (
-                  <Box key={`tools:row:${i}`} flexDirection="row" gap={1}>
-                    {rest(`tools:name:${i}`, r.name, nameWidth)}
-                    {num(`tools:calls:${i}`, String(r.calls), CALLS_WIDTH, {
-                      color: PALETTE.orange,
-                    })}
-                    {num(
-                      `tools:pct:${i}`,
-                      pct === null ? '' : `${pct}%`,
-                      CALLS_PCT_WIDTH,
-                      pct === null ? {} : { color: shareColor(pct) },
-                    )}
+                  <Box key={`tools:rowbox:${i}`} flexDirection="column">
+                    <Box key={`tools:row:${i}`} flexDirection="row" alignItems="center" gap={1}>
+                      {toolName(i, r.name)}
+                      {num(`tools:calls:${i}`, String(r.calls), CALLS_WIDTH, {
+                        color: PALETTE.orange,
+                      })}
+                      {num(
+                        `tools:pct:${i}`,
+                        pct === null ? '' : `${pct}%`,
+                        CALLS_PCT_WIDTH,
+                        pct === null ? {} : { color: shareColor(pct) },
+                      )}
+                    </Box>
+                    {/* A call counts each command it runs: the patterns have no share. */}
+                    {r.name === 'Bash' &&
+                      isBashOpen &&
+                      v.bash.map((b, j) => (
+                        <Box
+                          key={`tools:bashrow:${j}`}
+                          flexDirection="row"
+                          alignItems="center"
+                          gap={1}
+                        >
+                          {quiet(
+                            `tools:bash:name:${j}`,
+                            cut(`    ${b.name}`, nameWidth),
+                            nameWidth,
+                          )}
+                          {num(`tools:bash:calls:${j}`, String(b.calls), CALLS_WIDTH, {
+                            dim: true,
+                          })}
+                          {num(`tools:bash:pct:${j}`, '', CALLS_PCT_WIDTH)}
+                        </Box>
+                      ))}
                   </Box>
                 )
               })}

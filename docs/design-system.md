@@ -211,6 +211,7 @@ Source: `agentTable` in `table.ts`, `board` and `AgentPane` in `pane.tsx`.
 - Each row is one row. A row never wraps.
 - The cache screen table has the columns `time cause rewritten lost($)`. Widths: `CLOCK_WIDTH` 5, `REWRITTEN_WIDTH` 9, `LOST_WIDTH` 8. `cause` takes the rest of the width. The detail of an entry is a second row, dim, that starts below the cause.
 - The tools screen table has the columns `tool calls calls(%)`. Widths: `CALLS_WIDTH` 6, `CALLS_PCT_WIDTH` 8. `tool` takes the rest of the width. The calls are `orange`. The share has the color of a cost share (`shareColor`).
+- On the tools screen, the Bash row is the button `▸ Bash` / `▾ Bash` (key `bash`). Its pattern rows are below it, indented four cells, dim, with no share. On a desktop each other tool name is a plain button that does nothing, so the names line up with the Bash button.
 - A detail row below an agent has the same leading cells as the agent row (indent, mark width, expand width), so the two rows align.
 
 ## 8. Buttons and empty states

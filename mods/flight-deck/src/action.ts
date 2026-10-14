@@ -13,7 +13,8 @@ export const focusAction = (raw: string, transcript: Transcript | null): PaneAct
     element === 'context' ||
     element === 'recount' ||
     element === 'cache' ||
-    element === 'tools'
+    element === 'tools' ||
+    element === 'bash'
   )
     return { kind: element }
   const [kind, id] = [

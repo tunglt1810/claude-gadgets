@@ -3,6 +3,7 @@ import { atom, read, update } from 'claude-code'
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
+import { bashPatterns, countPatterns } from '../src/bashPattern'
 import { type Compaction, hashes, listedTools, withStep } from '../src/breaks'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
 import {
@@ -109,6 +110,7 @@ const initialPane: PaneView = {
   isContext: false,
   isCache: false,
   isTools: false,
+  isBashOpen: false,
   openCategories: [],
   compose: null,
   stopAsk: null,
@@ -208,6 +210,7 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     steps: s.steps,
     mcpCalls: s.mcpCalls,
     byTool: s.byTool,
+    byBash: s.byBash,
     ...(s.lastPrompt === undefined ? {} : { lastPrompt: s.lastPrompt }),
     ...(s.breaks === undefined ? {} : { breaks: s.breaks }),
     ...(s.breakCount === undefined ? {} : { breakCount: s.breakCount }),
@@ -751,6 +754,11 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'cache') return openCache($)
   if (action.kind === 'tools') return openTools($)
+  if (action.kind === 'bash') {
+    // State of an older shape (a hot reload) has no flag.
+    await update($, pane, (c) => ({ ...c, isBashOpen: c.isBashOpen !== true }))
+    return
+  }
   if (action.kind === 'recount') {
     void countFull($)
     return
@@ -1181,6 +1189,10 @@ export const register: Register = (on, options) => {
       // The pane takes the new count at the next step or measure, not here: a desktop drops a
       // click on a button that a redraw replaced, and a turn makes many calls.
       byTool: { ...c.byTool, [e.tool]: (c.byTool[e.tool] ?? 0) + 1 },
+      byBash:
+        e.tool === 'Bash' && typeof e.command === 'string'
+          ? countPatterns(c.byBash, bashPatterns(e.command))
+          : c.byBash,
       byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
         ...a,
         tools: a.tools + 1,
@@ -1465,6 +1477,7 @@ export const register: Register = (on, options) => {
         onContext={() => act($, { kind: 'context' })}
         onCache={() => act($, { kind: 'cache' })}
         onTools={() => act($, { kind: 'tools' })}
+        onBash={() => act($, { kind: 'bash' })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}
         drafts={drafts}

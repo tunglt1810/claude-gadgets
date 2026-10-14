@@ -32,6 +32,7 @@ export const emptySnapshot = (): Snapshot => ({
   steps: 0,
   mcpCalls: [],
   byTool: {},
+  byBash: {},
 })
 
 export const storeKey = (sessionId: string): string => `session:${sessionId}`
@@ -146,6 +147,14 @@ const parseBreaks = (raw: unknown): BreakEntry[] =>
       : [],
   )
 
+// A count by name; a count that is not a number, or is less than zero, is left out.
+const parseCounts = (raw: unknown): Record<string, number> =>
+  Object.fromEntries(
+    Object.entries(isRecord(raw) ? raw : {}).flatMap(([k, n]): [string, number][] =>
+      isCount(n) && n >= 0 ? [[k, n]] : [],
+    ),
+  )
+
 // Defensive read: the store is JSON written by an earlier version or by hand.
 export const parseSnapshot = (raw: unknown): Snapshot => {
   if (!isRecord(raw)) return emptySnapshot()
@@ -176,12 +185,9 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
       : typeof r.tools === 'number'
         ? [UNKNOWN_CALLS]
         : [],
-    // A record of an older version has no calls by tool.
-    byTool: Object.fromEntries(
-      Object.entries(isRecord(r.byTool) ? r.byTool : {}).flatMap(([t, n]): [string, number][] =>
-        isCount(n) && n >= 0 ? [[t, n]] : [],
-      ),
-    ),
+    // A record of an older version has no calls by tool, and none by Bash pattern.
+    byTool: parseCounts(r.byTool),
+    byBash: parseCounts(r.byBash),
     ...(lastPrompt === undefined ? {} : { lastPrompt }),
     ...(Array.isArray(r.breaks) ? { breaks: parseBreaks(r.breaks) } : {}),
     ...(isCount(r.breakCount) ? { breakCount: r.breakCount } : {}),
@@ -204,6 +210,7 @@ export const isComplete = (s: Partial<Snapshot>): boolean =>
   isRecord(s.costByModel) &&
   Array.isArray(s.mcpCalls) &&
   isRecord(s.byTool) &&
+  isRecord(s.byBash) &&
   [s.advisor?.calls, s.advisor?.ms, s.advisor?.usd, s.advisor?.base].every(Number.isFinite)
 
 // Recency index of stored sessions: the id first, duplicates removed, anything past `max`

@@ -43,6 +43,9 @@ export type Snapshot = {
   mcpCalls: string[]
   // The calls of each tool, by its wire name, in every loop.
   byTool: Record<string, number>
+  // The calls of each pattern of a Bash command (`git status`, `rg`), in every loop. A call
+  // counts each simple command it runs. The command itself is not kept.
+  byBash: Record<string, number>
   mainModel?: string
   // The last main step with a usage: its prompt, and what the mod knows of the request.
   lastPrompt?: LastPrompt
@@ -105,7 +108,13 @@ export type BreaksView = { count: number; lostUsd: number; entries: BreakEntry[]
 // What the tools screen draws: every call of the session, the calls that no row holds (a
 // session of an older version counted its calls, but not by tool), and a row per tool, the
 // most calls first.
-export type ToolsView = { total: number; hidden: number; rows: { name: string; calls: number }[] }
+export type ToolsView = {
+  total: number
+  hidden: number
+  rows: { name: string; calls: number }[]
+  // The patterns of the Bash commands, the most calls first.
+  bash: { name: string; calls: number }[]
+}
 
 // What the band draws from: the snapshot plus runtime-only turn bookkeeping.
 export type Meter = Snapshot & {
@@ -200,6 +209,8 @@ export type PaneView = {
   isCache: boolean
   // The tools screen is in place of the tree.
   isTools: boolean
+  // The Bash row of the tools screen shows its patterns.
+  isBashOpen: boolean
   openCategories: string[]
   compose: string | null
   stopAsk: string | null
@@ -216,6 +227,7 @@ export type PaneAction =
   | { kind: 'context' }
   | { kind: 'cache' }
   | { kind: 'tools' }
+  | { kind: 'bash' }
   | { kind: 'recount' }
   | { kind: 'category'; name: string }
   | { kind: 'tool'; toolUseId: string }
