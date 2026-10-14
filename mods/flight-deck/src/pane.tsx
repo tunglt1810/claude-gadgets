@@ -8,6 +8,7 @@ import type {
   PaneView,
   Registry,
   Snapshot,
+  ToolNode,
   ToolsView,
   TranscriptItem,
 } from '../types'
@@ -32,7 +33,7 @@ import { PALETTE } from './palette'
 import { agentTitle, modelLabel, workedMs } from './registry'
 import { inputCode, toolSummary } from './summary'
 import { agentTable, recency, runsLabel } from './table'
-import { toolsHead } from './tools'
+import { toolsHead, treeLines } from './tools'
 import { lastItems } from './transcript'
 import { treeRows } from './tree'
 import { contextColor, contextFit, contextText, ctxKey } from './window'
@@ -76,7 +77,7 @@ type Props = {
   onContext: () => void
   onCache: () => void
   onTools: () => void
-  onBash: () => void
+  onToolRow: (name: string) => void
   onRecount: () => void
   onCategory: (name: string) => void
   // The text of each message field as the person typed it, by agent.
@@ -213,7 +214,7 @@ export const AgentPane = ({
   onContext,
   onCache,
   onTools,
-  onBash,
+  onToolRow,
   onRecount,
   onCategory,
   drafts,
@@ -673,23 +674,23 @@ export const AgentPane = ({
     }
     // The tools screen: each tool, its calls and their share of all calls, the most first.
     const toolsScreen = () => {
-      const v = tools ?? { total: 0, hidden: 0, rows: [], bash: [] }
-      // State of an older shape (a hot reload) has no flag.
-      const isBashOpen = view.isBashOpen === true
-      // The name of a tool row. The Bash row is the button that shows its patterns; on a
+      const v = tools ?? { total: 0, hidden: 0, kinds: 0, rows: [] }
+      // State of an older shape (a hot reload) has no list.
+      const open = view.openTools ?? []
+      // The name of a tool row. A row with children is the button that shows them; on a
       // desktop each other name is a button too that does nothing: a desktop draws a label
-      // after a margin of its own, so only a button starts where the Bash button starts.
-      const toolName = (i: number, name: string) => {
-        if (name === 'Bash' && v.bash.length > 0) {
-          const label = cut(`${isBashOpen ? '▾' : '▸'} Bash`, nameWidth)
+      // after a margin of its own, so only a button starts where the other buttons start.
+      const toolName = (i: number, r: ToolNode) => {
+        if (r.children.length > 0) {
+          const label = cut(`${open.includes(r.name) ? '▾' : '▸'} ${r.name}`, nameWidth)
           return restBox(
-            'bashbox',
+            `trowbox:${r.name}`,
             nameWidth,
             label,
-            <Button key="bash" plain label={label} onPress={onBash} />,
+            <Button key={`trow:${r.name}`} plain label={label} onPress={() => onToolRow(r.name)} />,
           )
         }
-        const label = cut(`  ${name}`, nameWidth)
+        const label = cut(`  ${r.name}`, nameWidth)
         return isClient
           ? restBox(
               `tools:namebox:${i}`,
@@ -731,7 +732,7 @@ export const AgentPane = ({
                 return (
                   <Box key={`tools:rowbox:${i}`} flexDirection="column">
                     <Box key={`tools:row:${i}`} flexDirection="row" alignItems="center" gap={1}>
-                      {toolName(i, r.name)}
+                      {toolName(i, r)}
                       {num(`tools:calls:${i}`, String(r.calls), CALLS_WIDTH, {
                         color: PALETTE.orange,
                       })}
@@ -742,27 +743,33 @@ export const AgentPane = ({
                         pct === null ? {} : { color: shareColor(pct) },
                       )}
                     </Box>
-                    {/* A call counts each command it runs: the patterns have no share. */}
-                    {r.name === 'Bash' &&
-                      isBashOpen &&
-                      v.bash.map((b, j) => (
-                        <Box
-                          key={`tools:bashrow:${j}`}
-                          flexDirection="row"
-                          alignItems="center"
-                          gap={1}
-                        >
-                          {quiet(
-                            `tools:bash:name:${j}`,
-                            cut(`    ${b.name}`, nameWidth),
-                            nameWidth,
-                          )}
-                          {num(`tools:bash:calls:${j}`, String(b.calls), CALLS_WIDTH, {
-                            dim: true,
-                          })}
-                          {num(`tools:bash:pct:${j}`, '', CALLS_PCT_WIDTH)}
-                        </Box>
-                      ))}
+                    {/* A Bash call counts each command it runs: the lines have no share. */}
+                    {open.includes(r.name) &&
+                      treeLines(r.children).map((l, j) => {
+                        // The connectors are a cell of their own: a cut text loses its runs
+                        // of spaces. They start below the name of the row.
+                        const branch = `  ${l.prefix}`.trimEnd()
+                        const leafWidth = Math.max(1, nameWidth - branch.length - 1)
+                        return (
+                          <Box
+                            key={`tools:subrow:${i}:${j}`}
+                            flexDirection="row"
+                            alignItems="center"
+                            gap={1}
+                          >
+                            {cell(`tools:sub:${i}:branch:${j}`, {
+                              text: branch,
+                              dim: true,
+                              width: branch.length,
+                            })}
+                            {quiet(`tools:sub:${i}:name:${j}`, cut(l.name, leafWidth), leafWidth)}
+                            {num(`tools:sub:${i}:calls:${j}`, String(l.calls), CALLS_WIDTH, {
+                              dim: true,
+                            })}
+                            {num(`tools:sub:${i}:pct:${j}`, '', CALLS_PCT_WIDTH)}
+                          </Box>
+                        )
+                      })}
                   </Box>
                 )
               })}

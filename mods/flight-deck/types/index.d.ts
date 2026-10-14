@@ -43,9 +43,10 @@ export type Snapshot = {
   mcpCalls: string[]
   // The calls of each tool, by its wire name, in every loop.
   byTool: Record<string, number>
-  // The calls of each pattern of a Bash command (`git status`, `rg`), in every loop. A call
-  // counts each simple command it runs. The command itself is not kept.
-  byBash: Record<string, number>
+  // What the calls of a tool did, by tool, in every loop: the pattern of each simple command
+  // of a Bash call (`git status`, `rg`; the command itself is not kept), the type of an
+  // Agent call, the name of a Skill call.
+  bySub: Record<string, Record<string, number>>
   mainModel?: string
   // The last main step with a usage: its prompt, and what the mod knows of the request.
   lastPrompt?: LastPrompt
@@ -111,10 +112,13 @@ export type BreaksView = { count: number; lostUsd: number; entries: BreakEntry[]
 export type ToolsView = {
   total: number
   hidden: number
-  rows: { name: string; calls: number }[]
-  // The patterns of the Bash commands, the most calls first.
-  bash: { name: string; calls: number }[]
+  // The tools that were called: an MCP server's row holds several.
+  kinds: number
+  rows: ToolNode[]
 }
+
+// A row of the tools screen, or a line of its tree: its calls and what they did.
+export type ToolNode = { name: string; calls: number; children: ToolNode[] }
 
 // What the band draws from: the snapshot plus runtime-only turn bookkeeping.
 export type Meter = Snapshot & {
@@ -209,8 +213,8 @@ export type PaneView = {
   isCache: boolean
   // The tools screen is in place of the tree.
   isTools: boolean
-  // The Bash row of the tools screen shows its patterns.
-  isBashOpen: boolean
+  // The rows of the tools screen that show their children, by name.
+  openTools: string[]
   openCategories: string[]
   compose: string | null
   stopAsk: string | null
@@ -227,7 +231,7 @@ export type PaneAction =
   | { kind: 'context' }
   | { kind: 'cache' }
   | { kind: 'tools' }
-  | { kind: 'bash' }
+  | { kind: 'toolRow'; name: string }
   | { kind: 'recount' }
   | { kind: 'category'; name: string }
   | { kind: 'tool'; toolUseId: string }

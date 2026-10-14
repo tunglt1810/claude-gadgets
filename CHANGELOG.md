@@ -14,7 +14,7 @@ Tested on Claude Code 2.1.299.
 #### Added
 
 - The `tools` screen of the pane shows the calls of each tool.
-- The Bash row of the `tools` screen opens the calls of each command pattern, such as `git status`.
+- A row of the `tools` screen opens a tree of what its calls did: the commands of Bash, the types of Agent, the skills of Skill and the tools of each MCP server.
 
 #### Changed
 

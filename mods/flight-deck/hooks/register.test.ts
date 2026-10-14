@@ -3517,7 +3517,7 @@ test('the agents screen shows the tools row, and the tools screen counts each to
     await ui.press({ key: 'tools' })
     const text = await paneText(ui)
     expect(text).toContain('calls(%)')
-    expect(String((await ui.find({ key: 'bash' }))?.props.label)).toContain('Bash')
+    expect(String((await ui.find({ key: 'trow:Bash' }))?.props.label)).toContain('Bash')
     expect(await cellOf(ui, 'tools:calls:0')).toContain('2')
     expect(await cellOf(ui, 'tools:pct:0')).toContain('67%')
     expect(await cellOf(ui, 'tools:name:1')).toContain('Read')
@@ -3579,7 +3579,7 @@ test('the calls of each tool survive a session id round trip', async ($, on) => 
   const ui = await mountPane($, 'terminal')
   expect(await cellOf(ui, 'tools:head')).toContain('1 call · 1 tool')
   await ui.press({ key: 'tools' })
-  expect(String((await ui.find({ key: 'bash' }))?.props.label)).toContain('Bash')
+  expect(String((await ui.find({ key: 'trow:Bash' }))?.props.label)).toContain('Bash')
   expect(await paneText(ui)).not.toContain('not listed')
   await ui.unmount()
 })
@@ -3605,7 +3605,7 @@ test('a resumed subagent is not counted again and keeps its row', async ($, on) 
   await ui.unmount()
 })
 
-test('the Bash row of the tools screen opens the patterns of its commands', async ($, on) => {
+test('a tool row opens a tree of what its calls did', async ($, on) => {
   mock.clock(on, { now: 0 })
   mock.store(on, {})
   engine(on)
@@ -3613,23 +3613,50 @@ test('the Bash row of the tools screen opens the patterns of its commands', asyn
   await $.tool.call({ tool: 'Bash', command: 'git status && rg -n x src' })
   await $.tool.call({ tool: 'Bash', command: 'git status' })
   await $.tool.call({ tool: 'Read', file_path: '/x' } as never)
+  await $.tool.call({ tool: 'mcp__figma__get_metadata' } as never)
   await measure($, 0.1)
+  const label = async (ui: Awaited<ReturnType<typeof mountPane>>, key: string) =>
+    String((await ui.find({ key }))?.props.label)
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
     await ui.press({ key: 'tools' })
-    expect(String((await ui.find({ key: 'bash' }))?.props.label)).toContain('▸ Bash')
-    expect(await ui.find({ key: 'tools:bash:name:0' })).toBeUndefined()
-    await ui.press({ key: 'bash' })
-    expect(String((await ui.find({ key: 'bash' }))?.props.label)).toContain('▾ Bash')
-    expect(await cellOf(ui, 'tools:bash:name:0')).toContain('git status')
-    expect(await cellOf(ui, 'tools:bash:calls:0')).toContain('2')
-    expect(await cellOf(ui, 'tools:bash:name:1')).toContain('rg')
+    expect(await label(ui, 'trow:Bash')).toContain('▸ Bash')
+    expect(await label(ui, 'trow:mcp__figma')).toContain('▸ mcp__figma')
+    expect(await ui.find({ key: 'tools:sub:0:name:0' })).toBeUndefined()
+    await ui.press({ key: 'trow:Bash' })
+    expect(await label(ui, 'trow:Bash')).toContain('▾ Bash')
+    expect(await cellOf(ui, 'tools:sub:0:branch:0')).toContain('  ├─')
+    expect(await cellOf(ui, 'tools:sub:0:name:0')).toContain('git')
+    expect(await cellOf(ui, 'tools:sub:0:calls:0')).toContain('2')
+    expect(await cellOf(ui, 'tools:sub:0:branch:1')).toContain('  │  └─')
+    expect(await cellOf(ui, 'tools:sub:0:name:1')).toContain('status')
+    expect(await cellOf(ui, 'tools:sub:0:name:2')).toContain('rg')
     expect(await cellOf(ui, 'tools:calls:0')).toContain('2')
-    await ui.press({ key: 'bash' })
-    expect(await ui.find({ key: 'tools:bash:name:0' })).toBeUndefined()
+    await ui.press({ key: 'trow:Bash' })
+    expect(await ui.find({ key: 'tools:sub:0:name:0' })).toBeUndefined()
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
+})
+
+test('an Agent call counts its type on the tools screen', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({
+    tool: 'Agent',
+    prompt: 'p',
+    description: 'd',
+    subagent_type: 'Explore',
+  } as never)
+  await measure($, 0.1)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'tools' })
+  await ui.press({ key: 'trow:Agent' })
+  expect(await cellOf(ui, 'tools:sub:0:branch:0')).toContain('└─')
+  expect(await cellOf(ui, 'tools:sub:0:name:0')).toContain('Explore')
+  await ui.unmount()
 })
 
 test('the Bash patterns survive a session id round trip', async ($, on) => {
@@ -3645,7 +3672,7 @@ test('the Bash patterns survive a session id round trip', async ($, on) => {
   await measure($, 0.1)
   const ui = await mountPane($, 'terminal')
   await ui.press({ key: 'tools' })
-  await ui.press({ key: 'bash' })
-  expect(await cellOf(ui, 'tools:bash:name:0')).toContain('bun run')
+  await ui.press({ key: 'trow:Bash' })
+  expect(await cellOf(ui, 'tools:sub:0:name:1')).toContain('run')
   await ui.unmount()
 })

@@ -3,7 +3,7 @@ import { atom, read, update } from 'claude-code'
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
-import { bashPatterns, countPatterns } from '../src/bashPattern'
+import { countPatterns } from '../src/bashPattern'
 import { type Compaction, hashes, listedTools, withStep } from '../src/breaks'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
 import {
@@ -47,6 +47,7 @@ import {
   touchSessions,
 } from '../src/snapshot'
 import { SPIN_MS } from '../src/spinner'
+import { subKeysOf } from '../src/tools'
 import { transcriptItems } from '../src/transcript'
 import { cacheTtls, isOn, isOverLimit, type Ttl } from '../src/ttl'
 import {
@@ -110,7 +111,7 @@ const initialPane: PaneView = {
   isContext: false,
   isCache: false,
   isTools: false,
-  isBashOpen: false,
+  openTools: [],
   openCategories: [],
   compose: null,
   stopAsk: null,
@@ -210,7 +211,7 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     steps: s.steps,
     mcpCalls: s.mcpCalls,
     byTool: s.byTool,
-    byBash: s.byBash,
+    bySub: s.bySub,
     ...(s.lastPrompt === undefined ? {} : { lastPrompt: s.lastPrompt }),
     ...(s.breaks === undefined ? {} : { breaks: s.breaks }),
     ...(s.breakCount === undefined ? {} : { breakCount: s.breakCount }),
@@ -754,9 +755,8 @@ async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'cache') return openCache($)
   if (action.kind === 'tools') return openTools($)
-  if (action.kind === 'bash') {
-    // State of an older shape (a hot reload) has no flag.
-    await update($, pane, (c) => ({ ...c, isBashOpen: c.isBashOpen !== true }))
+  if (action.kind === 'toolRow') {
+    await update($, pane, (c) => ({ ...c, openTools: toggled(c.openTools, action.name) }))
     return
   }
   if (action.kind === 'recount') {
@@ -1172,6 +1172,8 @@ export const register: Register = (on, options) => {
     const diff = res.isError ? { added: 0, removed: 0 } : linesChanged(res.result)
     // A background Agent call is a subagent: `agent.spawn` counts it.
     // A monitor is a background task by nature and has no flag.
+    // What the call did, for the tools screen. A failed call counts, as in `tools`.
+    const subs = subKeysOf(e.tool, e)
     const isBackground =
       !res.isError &&
       e.tool !== 'Agent' &&
@@ -1189,10 +1191,10 @@ export const register: Register = (on, options) => {
       // The pane takes the new count at the next step or measure, not here: a desktop drops a
       // click on a button that a redraw replaced, and a turn makes many calls.
       byTool: { ...c.byTool, [e.tool]: (c.byTool[e.tool] ?? 0) + 1 },
-      byBash:
-        e.tool === 'Bash' && typeof e.command === 'string'
-          ? countPatterns(c.byBash, bashPatterns(e.command))
-          : c.byBash,
+      bySub:
+        subs.length === 0
+          ? c.bySub
+          : { ...c.bySub, [e.tool]: countPatterns(c.bySub[e.tool] ?? {}, subs) },
       byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
         ...a,
         tools: a.tools + 1,
@@ -1477,7 +1479,7 @@ export const register: Register = (on, options) => {
         onContext={() => act($, { kind: 'context' })}
         onCache={() => act($, { kind: 'cache' })}
         onTools={() => act($, { kind: 'tools' })}
-        onBash={() => act($, { kind: 'bash' })}
+        onToolRow={(name) => act($, { kind: 'toolRow', name })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}
         drafts={drafts}
