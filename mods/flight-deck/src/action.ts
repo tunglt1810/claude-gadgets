@@ -12,7 +12,8 @@ export const focusAction = (raw: string, transcript: Transcript | null): PaneAct
     element === 'wrap' ||
     element === 'context' ||
     element === 'recount' ||
-    element === 'cache'
+    element === 'cache' ||
+    element === 'tools'
   )
     return { kind: element }
   const [kind, id] = [
@@ -30,6 +31,8 @@ export const focusAction = (raw: string, transcript: Transcript | null): PaneAct
   if (kind === 'allow') return { kind: 'allow', agentId: id }
   // A category row of the context screen.
   if (kind === 'cat') return { kind: 'category', name: id }
+  // A row of the tools screen that has children.
+  if (kind === 'trow') return { kind: 'toolRow', name: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }
   if (kind !== 'child' || transcript === null || !('items' in transcript)) return null
   const item = transcript.items.find((it) => it.kind === 'tool' && it.id === id)

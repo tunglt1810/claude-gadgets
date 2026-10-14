@@ -41,7 +41,7 @@ To get a new version, run `claude plugin marketplace update claude-gadgets`, the
 
 A mod is code that runs in Claude Code on your machine, with the access that Claude Code has. Read the source before you install it.
 
-The mods are tested on Claude Code 2.1.296.
+The mods are tested on Claude Code 2.1.299.
 
 ## Loading a mod from a clone
 
@@ -56,7 +56,8 @@ Use one source for a mod: the installed plugin or a directory, not the two toget
 
 `flight-deck` has a pane that shows the subagents of the session.
 
-- Press `◆ agents N` on the band, or run `/agent-log`, to open the pane. Do the same to close it.
+- Press `▸ Flight Deck` on the band, or run `/agent-log`, to open the pane. Do the same to close it.
+- The band shows the number of subagents that the session started as `◆ agents N`.
 - The pane lists the subagents as a tree. A child agent is below its parent.
 - Press an agent to see its transcript. Press a tool call to see its input and its result.
 - Each agent row has a detail row, open at first, and an expand button that hides or shows it. The detail row shows the model, the effort and the context length of the agent (`ctx 182.4k/1M 18%`). The color is green below 50%, yellow from 50% and red from 80%.
@@ -103,11 +104,23 @@ A cache break is a step of the main loop that reads much less from the prompt ca
 - `rewritten` is the tokens that the API wrote again. `lost($)` is an estimate: their cost as cache writes less their cost as cache reads.
 - The mod finds the breaks of the main loop only. A subagent has its own cache.
 
+## Tools screen
+
+- The `tools` row on the agents screen shows the number of tool calls and of tools.
+- Press `tools` to see each tool with its calls and its share of all calls (`calls(%)`), the most calls first.
+- The tools of an MCP server are one row (`mcp__figma`).
+- A row with `▸` opens a tree of what its calls did: the tools of an MCP server, the agent types of `Agent`, the skills of `Skill`, and the commands of `Bash`.
+- The tree of `Bash` shows the patterns of the commands: the command, and its subcommand for a tool such as `git` or `bun` (`git status`, `bun run`, `rg`). A call counts each command of a list or a pipe. `cd`, variable assignments, wrappers such as `sudo` or `rtk`, and the body of a heredoc are not counted. The mod keeps the patterns only, not the commands. After 100 patterns, a new one counts as `(other)`.
+- The counts include the calls of each subagent.
+- The pane shows a new count after the next step of the model.
+- The mod counts calls, not cost. The engine gives a cost for each request and each model, not for each tool call.
+- A session from an earlier version of the mod counted its calls, but not for each tool. The screen shows how many calls it cannot list.
+
 ## No-verdict question
 
 `verdict-gate` is for auto mode. Load it with `claude --plugin-dir mods/verdict-gate`.
 
-When the safety classifier gives no verdict for a tool call, the engine denies the call. The mod then shows a question with the `No verdict` chip and the whole input of the call as JSON. A character that is not printable ASCII shows as its code point (`\u{202e}`).
+When the safety classifier gives no verdict for a tool call, the engine denies the call. The mod then shows a question with the `No verdict` chip and the whole input of the call as JSON. On a desktop, the input is in a pane that you can scroll, and the question beside it is short. The pane closes when you answer, or with `Close` or Escape. A character that is not printable ASCII shows as its code point (`\u{202e}`).
 
 | Answer | Result |
 | --- | --- |
@@ -117,7 +130,7 @@ When the safety classifier gives no verdict for a tool call, the engine denies t
 
 A rule is a tool name (`Read`), or a Bash command with its subcommand (`Bash(git push:*)`). A compound command, a command with no subcommand and a command behind a wrapper such as `sudo` or `bash` get no rule. A rule lives in memory until the session or the mod reloads.
 
-A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input longer than 2000 characters gets none.
+A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input that is too long to show gets a toast and no question: the limit is 20,000 characters in the pane, and 2,000 characters in the question of a terminal, which does not scroll.
 
 ## Adding a mod
 

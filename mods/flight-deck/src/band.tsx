@@ -23,10 +23,10 @@ type Props = {
   onToggle: () => void
 }
 
-// A single inline row. With the agents button the row is a Box of three parts: the text, a
+// A single inline row. With the Flight Deck button the row is a Box of three parts: the text, a
 // part that takes the free room, and the button at the right end. Without the button it is
 // one Text with nested Texts, which cannot grow an extra row.
-// `bandSegments` already fits the text to `columns`. The agents button is a primary Button, so it reads as a
+// `bandSegments` already fits the text to `columns`. The Flight Deck button is a primary Button, so it reads as a
 // control: `[ label ]` in the accent color on the terminal, a native button on desktop.
 // `bandSegments` puts the open or closed mark in its label.
 export const Band = ({
@@ -75,7 +75,7 @@ export const Band = ({
     // each second, is a `Client` with a timer of its own, and this tree changes only with its
     // data. The parts of the snapshot that the band does not draw are left out.
     const props: BandProps = {
-      snap: { ...snap, byAgent: {}, byModel: {}, costByModel: {}, mcpCalls: [] },
+      snap: { ...snap, byAgent: {}, byModel: {}, costByModel: {}, mcpCalls: [], byTool: {} },
       busySince,
       ttl,
       columns,

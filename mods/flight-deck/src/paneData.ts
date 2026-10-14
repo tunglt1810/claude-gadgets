@@ -2,6 +2,7 @@ import type { ContextView, PaneData, Registry, Snapshot } from '../types'
 import { agentView } from './agents'
 import { breaksView } from './breaks'
 import { dashboard } from './dashboard'
+import { toolsView } from './tools'
 
 // What the pane draws, and nothing more: the pane is drawn again on each change of it, and a
 // desktop drops a click on a native button that a redraw replaced. The transcript screen
@@ -23,6 +24,7 @@ export const paneData = (
       dashboard: dashboard(snap, entries, now),
       context,
       breaks: breaksView(snap),
+      tools: toolsView(snap),
     }
   const agent = entries[viewed]
   return {
@@ -32,5 +34,6 @@ export const paneData = (
     dashboard: null,
     context: null,
     breaks: null,
+    tools: null,
   }
 }

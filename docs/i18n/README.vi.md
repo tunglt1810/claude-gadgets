@@ -2,7 +2,7 @@
 
 [English](../../README.md) · Tiếng Việt
 
-> Bản dịch của [`README.md`](../../README.md) tại commit `a6d5e69`. Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
+> Bản dịch của [`README.md`](../../README.md). Khi hai bản khác nhau, bản tiếng Anh là bản chuẩn.
 
 Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là một plugin độc lập trong `mods/<name>/`.
 
@@ -43,7 +43,7 @@ Claude Desktop không có lệnh `/plugin install` trong tab Code. Hãy cài mod
 
 Một mod là code chạy trong Claude Code trên máy của bạn, với quyền truy cập mà Claude Code có. Hãy đọc mã nguồn trước khi bạn cài nó.
 
-Các mod được kiểm thử trên Claude Code 2.1.296.
+Các mod được kiểm thử trên Claude Code 2.1.299.
 
 ## Nạp một mod từ bản clone
 
@@ -58,7 +58,8 @@ Tuỳ chọn `cacheTtl` của `flight-deck` nhận `1h` (mặc định) hoặc `
 
 `flight-deck` có một pane hiển thị các subagent của session.
 
-- Bấm `◆ agents N` trên dải, hoặc chạy `/agent-log`, để mở pane. Làm lại thao tác đó để đóng pane.
+- Bấm `▸ Flight Deck` trên dải, hoặc chạy `/agent-log`, để mở pane. Làm lại thao tác đó để đóng pane.
+- Dải hiển thị số subagent mà session đã khởi chạy, ở dạng `◆ agents N`.
 - Pane liệt kê các subagent theo dạng cây. Agent con nằm dưới agent cha.
 - Bấm vào một agent để xem transcript của nó. Bấm vào một lần gọi tool để xem input và kết quả của nó.
 - Mỗi hàng agent có một hàng chi tiết và một nút mở rộng. Hàng chi tiết mở sẵn, và nút này ẩn hoặc hiện nó. Hàng chi tiết hiển thị model, effort và độ dài context của agent (`ctx 182.4k/1M 18%`). Màu là xanh lá dưới 50%, vàng từ 50% và đỏ từ 80%.
@@ -105,11 +106,23 @@ Một cache break là một step của vòng lặp chính đọc từ prompt cac
 - `rewritten` là số token mà API ghi lại. `lost($)` là một ước lượng: chi phí của chúng khi là cache write, trừ đi chi phí của chúng khi là cache read.
 - Mod chỉ tìm các break của vòng lặp chính. Một subagent có cache riêng.
 
+## Màn hình tools
+
+- Hàng `tools` trên màn hình agents hiển thị số lần gọi tool và số tool.
+- Bấm `tools` để xem từng tool cùng số lần gọi và tỉ lệ của nó trên tổng số lần gọi (`calls(%)`). Tool có nhiều lần gọi nhất đứng đầu.
+- Các tool của một MCP server gộp thành một hàng (`mcp__figma`).
+- Hàng có dấu `▸` mở ra một cây cho biết các lần gọi của nó đã làm gì: các tool của một MCP server, các loại agent của `Agent`, các skill của `Skill`, và các lệnh của `Bash`.
+- Cây của `Bash` hiển thị các pattern của lệnh: tên lệnh, kèm subcommand với các tool như `git` hoặc `bun` (`git status`, `bun run`, `rg`). Một call đếm từng lệnh của một chuỗi lệnh hoặc một pipe. Mod không đếm `cd`, phép gán biến, wrapper như `sudo` hoặc `rtk`, và phần thân của heredoc. Mod chỉ giữ pattern, không giữ lệnh. Sau 100 pattern, một pattern mới được đếm vào `(other)`.
+- Các số đếm gồm cả các lần gọi của mỗi subagent.
+- Pane hiển thị số đếm mới sau step tiếp theo của model.
+- Mod đếm số lần gọi, không đếm chi phí. Engine cho chi phí của mỗi request và mỗi model, không cho chi phí của mỗi tool call.
+- Một session từ phiên bản cũ của mod đã đếm các lần gọi, nhưng không đếm theo từng tool. Màn hình hiển thị số lần gọi mà nó không liệt kê được.
+
 ## Câu hỏi khi không có verdict
 
 `verdict-gate` dành cho auto mode. Nạp mod bằng `claude --plugin-dir mods/verdict-gate`.
 
-Khi safety classifier không đưa ra verdict cho một tool call, engine từ chối call đó. Mod hiện một câu hỏi có chip `No verdict` và toàn bộ input của call ở dạng JSON. Một ký tự không phải ASCII in được hiện thành mã của nó (`\u{202e}`).
+Khi safety classifier không đưa ra verdict cho một tool call, engine từ chối call đó. Mod hiện một câu hỏi có chip `No verdict` và toàn bộ input của call ở dạng JSON. Trên desktop, input nằm trong một pane cuộn được, và câu hỏi bên cạnh thì ngắn. Pane đóng khi bạn trả lời, hoặc khi bạn bấm `Close` hay Escape. Một ký tự không phải ASCII in được hiện thành mã của nó (`\u{202e}`).
 
 | Câu trả lời | Kết quả |
 | --- | --- |
@@ -119,7 +132,7 @@ Khi safety classifier không đưa ra verdict cho một tool call, engine từ c
 
 Một rule là tên một tool (`Read`), hoặc một lệnh Bash kèm subcommand (`Bash(git push:*)`). Lệnh ghép, lệnh không có subcommand và lệnh đứng sau một wrapper như `sudo` hay `bash` không có rule. Rule nằm trong bộ nhớ cho tới khi session hoặc mod nạp lại.
 
-Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input dài hơn 2000 ký tự cũng không có câu hỏi.
+Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input quá dài để hiện thì có một toast và không có câu hỏi. Giới hạn là 20.000 ký tự trong pane. Trong câu hỏi trên terminal, giới hạn là 2.000 ký tự, vì hộp thoại này không cuộn được.
 
 ## Thêm một mod
 

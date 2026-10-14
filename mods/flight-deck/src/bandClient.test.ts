@@ -65,8 +65,9 @@ test('the band draws each second while the cache has time left', () => {
   expect(old.sets).toBe(lapsed)
 })
 
-test('the band leaves the agents button to the page', () => {
+test('the band draws the agent count and leaves the Flight Deck button to the page', () => {
   const { draw } = surfaceOf()
   const drawn = draw({ ...REST, snap: { ...emptySnapshot(), agents: 3 } })
-  expect(drawn).not.toContain('agents 3')
+  expect(drawn).toContain('◆ agents 3')
+  expect(drawn).not.toContain('Flight Deck')
 })

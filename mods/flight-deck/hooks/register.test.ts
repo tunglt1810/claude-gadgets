@@ -116,8 +116,11 @@ const engine = (
   on('settings.read', () => ({ value: settings() }) as never)
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   let spawned = 0
-  on('agent.spawn', () =>
-    isSpawnRefused() ? { deny: 'no' } : { model: 'm', agentId: `a${++spawned}` },
+  // A resume continues under the agent's id (Claude Code 2.1.299).
+  on('agent.spawn', (_$, e) =>
+    isSpawnRefused()
+      ? { deny: 'no' }
+      : { model: 'm', agentId: e.resume?.agentId ?? `a${++spawned}` },
   )
 }
 
@@ -333,6 +336,19 @@ test('a subagent turn.complete does not close the main ◷ interval', async ($, 
   await $.turn.complete({ ...DONE, turnId: 't1' })
 
   expect(await settled($, clock)).toContain('◷ work 0:05')
+})
+
+test('a subagent turn.start does not open the main ◷ interval', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+
+  await $.turn.start({ text: 'p', turnId: 'sub-turn', agentId: 'sub1' })
+  await clock.advance(4000)
+  await $.turn.complete({ ...DONE, turnId: 'sub-turn', agentId: 'sub1' })
+  await clock.advance(60_000)
+
+  expect(await settled($, clock)).toContain('◷ work 0:00')
 })
 
 test('parallel tool calls are all counted', async ($, on) => {
@@ -647,7 +663,7 @@ test('started subagents are counted; a refused spawn is not', async ($, on) => {
   isRefused = true
   await spawn($)
 
-  expect(await settled($, clock)).toMatch(/▸ agents 2$/)
+  expect(await settled($, clock)).toMatch(/◆ agents 2 .*▸ Flight Deck$/)
 })
 
 test('background tasks are counted: a tool call sent to the background, not an Agent call', async ($, on) => {
@@ -729,7 +745,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
       const main = await bandText($, surface)
       expect(main).toContain('↑ in 400 ')
-      expect(main).toMatch(/▸ agents 3$/)
+      expect(main).toMatch(/◆ agents 3 .*▸ Flight Deck$/)
       if (surface === 'terminal') expect(main).toContain('◔ 4:50')
     },
   )
@@ -746,11 +762,11 @@ test('spawn counts and per-agent data survive a session id round trip', async ($
   await runStep($, { ...STEP, agentId: 'a1' })
   await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true })
   id = 'S2'
-  expect(await settled($, clock)).toMatch(/▸ agents 0$/)
+  expect(await settled($, clock)).toMatch(/◆ agents 0 .*▸ Flight Deck$/)
 
   id = 'S1'
   const back = await settled($, clock)
-  expect(back).toMatch(/▸ agents 1$/)
+  expect(back).toMatch(/◆ agents 1 .*▸ Flight Deck$/)
   expect(back).toContain('◇ bg 1 ')
   expect(await bandText($, 'terminal', 'a1')).toContain(
     '◆ agent · a1 m │ ctx 100/200k 0% │ ↑ in 100 ',
@@ -957,8 +973,9 @@ test('a child agent is listed below its parent', async ($, on) => {
 
   const ui = await mountPane($, 'terminal')
   // Each agent has five buttons: the expand button, the name, the text of its detail row, and
-  // the message and the stop of its control row. The screen has the cache button too.
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(11)
+  // the message and the stop of its control row. The screen has the cache and the tools
+  // buttons too.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(12)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -1874,11 +1891,11 @@ test('an agent that was not spawned is counted at its first step, once', async (
   on('turn.step', stepHook(USAGE))
   await runStep($, { ...STEP, agentId: 'skill1' })
   await runStep($, { ...STEP, index: 1, agentId: 'skill1' })
-  expect(await settled($, clock)).toMatch(/▸ agents 1$/)
+  expect(await settled($, clock)).toMatch(/◆ agents 1 .*▸ Flight Deck$/)
   // A spawned agent is counted at its spawn, and not again at its steps.
   await spawn($)
   await runStep($, { ...STEP, agentId: 'a1' })
-  expect(await settled($, clock)).toMatch(/▸ agents 2$/)
+  expect(await settled($, clock)).toMatch(/◆ agents 2 .*▸ Flight Deck$/)
 })
 
 test('a spawn that arrives after the first step of its agent does not count it again', async ($, on) => {
@@ -1888,7 +1905,7 @@ test('a spawn that arrives after the first step of its agent does not count it a
   on('turn.step', stepHook(USAGE))
   await runStep($, { ...STEP, agentId: 'a1' })
   await spawn($)
-  expect(await settled($, clock)).toMatch(/▸ agents 1$/)
+  expect(await settled($, clock)).toMatch(/◆ agents 1 .*▸ Flight Deck$/)
 })
 
 // A skill that runs in a subagent, typed as `/skill`, raises no turn.start and no turn.complete
@@ -3472,5 +3489,190 @@ test('the cache screen names one older break in the singular', async ($, on) => 
   const ui = await mountPane($, 'terminal')
   await ui.press({ key: 'cache' })
   expect(await paneText(ui)).toContain('1 earlier break not shown')
+  await ui.unmount()
+})
+
+test('the agents screen shows the tools row, and the tools screen counts each tool', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await measure($, 0.1)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'tools:head')).toContain('no call')
+    await ui.press({ key: 'tools' })
+    expect(await paneText(ui)).toContain('No tool call yet.')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  // The pane takes the counts at the next measure or step.
+  await measure($, 0.1)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'tools:head')).toContain('3 calls · 2 tools')
+    await ui.press({ key: 'tools' })
+    const text = await paneText(ui)
+    expect(text).toContain('calls(%)')
+    expect(String((await ui.find({ key: 'trow:Bash' }))?.props.label)).toContain('Bash')
+    expect(await cellOf(ui, 'tools:calls:0')).toContain('2')
+    expect(await cellOf(ui, 'tools:pct:0')).toContain('67%')
+    expect(await cellOf(ui, 'tools:name:1')).toContain('Read')
+    // The agents table and the dashboard are not on this screen.
+    expect(text).not.toContain('No agents yet.')
+    expect(text).not.toContain('cost(%)')
+    await ui.press({ key: 'back' })
+    expect(await paneText(ui)).toContain('No agents yet.')
+    await ui.unmount()
+  }
+})
+
+test('the tools screen says how many calls of an older version it cannot list', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, { 'session:S1': { tools: 4 } })
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  await measure($, 0.1)
+  const ui = await mountPane($, 'terminal')
+  expect(await cellOf(ui, 'tools:head')).toContain('5 calls · 1 tool')
+  await ui.press({ key: 'tools' })
+  expect(await paneText(ui)).toContain('4 earlier calls not listed')
+  expect(await cellOf(ui, 'tools:pct:0')).toContain('20%')
+  await ui.unmount()
+})
+
+test('the tools screen stays one row wide in a narrow pane', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({ tool: 'mcp__claude_ai_Google_Drive__search_files' } as never)
+  await measure($, 0.1)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 20)
+    await ui.press({ key: 'tools' })
+    const widths = (await ui.findAll({ type: 'Box' }))
+      .map((b) => b.props.width)
+      .filter((w): w is number => typeof w === 'number')
+    expect(widths.every((w) => w >= 0)).toBe(true)
+    expect(await cellOf(ui, 'tools:calls:0')).toContain('1')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('the calls of each tool survive a session id round trip', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  let id = 'S1'
+  engine(on, () => id)
+  paneEngine(on)
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  id = 'S2'
+  await measure($, 0.1)
+  id = 'S1'
+  await measure($, 0.1)
+  const ui = await mountPane($, 'terminal')
+  expect(await cellOf(ui, 'tools:head')).toContain('1 call · 1 tool')
+  await ui.press({ key: 'tools' })
+  expect(String((await ui.find({ key: 'trow:Bash' }))?.props.label)).toContain('Bash')
+  expect(await paneText(ui)).not.toContain('not listed')
+  await ui.unmount()
+})
+
+test('a resumed subagent is not counted again and keeps its row', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE))
+  await spawn($)
+  // Claude Code 2.1.299 raises agent.spawn when a finished subagent is resumed.
+  await runStep($, { ...STEP, turnId: 'r1', agentId: 'a1' })
+  await $.turn.complete({ ...DONE, turnId: 'r1', agentId: 'a1' })
+  await $.agent.spawn({ prompt: 'again', resume: { agentId: 'a1' } } as never)
+  await runStep($, { ...STEP, turnId: 'r2', agentId: 'a1' })
+
+  expect(await settled($, clock)).toContain('◆ agents 1 ')
+  const ui = await mountPane($, 'terminal')
+  expect(await ui.findAll({ key: 'agent:a1' })).toHaveLength(1)
+  // The runs before the resume are kept: the resume is the second run.
+  expect(await cellOf(ui, 'runs:a1')).toContain('2')
+  await ui.unmount()
+})
+
+test('a tool row opens a tree of what its calls did', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({ tool: 'Bash', command: 'git status && rg -n x src' })
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as never)
+  await $.tool.call({ tool: 'mcp__figma__get_metadata' } as never)
+  await measure($, 0.1)
+  const label = async (ui: Awaited<ReturnType<typeof mountPane>>, key: string) =>
+    String((await ui.find({ key }))?.props.label)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'tools' })
+    expect(await label(ui, 'trow:Bash')).toContain('▸ Bash')
+    expect(await label(ui, 'trow:mcp__figma')).toContain('▸ mcp__figma')
+    expect(await ui.find({ key: 'tools:sub:0:name:0' })).toBeUndefined()
+    await ui.press({ key: 'trow:Bash' })
+    expect(await label(ui, 'trow:Bash')).toContain('▾ Bash')
+    expect(await cellOf(ui, 'tools:sub:0:branch:0')).toContain('  ├─')
+    expect(await cellOf(ui, 'tools:sub:0:name:0')).toContain('git')
+    expect(await cellOf(ui, 'tools:sub:0:calls:0')).toContain('2')
+    expect(await cellOf(ui, 'tools:sub:0:branch:1')).toContain('  │  └─')
+    expect(await cellOf(ui, 'tools:sub:0:name:1')).toContain('status')
+    expect(await cellOf(ui, 'tools:sub:0:name:2')).toContain('rg')
+    expect(await cellOf(ui, 'tools:calls:0')).toContain('2')
+    await ui.press({ key: 'trow:Bash' })
+    expect(await ui.find({ key: 'tools:sub:0:name:0' })).toBeUndefined()
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('an Agent call counts its type on the tools screen', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({
+    tool: 'Agent',
+    prompt: 'p',
+    description: 'd',
+    subagent_type: 'Explore',
+  } as never)
+  await measure($, 0.1)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'tools' })
+  await ui.press({ key: 'trow:Agent' })
+  expect(await cellOf(ui, 'tools:sub:0:branch:0')).toContain('└─')
+  expect(await cellOf(ui, 'tools:sub:0:name:0')).toContain('Explore')
+  await ui.unmount()
+})
+
+test('the Bash patterns survive a session id round trip', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  let id = 'S1'
+  engine(on, () => id)
+  paneEngine(on)
+  await $.tool.call({ tool: 'Bash', command: 'bun run check' })
+  id = 'S2'
+  await measure($, 0.1)
+  id = 'S1'
+  await measure($, 0.1)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'tools' })
+  await ui.press({ key: 'trow:Bash' })
+  expect(await cellOf(ui, 'tools:sub:0:name:1')).toContain('run')
   await ui.unmount()
 })

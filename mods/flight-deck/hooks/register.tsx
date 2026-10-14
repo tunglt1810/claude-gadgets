@@ -3,6 +3,7 @@ import { atom, read, update } from 'claude-code'
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'
+import { countPatterns } from '../src/bashPattern'
 import { type Compaction, hashes, listedTools, withStep } from '../src/breaks'
 import { contextView, sampled, sampleOf, type UsageContext } from '../src/context'
 import {
@@ -46,6 +47,7 @@ import {
   touchSessions,
 } from '../src/snapshot'
 import { SPIN_MS } from '../src/spinner'
+import { subKeysOf } from '../src/tools'
 import { transcriptItems } from '../src/transcript'
 import { cacheTtls, isOn, isOverLimit, type Ttl } from '../src/ttl'
 import {
@@ -108,6 +110,8 @@ const initialPane: PaneView = {
   transcript: null,
   isContext: false,
   isCache: false,
+  isTools: false,
+  openTools: [],
   openCategories: [],
   compose: null,
   stopAsk: null,
@@ -122,6 +126,7 @@ const initialData: PaneData = {
   dashboard: null,
   context: null,
   breaks: null,
+  tools: null,
 }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
 // The context of the main loop: the latest breakdown that an event read, and its growth.
@@ -205,6 +210,8 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     advisor: s.advisor,
     steps: s.steps,
     mcpCalls: s.mcpCalls,
+    byTool: s.byTool,
+    bySub: s.bySub,
     ...(s.lastPrompt === undefined ? {} : { lastPrompt: s.lastPrompt }),
     ...(s.breaks === undefined ? {} : { breaks: s.breaks }),
     ...(s.breakCount === undefined ? {} : { breakCount: s.breakCount }),
@@ -506,6 +513,20 @@ async function closeCache($: Api): Promise<void> {
   })
 }
 
+// The tools screen, with the focus on its back button.
+async function openTools($: Api): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isTools: true }))
+  })
+}
+
+// Back to the tree, with the focus on the button that opened the tools screen.
+async function closeTools($: Api): Promise<void> {
+  await focusAfter($, 'tools', async () => {
+    await update($, pane, (c) => ({ ...c, isTools: false }))
+  })
+}
+
 // Changes the pane only when the change gives another state: each write draws the pane again,
 // and a desktop drops a click on a button that a redraw replaced.
 async function patchPane($: Api, change: (c: PaneView) => PaneView): Promise<void> {
@@ -727,10 +748,17 @@ async function act($: Api, action: PaneAction): Promise<void> {
       ? closeContext($)
       : cur.isCache === true
         ? closeCache($)
-        : backToTree($)
+        : cur.isTools === true
+          ? closeTools($)
+          : backToTree($)
   }
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'cache') return openCache($)
+  if (action.kind === 'tools') return openTools($)
+  if (action.kind === 'toolRow') {
+    await update($, pane, (c) => ({ ...c, openTools: toggled(c.openTools, action.name) }))
+    return
+  }
   if (action.kind === 'recount') {
     void countFull($)
     return
@@ -1144,6 +1172,8 @@ export const register: Register = (on, options) => {
     const diff = res.isError ? { added: 0, removed: 0 } : linesChanged(res.result)
     // A background Agent call is a subagent: `agent.spawn` counts it.
     // A monitor is a background task by nature and has no flag.
+    // What the call did, for the tools screen. A failed call counts, as in `tools`.
+    const subs = subKeysOf(e.tool, e)
     const isBackground =
       !res.isError &&
       e.tool !== 'Agent' &&
@@ -1158,6 +1188,13 @@ export const register: Register = (on, options) => {
         e.tool.startsWith('mcp__') && !c.mcpCalls.includes(e.tool)
           ? [...c.mcpCalls, e.tool]
           : c.mcpCalls,
+      // The pane takes the new count at the next step or measure, not here: a desktop drops a
+      // click on a button that a redraw replaced, and a turn makes many calls.
+      byTool: { ...c.byTool, [e.tool]: (c.byTool[e.tool] ?? 0) + 1 },
+      bySub:
+        subs.length === 0
+          ? c.bySub
+          : { ...c.bySub, [e.tool]: countPatterns(c.bySub[e.tool] ?? {}, subs) },
       byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
         ...a,
         tools: a.tools + 1,
@@ -1222,6 +1259,9 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    // A subagent's run raises turn.start too (from Claude Code 2.1.299): it is not a turn of
+    // the main loop, and its turn.complete does not close the main turn's interval.
+    if (e.agentId !== undefined) return next(e)
     const session = await ensureLoaded($)
     // The steps at the start of the turn: its end knows from them if the turn had a step.
     turnSteps = { id: session, steps: (await read($, meter)).steps }
@@ -1236,9 +1276,8 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    // A subagent's run raises turn.complete without a turn.start: it must not close
-    // the main turn's interval. It ends one run of that agent: an answer, or a stop (a kill
-    // gives `aborted`).
+    // A subagent's run must not close the main turn's interval: turn.start leaves it out.
+    // It ends one run of that agent: an answer, or a stop (a kill gives `aborted`).
     const agentId = e.agentId
     if (agentId !== undefined) {
       const session = await ensureLoaded($)
@@ -1419,6 +1458,8 @@ export const register: Register = (on, options) => {
         context={isCurrent ? (data.context ?? null) : null}
         // State of an older shape (a hot reload) has no breaks.
         breaks={isCurrent ? (data.breaks ?? null) : null}
+        // State of an older shape (a hot reload) has no tools.
+        tools={isCurrent ? (data.tools ?? null) : null}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -1437,6 +1478,8 @@ export const register: Register = (on, options) => {
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
         onContext={() => act($, { kind: 'context' })}
         onCache={() => act($, { kind: 'cache' })}
+        onTools={() => act($, { kind: 'tools' })}
+        onToolRow={(name) => act($, { kind: 'toolRow', name })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}
         drafts={drafts}

@@ -14,7 +14,7 @@ Source files are in `mods/flight-deck/src/` unless a path says otherwise.
 | `dim` | `#727072` | Separators, an expired countdown, an idle agent mark, a share under 10%. |
 | `strip` | `#403e41` | The background of a bar that lies over other rows (the sticky bar, `pane.tsx`). |
 | `red` | `#ff6188` | Danger, a failed tool call, a stopped agent, `-removed` in a diff, an error text, a share of 50% or more. |
-| `orange` | `#fc9867` | Counts: `calls`, `bg`, the agents button, the `◆ agent` mark. A share from 25% to 49%. A part of the context bar. |
+| `orange` | `#fc9867` | Counts: `calls`, `◆ agents`, `bg`, the Flight Deck button, the `◆ agent` mark, the calls of a tool. A share from 25% to 49%. A part of the context bar. |
 | `yellow` | `#ffd866` | Cost (`$ cost`), a warning tone, a running tool call, a recent agent, a share from 10% to 24%. A part of the context bar. |
 | `green` | `#a9dc76` | The `ok` tone, `+added` in a diff, a running agent, a done tool call. A part of the context bar. |
 | `cyan` | `#78dce8` | `in` tokens (`↑ in`) and a prompt row in a transcript (`pane.tsx`, `item`). A part of the context bar. |
@@ -150,7 +150,7 @@ Rule: use single-width, text-presentation characters only. Do not use an emoji. 
 | `↑ in`, `↓ out`, `◈ cache`, `⌘ calls`, `◇ bg`, `◷ work`, `$ cost`, `± diff`, `◔ cache` | Band labels | `LABEL` in `layout.ts` |
 | `◔` | Countdown beside the percentage (no label) | `LABEL.clock` in `layout.ts` |
 | `◆` | Mark of the band of an agent view (`◆ agent`) | `bandSegments` in `layout.ts` |
-| `▸` / `▾` | Disclosure: closed / open. Used by the agents button, the expand button of an agent, and a tool call. | `layout.ts`, `pane.tsx` |
+| `▸` / `▾` | Disclosure: closed / open. Used by the Flight Deck button, the expand button of an agent, and a tool call. | `layout.ts`, `pane.tsx` |
 | `⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷` | Spinner frames of a running agent or tool. One frame each 120 ms. | `SPINNER`, `SPIN_MS` in `spinner.ts` |
 | `⣿` | Mark of an ended agent | `END_MARK` in `pane.tsx` |
 | `✓` / `✗` | Tool call done / failed. `✗ <cause>` is also the cache break part of the band. | `TOOL_MARK` in `pane.tsx`, `bandSegments` in `layout.ts` |
@@ -171,7 +171,7 @@ All agent marks and spinner frames are eight-dot braille glyphs. One font draws 
 |---|---|---|
 | ` │ ` (dim) | Between band groups | `SEP` in `layout.ts` |
 | two spaces | Between the parts inside a band group | `build` in `layout.ts` |
-| two spaces, no `│` | Before the agents button | `build` in `layout.ts` |
+| two spaces, no `│` | Before the Flight Deck button | `build` in `layout.ts` |
 | ` · ` (dim) | Between the parts of a pane row: the detail row (model, effort, context), the title row of a transcript (model, runs, time, context), the agent title (`type · description`) | `SEP` in `detail.ts` and `pane.tsx`, `agentTitle` in `registry.ts` |
 
 ## 6. Band layout
@@ -179,19 +179,20 @@ All agent marks and spinner frames are eight-dot braille glyphs. One font draws 
 Source: `bandSegments`, `GROUPS`, `DROP_ORDER` in `layout.ts`. The `Band` component is in `band.tsx`.
 
 - A metric is `icon label value`.
-- The groups, in order: `ctx`, then `in out`, then `hit cache break`, then `tools bg work`, then `cost diff`.
+- The groups, in order: `ctx`, then `in out`, then `hit cache break`, then `tools agents bg work`, then `cost diff`.
+- `agents` is `◆ agents N` in `orange`: the subagents that the session started.
 - `ctx` is present only in an agent view that has a context.
-- The agents button is in no group. It is the last part, at the right end of the row. A gap takes the free room before it.
+- The Flight Deck button (`deck`) is `▸ Flight Deck` when the pane is closed and `▾ Flight Deck` when it is open. It is in no group. It is the last part, at the right end of the row. A gap takes the free room before it. Its key is `agents`.
 - The band is one row. It fits `columns`. It never wraps.
-- A band that is too narrow drops parts in this order (first dropped first): `break`, `bg`, `diff`, `hit`, `tools`, `work`, `cost`, `out`, `in`, `ctx`, `agents`.
+- A band that is too narrow drops parts in this order (first dropped first): `break`, `bg`, `agents`, `diff`, `hit`, `tools`, `work`, `cost`, `out`, `in`, `ctx`, `deck`.
 - `break` is `✗ <cause>` in `red`. It is present when the last main step was a cache break. The band of an agent view does not have it.
 - The fit uses the target counts. A part does not come and go while a count runs.
 - The countdown beside the percentage has no label: `◔ 3:42`. When `hit` is dropped, it has the label again: `◔ cache 3:42`.
 - The band draws no bar after the countdown.
 - The work time is bold while a turn is open.
 - The cost part is yellow. The `diff` part is `+added` in green and `-removed` in red.
-- A band without the agents button is one `Text` with nested `Text`. A band with the button is a `Box` of three parts: the text, a `Box` with `flexGrow`, and the button (`band.tsx`).
-- The band of an agent view starts with `◆ <name>` (orange, bold) and the model id (`fg`). It has no `cost`, `work`, `agents` or `bg` (`SESSION_ONLY`). Its numbers do not run.
+- A band without the Flight Deck button is one `Text` with nested `Text`. A band with the button is a `Box` of three parts: the text, a `Box` with `flexGrow`, and the button (`band.tsx`).
+- The band of an agent view starts with `◆ <name>` (orange, bold) and the model id (`fg`). It has no `cost`, `work`, `agents`, `bg` or Flight Deck button (`SESSION_ONLY`). Its numbers do not run.
 - The name takes the room that the band has left. A name with less than 8 cells of room is not shown. The mark then says `agent` (`MIN_NAME`).
 
 ## 7. Tables
@@ -209,6 +210,8 @@ Source: `agentTable` in `table.ts`, `board` and `AgentPane` in `pane.tsx`.
 - A cell keeps its width when its value changes.
 - Each row is one row. A row never wraps.
 - The cache screen table has the columns `time cause rewritten lost($)`. Widths: `CLOCK_WIDTH` 5, `REWRITTEN_WIDTH` 9, `LOST_WIDTH` 8. `cause` takes the rest of the width. The detail of an entry is a second row, dim, that starts below the cause.
+- The tools screen table has the columns `tool calls calls(%)`. Widths: `CALLS_WIDTH` 6, `CALLS_PCT_WIDTH` 8. `tool` takes the rest of the width. The calls are `orange`. The share has the color of a cost share (`shareColor`).
+- On the tools screen, a row with children is the button `▸ <name>` / `▾ <name>` (key `trow:<name>`). Its tree is below it, dim, with no share. The connectors (`├─`, `└─`, `│`) are a cell of their own (`tools:sub:<row>:branch:<line>`): `cut` joins runs of spaces, so a connector in the name cell loses its indent. On a desktop each other tool name is a plain button that does nothing, so the names line up with the buttons.
 - A detail row below an agent has the same leading cells as the agent row (indent, mark width, expand width), so the two rows align.
 
 ## 8. Buttons and empty states
@@ -217,9 +220,9 @@ Source: `agentTable` in `table.ts`, `board` and `AgentPane` in `pane.tsx`.
 - The terminal draws a Button as `[ label ]`: four cells of chrome (`BUTTON_CHROME`). Compute a width with it.
 - A Button on the terminal is in a box as wide as its label, inside a box with `flexShrink` and `overflow="hidden"` (`oneRow` in `pane.tsx`).
 - A back button names its destination: `← agents` (`BACK`).
-- The agents button is `variant="primary"`. The `wrap` button is primary while wrap is on.
+- The Flight Deck button is `variant="primary"`. The `wrap` button is primary while wrap is on.
 - A button that must look like text is `plain`. An ended agent and a done tool call are `dimColor`.
-- An empty state is dim text: `No agents yet.`, `No messages yet.`, `Loading...`, `no step yet` (detail row).
+- An empty state is dim text: `No agents yet.`, `No tool call yet.`, `No messages yet.`, `Loading...`, `no step yet` (detail row).
 - A denied transcript shows its reason in `red`.
 
 ## 9. Terminal and desktop

@@ -7,6 +7,24 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [0.10.0] - 2026-10-14
+
+Tested on Claude Code 2.1.299.
+
+#### Added
+
+- The `tools` screen of the pane shows the calls of each tool.
+- A row of the `tools` screen opens a tree of what its calls did: the commands of Bash, the types of Agent, the skills of Skill and the tools of each MCP server.
+
+#### Changed
+
+- The band shows the agent count as `◆ agents N` among the activity metrics.
+- The band button that opens the pane is `▸ Flight Deck`.
+
+#### Fixed
+
+- On Claude Code 2.1.299, a turn of a subagent no longer starts the working time of the main loop.
+
 ### [0.9.0] - 2026-10-11
 
 Tested on Claude Code 2.1.296.
@@ -215,6 +233,15 @@ Tested on Claude Code 2.1.291.
 ## verdict-gate
 
 ### [Unreleased]
+
+### [0.1.2] - 2026-10-14
+
+Tested on Claude Code 2.1.299.
+
+#### Changed
+
+- On a desktop, a pane shows the whole input of a call of up to 20,000 characters beside a short question, so a Write of a whole file can be approved.
+- A call too long to show gets a toast instead of a silent denial.
 
 ### [0.1.1] - 2026-10-09
 

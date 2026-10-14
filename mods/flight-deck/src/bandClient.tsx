@@ -9,7 +9,7 @@ export type BandProps = Omit<BandInput, 'now' | 'shown'>
 type State = { tick: number; hasTick?: true; isLive?: boolean }
 
 // The text of the band on a desktop. The engine holds the handle of a button for one drawing
-// only, so a band that is drawn again each second drops a click on the agents button. This
+// only, so a band that is drawn again each second drops a click on the Flight Deck button. This
 // cell draws the times on a timer of its own, and the hook draws the band only when its data
 // changes. As in `cellClient.tsx`, a band at rest sets no state and a drawing sets it one time
 // at most.
@@ -31,7 +31,7 @@ const BandClient: ClientModule<BandProps, State> = (p, surface) => {
   }
   if (isLive !== (s.isLive === true)) s = { ...s, isLive }
   if (s !== held) surface.setState(s)
-  // The agents button is the page's: a button here has no handle of the engine.
+  // The Flight Deck button is the page's: a button here has no handle of the engine.
   const segments = bandSegments({ ...p, now }).filter((seg) => seg.isButton !== true)
   return (
     <Text wrap="truncate">

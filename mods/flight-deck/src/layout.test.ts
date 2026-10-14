@@ -19,6 +19,8 @@ const snap: Snapshot = {
   advisor: { calls: 0, ms: 0, usd: 0, base: 0 },
   steps: 0,
   mcpCalls: [],
+  byTool: {},
+  bySub: {},
 }
 const base = { snap, busySince: null, now: 78_000, ttl: '5m' as const }
 const segs = (cols: number) => bandSegments({ ...base, columns: cols })
@@ -42,7 +44,8 @@ test('every metric is icon, label, value', () => {
 })
 
 test('every metric uses the same spacing: one icon, a space, the label, a space, the value', () => {
-  const metrics = segs(146).filter((s) => /^\S \S/.test(s.text))
+  // The Flight Deck button is a control, not a metric.
+  const metrics = segs(146).filter((s) => !s.isButton && /^\S \S/.test(s.text))
   expect(metrics.length).toBe(10)
   // Beside the percentage, the countdown is the clock and the time, with no label.
   for (const m of metrics)
@@ -53,18 +56,18 @@ test('metrics are grouped: tokens | cache | activity | spend', () => {
   expect(text(146).split(' │ ')).toEqual([
     '↑ in 12.5k  ↓ out 3.1k',
     '◈ cache 1%  ◔ 3:42',
-    '⌘ calls 14  ◇ bg 1  ◷ work 12:05',
-    '$ cost 0.42  ± diff +120 -30  ▸ agents 2',
+    '⌘ calls 14  ◆ agents 2  ◇ bg 1  ◷ work 12:05',
+    '$ cost 0.42  ± diff +120 -30  ▸ Flight Deck',
   ])
 })
 
 test('a band with no room for the percentage gives the countdown its label', () => {
-  expect(text(100).split(' │ ')[1]).toBe('◈ cache 1%  ◔ 3:42')
-  expect(text(99).split(' │ ')).toEqual([
+  expect(text(103).split(' │ ')[1]).toBe('◈ cache 1%  ◔ 3:42')
+  expect(text(102).split(' │ ')).toEqual([
     '↑ in 12.5k  ↓ out 3.1k',
     '◔ cache 3:42',
     '⌘ calls 14  ◷ work 12:05',
-    '$ cost 0.42  ▸ agents 2',
+    '$ cost 0.42  ▸ Flight Deck',
   ])
 })
 
@@ -82,24 +85,26 @@ test('the band never exceeds the width it is given and never starts or ends with
   }
 })
 
-test('narrow widths drop bg first, then diff, hit, calls, work, cost, output, input, agents', () => {
-  expect(text(129)).toContain('◇ bg')
-  expect(text(124)).not.toContain('◇ bg')
-  expect(text(126)).toContain('diff')
-  expect(text(110)).not.toContain('diff')
-  expect(text(110)).toContain('◈ cache')
-  expect(text(94)).not.toContain('◈')
-  expect(text(94)).toContain('calls')
-  expect(text(84)).not.toContain('calls')
-  expect(text(84)).toContain('work')
-  expect(text(70)).not.toContain('work')
-  expect(text(70)).toContain('cost')
-  expect(text(60)).not.toContain('cost')
-  expect(text(60)).toContain('out')
-  expect(text(45)).not.toContain('out')
-  expect(text(45)).toContain('in')
-  expect(text(30)).not.toContain('↑ in')
-  expect(text(30)).toContain('agents')
+test('narrow widths drop bg first, then agents, diff, hit, calls, work, cost, output, input, deck', () => {
+  expect(text(140)).toContain('◇ bg')
+  expect(text(139)).not.toContain('◇ bg')
+  expect(text(139)).toContain('◆ agents')
+  expect(text(130)).not.toContain('◆ agents')
+  expect(text(120)).toContain('diff')
+  expect(text(119)).not.toContain('diff')
+  expect(text(103)).toContain('◈ cache')
+  expect(text(102)).not.toContain('◈')
+  expect(text(102)).toContain('calls')
+  expect(text(96)).not.toContain('calls')
+  expect(text(96)).toContain('work')
+  expect(text(84)).not.toContain('work')
+  expect(text(84)).toContain('cost')
+  expect(text(69)).not.toContain('cost')
+  expect(text(69)).toContain('out')
+  expect(text(55)).not.toContain('out')
+  expect(text(55)).toContain('in')
+  expect(text(43)).not.toContain('↑ in')
+  expect(text(43)).toContain('▸ Flight Deck')
   expect(text(20)).toBe('◔ cache 3:42')
 })
 
@@ -171,11 +176,12 @@ test('parts are dropped by the target values, so a part does not come and go dur
 
 test('the background count is the first metric dropped', () => {
   const full = text(200)
-  expect(full).toContain('▸ agents 2')
+  expect(full).toContain('▸ Flight Deck')
   expect(full).toContain('◇ bg 1')
   const narrow = text(full.length + 3)
   expect(narrow).not.toContain('◇ bg')
-  expect(narrow).toContain('▸ agents 2')
+  expect(narrow).toContain('◆ agents 2')
+  expect(narrow).toContain('▸ Flight Deck')
   expect(narrow).toContain('± diff')
 })
 
@@ -187,30 +193,38 @@ test('an agent view is marked and leaves out the session-only metrics', () => {
   expect(t).toContain('⌘ calls 14')
   expect(t).toContain('± diff +120 -30')
   expect(t).toContain('◈ cache 1%  ◔ 3:42')
-  for (const gone of ['$ cost', '◷ work', '▸ agents', '◇ bg']) expect(t).not.toContain(gone)
+  for (const gone of ['$ cost', '◷ work', '◆ agents', 'Flight Deck', '◇ bg'])
+    expect(t).not.toContain(gone)
 })
 
-test('agents is the last part the band drops', () => {
-  // Wide enough for the agents button and the cache countdown only. The button is drawn
-  // as `[ label ]`: its four cells of chrome count toward the width.
-  const fit = '◔ cache 3:42  [ ▸ agents 2 ]'.length
-  expect(text(fit)).toBe('◔ cache 3:42  ▸ agents 2')
+test('the Flight Deck button is the last part the band drops', () => {
+  // Wide enough for the button and the cache countdown only. The button is drawn as
+  // `[ label ]`: its four cells of chrome count toward the width.
+  const fit = '◔ cache 3:42  [ ▸ Flight Deck ]'.length
+  expect(text(fit)).toBe('◔ cache 3:42  ▸ Flight Deck')
   expect(text(fit - 1)).toBe('◔ cache 3:42')
 })
 
-test('only the agents segment is the button', () => {
+test('only the Flight Deck segment is the button', () => {
   expect(
     segs(200)
       .filter((s) => s.isButton)
       .map((s) => s.text),
-  ).toEqual(['▸ agents 2'])
+  ).toEqual(['▸ Flight Deck'])
+})
+
+test('the agent count is a metric of the activity group, in orange', () => {
+  const all = segs(200)
+  const agents = all.find((s) => s.text === '◆ agents 2')
+  expect(agents?.color).toBe(PALETTE.orange)
+  expect(agents?.isButton).toBeUndefined()
 })
 
 test('an open pane marks the button', () => {
   const t = bandSegments({ ...base, columns: 200, isPaneOpen: true })
     .filter((s) => s.isButton)
     .map((s) => s.text)
-  expect(t).toEqual(['▾ agents 2'])
+  expect(t).toEqual(['▾ Flight Deck'])
 })
 
 test('the stats of an agent are its tokens, cache hit, calls and diff, with no cost', () => {
@@ -230,6 +244,8 @@ test('the stats of an agent are its tokens, cache hit, calls and diff, with no c
     advisor: { calls: 0, ms: 0, usd: 0, base: 0 },
     steps: 0,
     mcpCalls: [],
+    byTool: {},
+    bySub: {},
   } satisfies Snapshot
   const text = statSegments(snap)
     .map((s) => s.text)
@@ -249,8 +265,8 @@ test('an agent view names the model and the effort after its mark', () => {
   expect(t.startsWith('◆ agent claude-sonnet-5-5 high │ ↑ in 12.5k')).toBe(true)
 })
 
-test('the agents button is the last part of the band, after a gap and no separator', () => {
-  for (const cols of [146, 110, 60, 30]) {
+test('the Flight Deck button is the last part of the band, after a gap and no separator', () => {
+  for (const cols of [146, 110, 60, 43]) {
     const all = segs(cols)
     expect(all.at(-1)?.isButton).toBe(true)
     expect(all.at(-2)?.text).toBe('  ')
