@@ -31,6 +31,7 @@ export const emptySnapshot = (): Snapshot => ({
   advisor: { calls: 0, ms: 0, usd: 0, base: 0 },
   steps: 0,
   mcpCalls: [],
+  byTool: {},
 })
 
 export const storeKey = (sessionId: string): string => `session:${sessionId}`
@@ -175,6 +176,12 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
       : typeof r.tools === 'number'
         ? [UNKNOWN_CALLS]
         : [],
+    // A record of an older version has no calls by tool.
+    byTool: Object.fromEntries(
+      Object.entries(isRecord(r.byTool) ? r.byTool : {}).flatMap(([t, n]): [string, number][] =>
+        isCount(n) && n >= 0 ? [[t, n]] : [],
+      ),
+    ),
     ...(lastPrompt === undefined ? {} : { lastPrompt }),
     ...(Array.isArray(r.breaks) ? { breaks: parseBreaks(r.breaks) } : {}),
     ...(isCount(r.breakCount) ? { breakCount: r.breakCount } : {}),
@@ -196,6 +203,7 @@ export const isComplete = (s: Partial<Snapshot>): boolean =>
   isRecord(s.byModel) &&
   isRecord(s.costByModel) &&
   Array.isArray(s.mcpCalls) &&
+  isRecord(s.byTool) &&
   [s.advisor?.calls, s.advisor?.ms, s.advisor?.usd, s.advisor?.base].every(Number.isFinite)
 
 // Recency index of stored sessions: the id first, duplicates removed, anything past `max`

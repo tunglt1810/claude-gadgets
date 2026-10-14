@@ -8,6 +8,7 @@ import type {
   PaneView,
   Registry,
   Snapshot,
+  ToolsView,
   TranscriptItem,
 } from '../types'
 import { breaksHead, causeColor, clockText } from './breaks'
@@ -31,6 +32,7 @@ import { PALETTE } from './palette'
 import { agentTitle, modelLabel, workedMs } from './registry'
 import { inputCode, toolSummary } from './summary'
 import { agentTable, recency, runsLabel } from './table'
+import { toolsHead } from './tools'
 import { lastItems } from './transcript'
 import { treeRows } from './tree'
 import { contextColor, contextFit, contextText, ctxKey } from './window'
@@ -47,6 +49,8 @@ type Props = {
   context: ContextView | null
   // The cache breaks of the main loop; null on a transcript screen.
   breaks: BreaksView | null
+  // The calls of each tool; null on a transcript screen.
+  tools: ToolsView | null
   // The dashboard's costs and the tokens of each context as they are on screen, by name, where
   // the pane is drawn on each frame (the terminal). Absent on a desktop: a cell runs to its
   // new number by itself.
@@ -71,6 +75,7 @@ type Props = {
   onTool: (toolUseId: string) => void
   onContext: () => void
   onCache: () => void
+  onTools: () => void
   onRecount: () => void
   onCategory: (name: string) => void
   // The text of each message field as the person typed it, by agent.
@@ -132,6 +137,11 @@ const RECOUNT = 'recount'
 // rewritten tokens their header, a lost cost its header `lost($)`.
 const CACHE = 'cache'
 const CLOCK_WIDTH = 5
+// The button of the tools screen, and the columns of that screen: a count fits its header
+// `calls`, a share its header `calls(%)`.
+const TOOLS = 'tools'
+const CALLS_WIDTH = 6
+const CALLS_PCT_WIDTH = 8
 const REWRITTEN_WIDTH = 9
 const LOST_WIDTH = 8
 // The columns of the context screen: a count of tokens fits `123.4k`, a share its header
@@ -186,6 +196,7 @@ export const AgentPane = ({
   dashboard,
   context,
   breaks,
+  tools,
   shownUsd,
   spin,
   holdsText,
@@ -200,6 +211,7 @@ export const AgentPane = ({
   onTool,
   onContext,
   onCache,
+  onTools,
   onRecount,
   onCategory,
   drafts,
@@ -485,6 +497,26 @@ export const AgentPane = ({
         </Box>
       )
 
+    // The calls of each tool: the button of the tools screen, then the count of calls and of
+    // tools. It is built as the cache row is.
+    const toolsRow = () =>
+      tools === null ? null : (
+        <Box key="toolsblock" flexDirection="column">
+          <Box
+            key="tools:row"
+            flexDirection="row"
+            alignItems="center"
+            gap={1}
+            overflow="hidden"
+            {...oneRowOnly}
+          >
+            <Button key="tools" label={TOOLS} onPress={onTools} />
+            {cell('tools:head', toolsHead(tools))}
+          </Box>
+          {rule('tools:rowrule')}
+        </Box>
+      )
+
     // The first cell of a row that is not pressed. On a desktop it is a button that does
     // nothing: a desktop draws a button's label after a margin of its own, so only a button
     // starts where the category buttons start.
@@ -637,6 +669,59 @@ export const AgentPane = ({
         </Box>
       )
     }
+    // The tools screen: each tool, its calls and their share of all calls, the most first.
+    const toolsScreen = () => {
+      const v = tools ?? { total: 0, hidden: 0, rows: [] }
+      const nameWidth = Math.max(MIN_MODEL, columns - (CALLS_WIDTH + 1) - (CALLS_PCT_WIDTH + 1))
+      const titleWidth = Math.max(1, columns - (BACK.length + BUTTON_CHROME + 1))
+      return (
+        <Box flexDirection="column">
+          <Box key="tools:toolbar" flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
+            <Button key="back" label={BACK} onPress={onBack} />
+            {rest('tools:title', TOOLS, titleWidth, { bold: true })}
+          </Box>
+          {v.total === 0 ? (
+            <Text key="tools:none" dimColor>
+              No tool call yet.
+            </Text>
+          ) : (
+            <Box key="tools:body" flexDirection="column">
+              {cell('tools:sum', { ...toolsHead(v), bold: true })}
+              {v.hidden > 0 &&
+                cell('tools:hidden', {
+                  text: `${v.hidden} earlier ${v.hidden === 1 ? 'call' : 'calls'} not listed`,
+                  dim: true,
+                })}
+              {v.rows.length > 0 && (
+                <Box key="tools:headrow" flexDirection="row" gap={1}>
+                  {rest('tools:head:name', 'tool', nameWidth, { dim: true })}
+                  {head('tools:head:calls', 'calls', CALLS_WIDTH, 'right')}
+                  {head('tools:head:pct', 'calls(%)', CALLS_PCT_WIDTH, 'right')}
+                </Box>
+              )}
+              {v.rows.map((r, i) => {
+                const pct = sharePct(r.calls, v.total)
+                return (
+                  <Box key={`tools:row:${i}`} flexDirection="row" gap={1}>
+                    {rest(`tools:name:${i}`, r.name, nameWidth)}
+                    {num(`tools:calls:${i}`, String(r.calls), CALLS_WIDTH, {
+                      color: PALETTE.orange,
+                    })}
+                    {num(
+                      `tools:pct:${i}`,
+                      pct === null ? '' : `${pct}%`,
+                      CALLS_PCT_WIDTH,
+                      pct === null ? {} : { color: shareColor(pct) },
+                    )}
+                  </Box>
+                )
+              })}
+              {rule('tools:rule')}
+            </Box>
+          )}
+        </Box>
+      )
+    }
     // The cache screen: each cache break of the main loop, with its cause and its cost.
     const cacheScreen = () => {
       const b = breaks ?? { count: 0, lostUsd: 0, entries: [] }
@@ -701,6 +786,7 @@ export const AgentPane = ({
     // State of an older shape (a hot reload) has no flag.
     if (view.isContext === true) return contextScreen()
     if (view.isCache === true) return cacheScreen()
+    if (view.isTools === true) return toolsScreen()
 
     const labels = (id: string, room: number) => controlLabels(room, view.stopAsk === id)
     // A plain button of a control row, on one row of the terminal.
@@ -715,6 +801,7 @@ export const AgentPane = ({
           {board()}
           {contextBlock()}
           {cacheRow()}
+          {toolsRow()}
           <Text dimColor>No agents yet.</Text>
         </Box>
       )
@@ -729,6 +816,7 @@ export const AgentPane = ({
         {board()}
         {contextBlock()}
         {cacheRow()}
+        {toolsRow()}
         <Box key="head" flexDirection="row" gap={1}>
           {/* Built as a row is, a mark and a box of the name's width: a desktop sizes a box
               and a cell in different units, so only the same parts line up. */}

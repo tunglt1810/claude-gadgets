@@ -970,8 +970,9 @@ test('a child agent is listed below its parent', async ($, on) => {
 
   const ui = await mountPane($, 'terminal')
   // Each agent has five buttons: the expand button, the name, the text of its detail row, and
-  // the message and the stop of its control row. The screen has the cache button too.
-  expect(await ui.findAll({ type: 'Button' })).toHaveLength(11)
+  // the message and the stop of its control row. The screen has the cache and the tools
+  // buttons too.
+  expect(await ui.findAll({ type: 'Button' })).toHaveLength(12)
   expect((await marks(ui)).map((m) => m.text)).toEqual(['⣾ ', '  ⣾ '])
   await ui.unmount()
 })
@@ -3486,4 +3487,77 @@ test('the cache screen names one older break in the singular', async ($, on) => 
   await ui.press({ key: 'cache' })
   expect(await paneText(ui)).toContain('1 earlier break not shown')
   await ui.unmount()
+})
+
+test('the agents screen shows the tools row, and the tools screen counts each tool', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await measure($, 0.1)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'tools:head')).toContain('no call')
+    await ui.press({ key: 'tools' })
+    expect(await paneText(ui)).toContain('No tool call yet.')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  await $.tool.call({ tool: 'Read', file_path: '/x' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  // The pane takes the counts at the next measure or step.
+  await measure($, 0.1)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'tools:head')).toContain('3 calls · 2 tools')
+    await ui.press({ key: 'tools' })
+    const text = await paneText(ui)
+    expect(text).toContain('calls(%)')
+    expect(await cellOf(ui, 'tools:name:0')).toContain('Bash')
+    expect(await cellOf(ui, 'tools:calls:0')).toContain('2')
+    expect(await cellOf(ui, 'tools:pct:0')).toContain('67%')
+    expect(await cellOf(ui, 'tools:name:1')).toContain('Read')
+    // The agents table and the dashboard are not on this screen.
+    expect(text).not.toContain('No agents yet.')
+    expect(text).not.toContain('cost(%)')
+    await ui.press({ key: 'back' })
+    expect(await paneText(ui)).toContain('No agents yet.')
+    await ui.unmount()
+  }
+})
+
+test('the tools screen says how many calls of an older version it cannot list', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, { 'session:S1': { tools: 4 } })
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  await measure($, 0.1)
+  const ui = await mountPane($, 'terminal')
+  expect(await cellOf(ui, 'tools:head')).toContain('5 calls · 1 tool')
+  await ui.press({ key: 'tools' })
+  expect(await paneText(ui)).toContain('4 earlier calls not listed')
+  expect(await cellOf(ui, 'tools:pct:0')).toContain('20%')
+  await ui.unmount()
+})
+
+test('the tools screen stays one row wide in a narrow pane', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({ tool: 'mcp__claude_ai_Google_Drive__search_files' } as never)
+  await measure($, 0.1)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface, true, 20)
+    await ui.press({ key: 'tools' })
+    const widths = (await ui.findAll({ type: 'Box' }))
+      .map((b) => b.props.width)
+      .filter((w): w is number => typeof w === 'number')
+    expect(widths.every((w) => w >= 0)).toBe(true)
+    expect(await cellOf(ui, 'tools:calls:0')).toContain('1')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
 })

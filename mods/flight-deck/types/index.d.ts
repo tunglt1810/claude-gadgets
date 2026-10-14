@@ -41,6 +41,8 @@ export type Snapshot = {
   steps: number
   // The wire names of the MCP tools that a loop called, each name one time.
   mcpCalls: string[]
+  // The calls of each tool, by its wire name, in every loop.
+  byTool: Record<string, number>
   mainModel?: string
   // The last main step with a usage: its prompt, and what the mod knows of the request.
   lastPrompt?: LastPrompt
@@ -99,6 +101,11 @@ export type BreakEntry = {
 
 // What the pane draws of the cache breaks of a session.
 export type BreaksView = { count: number; lostUsd: number; entries: BreakEntry[] }
+
+// What the tools screen draws: every call of the session, the calls that no row holds (a
+// session of an older version counted its calls, but not by tool), and a row per tool, the
+// most calls first.
+export type ToolsView = { total: number; hidden: number; rows: { name: string; calls: number }[] }
 
 // What the band draws from: the snapshot plus runtime-only turn bookkeeping.
 export type Meter = Snapshot & {
@@ -191,6 +198,8 @@ export type PaneView = {
   isContext: boolean
   // The cache screen is in place of the tree.
   isCache: boolean
+  // The tools screen is in place of the tree.
+  isTools: boolean
   openCategories: string[]
   compose: string | null
   stopAsk: string | null
@@ -206,6 +215,7 @@ export type PaneAction =
   | { kind: 'wrap' }
   | { kind: 'context' }
   | { kind: 'cache' }
+  | { kind: 'tools' }
   | { kind: 'recount' }
   | { kind: 'category'; name: string }
   | { kind: 'tool'; toolUseId: string }
@@ -256,6 +266,8 @@ export type PaneData = {
   context: ContextView | null
   // The cache breaks of the main loop, on the tree screen; null on a transcript screen.
   breaks: BreaksView | null
+  // The calls of each tool, on the tree screen; null on a transcript screen.
+  tools: ToolsView | null
 }
 
 // One item below a category of the context: an MCP server (`count` is its loaded tools), a

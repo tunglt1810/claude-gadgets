@@ -45,6 +45,7 @@ test('parseSnapshot keeps valid data', () => {
     advisor: { calls: 2, ms: 900, usd: 0.5, base: 0.25, model: 'opus', pending: true },
     steps: 7,
     mcpCalls: ['mcp__a__b'],
+    byTool: { Bash: 3, mcp__a__b: 2 },
     mainModel: 'claude-opus-5-5',
   }
   expect(parseSnapshot(JSON.parse(JSON.stringify(s)))).toEqual(s)
@@ -167,4 +168,13 @@ test('parseSnapshot keeps the cache break fields, and a record without them has 
 
 test('parseSnapshot drops the engine gap of a 0.8.1 snapshot', () => {
   expect(Object.hasOwn(parseSnapshot({ engineGap: 0.25 }), 'engineGap')).toBe(false)
+})
+
+test('the calls of each tool: a record of an older version has none, and a bad count is left out', () => {
+  expect(parseSnapshot({ tools: 4 }).byTool).toEqual({})
+  expect(parseSnapshot({ byTool: { Bash: 2, Read: 'x', Edit: -1 } }).byTool).toEqual({ Bash: 2 })
+})
+
+test('isComplete refuses a state with no calls by tool', () => {
+  expect(isComplete({ ...emptySnapshot(), byTool: undefined } as never)).toBe(false)
 })

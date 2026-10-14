@@ -75,7 +75,7 @@ export const Band = ({
     // each second, is a `Client` with a timer of its own, and this tree changes only with its
     // data. The parts of the snapshot that the band does not draw are left out.
     const props: BandProps = {
-      snap: { ...snap, byAgent: {}, byModel: {}, costByModel: {}, mcpCalls: [] },
+      snap: { ...snap, byAgent: {}, byModel: {}, costByModel: {}, mcpCalls: [], byTool: {} },
       busySince,
       ttl,
       columns,

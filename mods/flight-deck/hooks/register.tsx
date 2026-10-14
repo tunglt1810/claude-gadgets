@@ -108,6 +108,7 @@ const initialPane: PaneView = {
   transcript: null,
   isContext: false,
   isCache: false,
+  isTools: false,
   openCategories: [],
   compose: null,
   stopAsk: null,
@@ -122,6 +123,7 @@ const initialData: PaneData = {
   dashboard: null,
   context: null,
   breaks: null,
+  tools: null,
 }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
 // The context of the main loop: the latest breakdown that an event read, and its growth.
@@ -506,6 +508,20 @@ async function closeCache($: Api): Promise<void> {
   })
 }
 
+// The tools screen, with the focus on its back button.
+async function openTools($: Api): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isTools: true }))
+  })
+}
+
+// Back to the tree, with the focus on the button that opened the tools screen.
+async function closeTools($: Api): Promise<void> {
+  await focusAfter($, 'tools', async () => {
+    await update($, pane, (c) => ({ ...c, isTools: false }))
+  })
+}
+
 // Changes the pane only when the change gives another state: each write draws the pane again,
 // and a desktop drops a click on a button that a redraw replaced.
 async function patchPane($: Api, change: (c: PaneView) => PaneView): Promise<void> {
@@ -727,10 +743,13 @@ async function act($: Api, action: PaneAction): Promise<void> {
       ? closeContext($)
       : cur.isCache === true
         ? closeCache($)
-        : backToTree($)
+        : cur.isTools === true
+          ? closeTools($)
+          : backToTree($)
   }
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'cache') return openCache($)
+  if (action.kind === 'tools') return openTools($)
   if (action.kind === 'recount') {
     void countFull($)
     return
@@ -1158,6 +1177,9 @@ export const register: Register = (on, options) => {
         e.tool.startsWith('mcp__') && !c.mcpCalls.includes(e.tool)
           ? [...c.mcpCalls, e.tool]
           : c.mcpCalls,
+      // The pane takes the new count at the next step or measure, not here: a desktop drops a
+      // click on a button that a redraw replaced, and a turn makes many calls.
+      byTool: { ...c.byTool, [e.tool]: (c.byTool[e.tool] ?? 0) + 1 },
       byAgent: bumpAgent(c.byAgent, e.agentId, (a) => ({
         ...a,
         tools: a.tools + 1,
@@ -1421,6 +1443,8 @@ export const register: Register = (on, options) => {
         context={isCurrent ? (data.context ?? null) : null}
         // State of an older shape (a hot reload) has no breaks.
         breaks={isCurrent ? (data.breaks ?? null) : null}
+        // State of an older shape (a hot reload) has no tools.
+        tools={isCurrent ? (data.tools ?? null) : null}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -1439,6 +1463,7 @@ export const register: Register = (on, options) => {
         onTool={(toolUseId) => act($, { kind: 'tool', toolUseId })}
         onContext={() => act($, { kind: 'context' })}
         onCache={() => act($, { kind: 'cache' })}
+        onTools={() => act($, { kind: 'tools' })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}
         drafts={drafts}
