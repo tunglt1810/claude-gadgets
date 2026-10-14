@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { isNoVerdict, question } from './verdict'
+import { isNoVerdict, paneInput, paneQuestion, question, tooLong } from './verdict'
 
 // The engine's own denial texts, from Claude Code 2.1.292.
 const NO_VERDICT = [
@@ -46,12 +46,33 @@ test('a line break in a command is shown as written, not drawn', () => {
   )
 })
 
-test('a call too long to show whole has no question', () => {
-  expect(question('Bash', 'x'.repeat(20_001))).toBeUndefined()
+test('a call too long to show whole in the question has no question', () => {
+  // The dialog of a terminal does not scroll: a longer input hides its tail.
+  expect(question('Bash', 'x'.repeat(2001))).toBeUndefined()
+  expect(question('Bash', 'x'.repeat(2000))).toContain('x'.repeat(2000))
 })
 
-test('a call of up to 20,000 characters has a question: a Write of a whole file fits', () => {
-  expect(question('Write', 'x'.repeat(20_000))).toContain('x'.repeat(20_000))
+test('the question beside the pane is short and counts the characters of the input', () => {
+  expect(paneQuestion('Write', 'x'.repeat(12_345))).toBe(
+    'Auto mode did not review this Write call (12,345 characters, full input in the pane). Run it?',
+  )
+})
+
+test('a call of up to 20,000 characters has a question beside the pane', () => {
+  expect(paneQuestion('Write', 'x'.repeat(20_000))).toBeDefined()
+  expect(paneQuestion('Write', 'x'.repeat(20_001))).toBeUndefined()
+})
+
+test('the pane shows the input whole, one field to a line, each hidden character as its code point', () => {
+  expect(paneInput(JSON.stringify({ command: 'a\u202eb', n: 1 }))).toBe(
+    '{\n  "command": "a\\u{202e}b",\n  "n": 1\n}',
+  )
+})
+
+test('the toast of a call too long to show names its length', () => {
+  expect(tooLong('x'.repeat(25_000))).toBe(
+    'verdict-gate: input too long to show (25,000 characters)',
+  )
 })
 
 test('the question shows each hidden character as its code point', () => {

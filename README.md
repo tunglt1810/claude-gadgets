@@ -120,7 +120,7 @@ A cache break is a step of the main loop that reads much less from the prompt ca
 
 `verdict-gate` is for auto mode. Load it with `claude --plugin-dir mods/verdict-gate`.
 
-When the safety classifier gives no verdict for a tool call, the engine denies the call. The mod then shows a question with the `No verdict` chip and the whole input of the call as JSON. A character that is not printable ASCII shows as its code point (`\u{202e}`).
+When the safety classifier gives no verdict for a tool call, the engine denies the call. The mod then shows a question with the `No verdict` chip and the whole input of the call as JSON. On a desktop, the input is in a pane that you can scroll, and the question beside it is short. The pane closes when you answer, or with `Close` or Escape. A character that is not printable ASCII shows as its code point (`\u{202e}`).
 
 | Answer | Result |
 | --- | --- |
@@ -130,7 +130,7 @@ When the safety classifier gives no verdict for a tool call, the engine denies t
 
 A rule is a tool name (`Read`), or a Bash command with its subcommand (`Bash(git push:*)`). A compound command, a command with no subcommand and a command behind a wrapper such as `sudo` or `bash` get no rule. A rule lives in memory until the session or the mod reloads.
 
-A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input longer than 20,000 characters gets none.
+A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input that is too long to show gets a toast and no question: the limit is 20,000 characters in the pane, and 2,000 characters in the question of a terminal, which does not scroll.
 
 ## Adding a mod
 

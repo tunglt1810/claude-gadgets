@@ -1,12 +1,15 @@
 import type { Args, EngineInterface, Next, Register } from 'claude-code'
 import { ruleOf } from '../src/rule'
-import { isNoVerdict, question } from '../src/verdict'
+import { isNoVerdict, paneInput, paneQuestion, question, tooLong } from '../src/verdict'
 
 const RUN = 'Run once'
 const REFUSE = 'Do not run'
 const REMEMBER = 'Do not ask again: '
 // The chip of the question: 12 characters at most.
 const HEADER = 'No verdict'
+// The pane that shows the whole input on a desktop, where it scrolls while the question is
+// open. A terminal does not scroll it then.
+const PANE = 'verdict'
 
 // A call whose verdict the engine left to the mode's decider: the input that `tool.check`
 // read, as JSON, and its rule. A hook beneath can change a call, so this is the input that
@@ -24,6 +27,9 @@ const MAX_ASKED = 256
 // time, so a rule from one answer settles the next.
 let turn: Promise<void> = Promise.resolve()
 
+// What the pane shows: the input of the call that the open question asks about.
+let shown: { tool: string; input: string } | undefined
+
 const json = (input: unknown): string => JSON.stringify(input) ?? ''
 
 const isUnjudged = (res: { deny?: string; isError?: boolean; text?: string }): boolean =>
@@ -40,6 +46,24 @@ async function sessionRules($: EngineInterface) {
     rules = new Set()
   }
   return rules
+}
+
+// Opens the pane with the input of a call, on a desktop only. True when the pane is drawn.
+async function openPane($: EngineInterface, tool: string, detail: string): Promise<boolean> {
+  if (!(await $.session.surfaces()).includes('desktop')) return false
+  shown = { tool, input: paneInput(detail) }
+  const { isPlaced } = await $.ui.open({
+    id: PANE,
+    title: `${HEADER}: ${tool} input`,
+    closeOnEscape: true,
+  })
+  if (!isPlaced) await closePane($)
+  return isPlaced
+}
+
+async function closePane($: EngineInterface) {
+  shown = undefined
+  await $.ui.close({ id: PANE })
 }
 
 async function check(_$: EngineInterface, e: Args<'tool.check'>, next: Next<'tool.check'>) {
@@ -99,12 +123,20 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
       const known = await sessionRules($)
       if (rule !== undefined && known.has(rule)) $.ui.toast(`Ran ${rule} with no review`)
       else {
-        const text = question(e.tool, detail)
-        if (text === undefined) return res
+        const inPane = paneQuestion(e.tool, detail)
+        const isPane = inPane !== undefined && (await openPane($, e.tool, detail))
+        const text = isPane ? inPane : question(e.tool, detail)
+        if (text === undefined) {
+          $.ui.toast(tooLong(detail))
+          return res
+        }
         const offer = rule === undefined ? undefined : REMEMBER + rule
         const options = offer === undefined ? [RUN, REFUSE] : [RUN, offer, REFUSE]
         // A dismissed question, or a run with no user, keeps the engine's denial.
-        const answer = await $.ui.ask(text, { options, header: HEADER }).catch(() => undefined)
+        const answer = await $.ui
+          .ask(text, { options, header: HEADER })
+          .catch(() => undefined)
+          .finally(() => (isPane ? closePane($) : undefined))
         if (answer === REFUSE) return { deny: 'The user refused this call. Do not issue it again.' }
         if (rule !== undefined && answer === offer) added = known.add(rule)
         else if (answer !== RUN) return res
@@ -125,6 +157,27 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
 }
 
 export const register: Register = (on) => {
+  // A reload closes a pane that an earlier load left open.
+  on('session.start', async ($, e, next) => {
+    await $.ui.close({ id: PANE })
+    return next(e)
+  })
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+    const { Box, Button, Code, Text } = $.ui.resolve(e)
+    if (shown === undefined) return <Text dimColor>No call waits for an answer.</Text>
+    return (
+      <Box flexDirection="column">
+        <Text bold>
+          {shown.tool} call input, {shown.input.length.toLocaleString('en-US')} characters
+        </Text>
+        <Box>
+          <Button key="close" label="Close" onPress={() => closePane($)} />
+        </Box>
+        <Code source={shown.input} language="json" />
+        <Text dimColor>End of input</Text>
+      </Box>
+    )
+  })
   on('tool.check', check)
   on('tool.call', gate)
   on('classic.PostToolUse', ran)

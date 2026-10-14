@@ -122,7 +122,7 @@ Một cache break là một step của vòng lặp chính đọc từ prompt cac
 
 `verdict-gate` dành cho auto mode. Nạp mod bằng `claude --plugin-dir mods/verdict-gate`.
 
-Khi safety classifier không đưa ra verdict cho một tool call, engine từ chối call đó. Mod hiện một câu hỏi có chip `No verdict` và toàn bộ input của call ở dạng JSON. Một ký tự không phải ASCII in được hiện thành mã của nó (`\u{202e}`).
+Khi safety classifier không đưa ra verdict cho một tool call, engine từ chối call đó. Mod hiện một câu hỏi có chip `No verdict` và toàn bộ input của call ở dạng JSON. Trên desktop, input nằm trong một pane cuộn được, và câu hỏi bên cạnh thì ngắn. Pane đóng khi bạn trả lời, hoặc khi bạn bấm `Close` hay Escape. Một ký tự không phải ASCII in được hiện thành mã của nó (`\u{202e}`).
 
 | Câu trả lời | Kết quả |
 | --- | --- |
@@ -132,7 +132,7 @@ Khi safety classifier không đưa ra verdict cho một tool call, engine từ c
 
 Một rule là tên một tool (`Read`), hoặc một lệnh Bash kèm subcommand (`Bash(git push:*)`). Lệnh ghép, lệnh không có subcommand và lệnh đứng sau một wrapper như `sudo` hay `bash` không có rule. Rule nằm trong bộ nhớ cho tới khi session hoặc mod nạp lại.
 
-Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input dài hơn 20.000 ký tự cũng không có câu hỏi.
+Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input quá dài để hiện thì có một toast và không có câu hỏi. Giới hạn là 20.000 ký tự trong pane. Trong câu hỏi trên terminal, giới hạn là 2.000 ký tự, vì hộp thoại này không cuộn được.
 
 ## Thêm một mod
 

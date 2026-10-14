@@ -240,7 +240,8 @@ Tested on Claude Code 2.1.299.
 
 #### Changed
 
-- A call with an input of up to 20,000 characters gets a question, so a Write of a whole file can be approved.
+- On a desktop, a pane shows the whole input of a call of up to 20,000 characters beside a short question, so a Write of a whole file can be approved.
+- A call too long to show gets a toast instead of a silent denial.
 
 ### [0.1.1] - 2026-10-09
 

@@ -29,8 +29,24 @@ const engine = (
     // The verdict beneath the plugin for each check: by default the mode's decider gets it.
     beneath: (_check: number): 'ask' | 'deny' | 'allow' => 'ask',
     verdict,
+    // Where the session draws, and what the pane did.
+    surfaces: ['terminal'] as string[],
+    isPlaced: true,
+    opens: [] as { id: string; title: string; closeOnEscape?: boolean }[],
+    closes: [] as string[],
+    // Runs while the question is open.
+    onAsk: async () => {},
   }
   on('session.id', () => ({ value: seen.session }))
+  on('session.surfaces', () => ({ value: seen.surfaces }) as never)
+  on('ui.open', (_$, e) => {
+    seen.opens.push({ id: e.id, title: String(e.title), closeOnEscape: e.closeOnEscape })
+    return { value: { isPlaced: seen.isPlaced } } as never
+  })
+  on('ui.close', (_$, e) => {
+    seen.closes.push(e.id)
+    return { value: undefined } as never
+  })
   on('ui.toast', (_$, e) => {
     seen.toasts.push(e.text)
     return { value: undefined }
@@ -46,6 +62,7 @@ const engine = (
       seen.asks.push(asked)
       seen.headers.push(questions[0]?.header)
       seen.options.push((questions[0]?.options ?? []).map((o) => o.label))
+      await seen.onAsk()
       if (answer === undefined) return { deny: 'dismissed' } as never
       return { result: { questions, answers: { [asked]: answer } } as never, text: answer }
     }
@@ -108,14 +125,120 @@ test('a dismissed question keeps the denial of the engine', async ($, on) => {
   expect(res.text).toBe(NO_VERDICT)
 })
 
-test('a call too long to show whole keeps the denial of the engine', async ($, on) => {
+test('a call too long to show whole keeps the denial of the engine and says so', async ($, on) => {
   const seen = engine($, on, 'Run once')
 
-  const res = await $.tool.call({ ...CALL, command: 'x'.repeat(25_000) })
+  const res = await $.tool.call({ ...CALL, command: 'x'.repeat(2000) })
 
   expect(seen.asks).toHaveLength(0)
   expect(seen.runs).toBe(0)
   expect(res.text).toBe(NO_VERDICT)
+  expect(seen.toasts).toEqual(['verdict-gate: input too long to show (2,014 characters)'])
+})
+
+const mountPane = ($: Engine, surface: 'terminal' | 'desktop') =>
+  $.ui.mount({
+    plugin: 'verdict-gate',
+    surface,
+    component: 'Pane',
+    requestId: 'verdict',
+    props: {
+      title: 'x',
+      isFocused: false,
+      bodyColumns: 80,
+      placement: 'dock',
+      scroll: { offset: 0, bodyRows: 40 },
+      view: {},
+    } as never,
+  })
+
+const LONG = 'x'.repeat(15_000)
+
+test('on a desktop the whole input is in a pane, beside a short question', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  seen.surfaces = ['desktop']
+  let drawn = ''
+  seen.onAsk = async () => {
+    const ui = await mountPane($, 'desktop')
+    drawn = String((await ui.find({ type: 'Code' }))?.props.source)
+    await ui.unmount()
+  }
+
+  const res = await $.tool.call({ ...CALL, command: LONG })
+
+  expect(seen.opens).toEqual([
+    { id: 'verdict', title: 'No verdict: Bash input', closeOnEscape: true },
+  ])
+  expect(drawn).toBe(`{\n  "command": "${LONG}"\n}`)
+  expect(seen.asks).toEqual([
+    'Auto mode did not review this Bash call (15,014 characters, full input in the pane). Run it?',
+  ])
+  expect(seen.closes).toEqual(['verdict'])
+  expect(seen.runs).toBe(1)
+  expect(res.text).toBe('ok')
+})
+
+test('the pane closes when the question is dismissed', async ($, on) => {
+  const seen = engine($, on, undefined)
+  seen.surfaces = ['terminal', 'desktop']
+
+  await $.tool.call(CALL)
+
+  expect(seen.opens).toHaveLength(1)
+  expect(seen.closes).toEqual(['verdict'])
+  expect(seen.runs).toBe(0)
+})
+
+test('a pane that is not placed leaves the whole input in the question', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  seen.surfaces = ['desktop']
+  seen.isPlaced = false
+
+  await $.tool.call(CALL)
+  await $.tool.call({ ...CALL, command: LONG, tool_use_id: 't2' })
+
+  expect(seen.asks).toEqual([
+    'Auto mode did not review this Bash call: {"command":"git push"}. Run it?',
+  ])
+  expect(seen.runs).toBe(1)
+})
+
+test('a terminal with no desktop opens no pane', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+
+  await $.tool.call(CALL)
+
+  expect(seen.opens).toHaveLength(0)
+  expect(seen.closes).toHaveLength(0)
+})
+
+test('the Close button of the pane closes only the pane', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  seen.surfaces = ['desktop']
+  for (const surface of ['terminal', 'desktop'] as const) {
+    seen.onAsk = async () => {
+      const ui = await mountPane($, surface)
+      expect((await ui.find({ key: 'close' }))?.props.label).toBe('Close')
+      await ui.press({ key: 'close' })
+      await ui.unmount()
+    }
+    seen.closes = []
+
+    await $.tool.call({ ...CALL, tool_use_id: surface })
+
+    // The question still decides: the call runs.
+    expect(seen.closes).toEqual(['verdict', 'verdict'])
+  }
+  expect(seen.runs).toBe(2)
+})
+
+test('a pane that an earlier load left open closes at the start of a session', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  expect(seen.closes).toEqual(['verdict'])
 })
 
 test('a judgment of the classifier raises no question', async ($, on) => {

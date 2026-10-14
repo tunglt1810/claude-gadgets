@@ -11,7 +11,10 @@ const REJECTION = /The user doesn't want to (proceed with this tool use|take thi
 export const isNoVerdict = (text: string): boolean =>
   !JUDGMENT.test(text) && !REJECTION.test(text) && NO_VERDICT.test(text)
 
-const MAX_DETAIL = 20_000
+// The dialog of a terminal does not scroll: a longer question hides its tail.
+const MAX_QUESTION = 2000
+// The pane scrolls while the question is open.
+const MAX_PANE = 20_000
 
 // Each character that is not printable ASCII: a terminal hides a control or a format
 // character (bidi, zero width), and a letter of a different script can look like an ASCII
@@ -21,11 +24,27 @@ const HIDDEN = /[^\x20-\x7e]/gu
 const visible = (text: string): string =>
   text.replace(HIDDEN, (c) => `\\u{${(c.codePointAt(0) ?? 0).toString(16)}}`)
 
+const count = (n: number): string => n.toLocaleString('en-US')
+
 // The user approves what the question shows, so it shows the whole input (`detail`, as
 // JSON) or there is no question. JSON shows a line break as written (`\n`), and each
 // other character that is not printable ASCII shows as its code point.
 export const question = (tool: string, detail: string): string | undefined => {
   const shown = visible(detail)
-  if (shown.length > MAX_DETAIL) return undefined
+  if (shown.length > MAX_QUESTION) return undefined
   return `Auto mode did not review this ${tool} call: ${shown}. Run it?`
 }
+
+// The question beside the pane that shows the whole input.
+export const paneQuestion = (tool: string, detail: string): string | undefined => {
+  const shown = visible(detail)
+  if (shown.length > MAX_PANE) return undefined
+  return `Auto mode did not review this ${tool} call (${count(shown.length)} characters, full input in the pane). Run it?`
+}
+
+// The input in the pane: one field to a line. A line break in a value stays as written.
+export const paneInput = (detail: string): string =>
+  JSON.stringify(JSON.parse(detail), null, 2).split('\n').map(visible).join('\n')
+
+export const tooLong = (detail: string): string =>
+  `verdict-gate: input too long to show (${count(visible(detail).length)} characters)`
