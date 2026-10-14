@@ -207,6 +207,7 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     advisor: s.advisor,
     steps: s.steps,
     mcpCalls: s.mcpCalls,
+    byTool: s.byTool,
     ...(s.lastPrompt === undefined ? {} : { lastPrompt: s.lastPrompt }),
     ...(s.breaks === undefined ? {} : { breaks: s.breaks }),
     ...(s.breakCount === undefined ? {} : { breakCount: s.breakCount }),
@@ -1261,8 +1262,8 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    // A subagent's run must not close the main turn's interval: turn.start leaves it out. It ends one run of that agent: an answer, or a stop (a kill
-    // gives `aborted`).
+    // A subagent's run must not close the main turn's interval: turn.start leaves it out.
+    // It ends one run of that agent: an answer, or a stop (a kill gives `aborted`).
     const agentId = e.agentId
     if (agentId !== undefined) {
       const session = await ensureLoaded($)

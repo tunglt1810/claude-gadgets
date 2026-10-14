@@ -3561,3 +3561,22 @@ test('the tools screen stays one row wide in a narrow pane', async ($, on) => {
     await ui.unmount()
   }
 })
+
+test('the calls of each tool survive a session id round trip', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  let id = 'S1'
+  engine(on, () => id)
+  paneEngine(on)
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  id = 'S2'
+  await measure($, 0.1)
+  id = 'S1'
+  await measure($, 0.1)
+  const ui = await mountPane($, 'terminal')
+  expect(await cellOf(ui, 'tools:head')).toContain('1 call · 1 tool')
+  await ui.press({ key: 'tools' })
+  expect(await cellOf(ui, 'tools:name:0')).toContain('Bash')
+  expect(await paneText(ui)).not.toContain('not listed')
+  await ui.unmount()
+})
