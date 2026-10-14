@@ -13,7 +13,7 @@ export type Segment = {
   color?: string
   bold?: boolean
   inverse?: boolean
-  // The agents count: the band draws it as the button that toggles the agents pane.
+  // The band draws it as the button that toggles the Flight Deck pane.
   isButton?: boolean
 }
 
@@ -27,7 +27,7 @@ export type BandInput = {
   shown?: Counts
   // One agent's numbers are drawn: the metrics that exist per session only are left out.
   isAgentView?: boolean
-  // The agents pane is open: the button carries a mark.
+  // The Flight Deck pane is open: the button carries a mark.
   isPaneOpen?: boolean
   // In an agent view: the agent's model id and effort, drawn after the mark.
   model?: string
@@ -45,11 +45,13 @@ const SEP: Segment = { text: ' │ ', color: PALETTE.dim }
 // text-presentation characters: emoji are double width and misalign the row.
 // `in` goes up to the server, `out` comes back down; `calls` counts tool calls; `agents`
 // and `bg` count the subagents and the background tasks that were started.
+// `agents` has the mark of an agent, as the band of an agent view does.
 const LABEL = {
   in: '↑ in',
   out: '↓ out',
   hit: '◈ cache',
   tools: '⌘ calls',
+  agents: '◆ agents',
   bg: '◇ bg',
   work: '◷ work',
   cost: '$ cost',
@@ -60,12 +62,12 @@ const LABEL = {
 } as const
 
 // The percentage of the prompt tokens that the cache gave, and the time the cache has left.
-// The agents button is in no group: it is the last part of the band, at its right end.
+// The Flight Deck button is in no group: it is the last part of the band, at its right end.
 const GROUPS: readonly (readonly Part[])[] = [
   ['ctx'],
   ['in', 'out'],
   ['hit', 'cache', 'break'],
-  ['tools', 'bg', 'work'],
+  ['tools', 'agents', 'bg', 'work'],
   ['cost', 'diff'],
 ]
 
@@ -73,6 +75,7 @@ const GROUPS: readonly (readonly Part[])[] = [
 const DROP_ORDER = [
   'break',
   'bg',
+  'agents',
   'diff',
   'hit',
   'tools',
@@ -81,13 +84,13 @@ const DROP_ORDER = [
   'out',
   'in',
   'ctx',
-  'agents',
+  'deck',
 ] as const
 type Part = (typeof DROP_ORDER)[number] | 'cache'
 // `timer` is the countdown with no label: it is drawn in place of `cache`, never dropped by name.
 type Parts = Record<Part | 'timer', Segment[]>
 
-const SESSION_ONLY = ['cost', 'work', 'agents', 'bg'] as const
+const SESSION_ONLY = ['cost', 'work', 'agents', 'bg', 'deck'] as const
 const AGENT = 'agent'
 // The least of a name that is worth its place: a shorter cut says less than `agent`.
 const MIN_NAME = 8
@@ -157,10 +160,11 @@ export const bandSegments = ({
         ? []
         : [{ text: contextText(context, true), color: contextColor(context) }],
     tools: [{ text: `${LABEL.tools} ${c.tools}`, color: PALETTE.orange }],
-    agents: [
+    agents: [{ text: `${LABEL.agents} ${snap.agents}`, color: PALETTE.orange }],
+    deck: [
       {
         // The icon is the pane's disclosure mark: closed or open.
-        text: `${isPaneOpen ? '▾' : '▸'} agents ${snap.agents}`,
+        text: `${isPaneOpen ? '▾' : '▸'} Flight Deck`,
         color: PALETTE.orange,
         isButton: true,
       },
@@ -199,7 +203,7 @@ export const bandSegments = ({
       })
     }
     // The band draws the free room of the row before the button: a gap parts them, not a `│`.
-    if (!dropped.has('agents')) segs.push({ text: '  ' }, ...parts.agents)
+    if (!dropped.has('deck')) segs.push({ text: '  ' }, ...parts.deck)
     return segs
   }
 
