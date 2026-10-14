@@ -116,8 +116,11 @@ const engine = (
   on('settings.read', () => ({ value: settings() }) as never)
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   let spawned = 0
-  on('agent.spawn', () =>
-    isSpawnRefused() ? { deny: 'no' } : { model: 'm', agentId: `a${++spawned}` },
+  // A resume continues under the agent's id (Claude Code 2.1.299).
+  on('agent.spawn', (_$, e) =>
+    isSpawnRefused()
+      ? { deny: 'no' }
+      : { model: 'm', agentId: e.resume?.agentId ?? `a${++spawned}` },
   )
 }
 
@@ -3578,5 +3581,26 @@ test('the calls of each tool survive a session id round trip', async ($, on) => 
   await ui.press({ key: 'tools' })
   expect(await cellOf(ui, 'tools:name:0')).toContain('Bash')
   expect(await paneText(ui)).not.toContain('not listed')
+  await ui.unmount()
+})
+
+test('a resumed subagent is not counted again and keeps its row', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE))
+  await spawn($)
+  // Claude Code 2.1.299 raises agent.spawn when a finished subagent is resumed.
+  await runStep($, { ...STEP, turnId: 'r1', agentId: 'a1' })
+  await $.turn.complete({ ...DONE, turnId: 'r1', agentId: 'a1' })
+  await $.agent.spawn({ prompt: 'again', resume: { agentId: 'a1' } } as never)
+  await runStep($, { ...STEP, turnId: 'r2', agentId: 'a1' })
+
+  expect(await settled($, clock)).toContain('◆ agents 1 ')
+  const ui = await mountPane($, 'terminal')
+  expect(await ui.findAll({ key: 'agent:a1' })).toHaveLength(1)
+  // The runs before the resume are kept: the resume is the second run.
+  expect(await cellOf(ui, 'runs:a1')).toContain('2')
   await ui.unmount()
 })
