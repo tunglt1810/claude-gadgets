@@ -12,6 +12,7 @@ export const subKeysOf = (tool: string, input: unknown): string[] => {
   if (tool === 'Agent')
     return [typeof i.subagent_type === 'string' ? i.subagent_type : 'general-purpose']
   if (tool === 'Skill') return typeof i.skill === 'string' ? [i.skill] : []
+  if (tool === 'LSP') return typeof i.operation === 'string' ? [i.operation] : []
   return []
 }
 
