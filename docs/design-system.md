@@ -184,6 +184,7 @@ Source: `bandSegments`, `GROUPS`, `DROP_ORDER` in `layout.ts`. The `Band` compon
 - `ctx` is present only in an agent view that has a context.
 - The Flight Deck button (`deck`) is `▸ Flight Deck` when the pane is closed and `▾ Flight Deck` when it is open. It is in no group. It is the last part, at the right end of the row. A gap takes the free room before it. Its key is `agents`.
 - The band is one row. It fits `columns`. It never wraps.
+- On a desktop, `columns` counts cells of the monospaced face. From Claude Code 2.1.299 the band text is `mono`, so its fit is exact. An earlier engine refuses `mono` and draws the proportional face, which is narrower: the band fits to `columns / 0.75` cells (`PROPORTIONAL_CELL` in `band.tsx`). The row has `flexWrap="nowrap"`. The `Client` of the text is in a box with `flexGrow`, `flexShrink`, `minWidth={0}` and `overflow="hidden"`, and the button is in a box with `flexShrink={0}`. No width comes from `columns`: a resize draws the last tree at the new width before the hook answers, and a `Client` is laid out at the size of the viewport until its region is. Either one put the button on a second row.
 - A band that is too narrow drops parts in this order (first dropped first): `break`, `bg`, `agents`, `diff`, `hit`, `tools`, `work`, `cost`, `out`, `in`, `ctx`, `deck`.
 - `break` is `✗ <cause>` in `red`. It is present when the last main step was a cache break. The band of an agent view does not have it.
 - The fit uses the target counts. A part does not come and go while a count runs.
@@ -211,7 +212,7 @@ Source: `agentTable` in `table.ts`, `board` and `AgentPane` in `pane.tsx`.
 - Each row is one row. A row never wraps.
 - The cache screen table has the columns `time cause rewritten lost($)`. Widths: `CLOCK_WIDTH` 5, `REWRITTEN_WIDTH` 9, `LOST_WIDTH` 8. `cause` takes the rest of the width. The detail of an entry is a second row, dim, that starts below the cause.
 - The tools screen table has the columns `tool calls calls(%)`. Widths: `CALLS_WIDTH` 6, `CALLS_PCT_WIDTH` 8. `tool` takes the rest of the width. The calls are `orange`. The share has the color of a cost share (`shareColor`).
-- On the tools screen, a row with children is the button `▸ <name>` / `▾ <name>` (key `trow:<name>`). Its tree is below it, dim, with no share. The connectors (`├─`, `└─`, `│`) are a cell of their own (`tools:sub:<row>:branch:<line>`): `cut` joins runs of spaces, so a connector in the name cell loses its indent. On a desktop each other tool name is a plain button that does nothing, so the names line up with the buttons.
+- On the tools screen, a row with children is the button `▸ <name>` / `▾ <name>` (key `trow:<name>`). Its tree is below it, dim, with no share. The connectors (`├─`, `└─`, `│`) are a cell of their own (`tools:sub:<row>:branch:<line>`): `cut` joins runs of spaces, so a connector in the name cell loses its indent. On a desktop each other tool name is a plain button that does nothing, so the names line up with the buttons. On a desktop from Claude Code 2.1.299 the connector cell is `mono`, as on the terminal. An earlier desktop draws no connector: the cell is an empty box of 2 cells and 3 cells for each level (`TREE_INDENT`, `TREE_LEVEL` in `pane.tsx`). Spaces do not align a connector of the proportional face, and the connector is wider than its cells.
 - A detail row below an agent has the same leading cells as the agent row (indent, mark width, expand width), so the two rows align.
 
 ## 8. Buttons and empty states
@@ -244,6 +245,7 @@ The layout does not change between surfaces. Only the drawing method changes. Th
 Desktop rules:
 
 - A desktop font is not fixed-width. A count of characters does not give a width. Give each part a width in cells.
+- A cell is the advance of the monospaced face. A box-drawing character of the proportional face is wider than one cell, and a letter is narrower (about 0.64 cell).
 - Draw each cell next to a Button as a `Client`. A `Text` does not line up with a Button.
 - Put words that belong together in one Button label. Separate cells of a fixed width stand apart.
 - Build a header or a detail row from the same parts as its data row (indent, mark box, expand box). A desktop sizes a box and a padding in different units.

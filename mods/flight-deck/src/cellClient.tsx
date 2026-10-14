@@ -66,6 +66,7 @@ const CellClient: ClientModule<Cell, State> = (c, surface) => {
       {...(c.color === undefined ? {} : { color: c.color })}
       {...(c.dim === true ? { dimColor: true } : {})}
       {...(c.bold === true ? { bold: true } : {})}
+      {...(c.mono === true ? { mono: true } : {})}
     >
       {cellText(unpadded, s.tick, s.now, s.value === undefined ? target : valueAt(s.value, s.now))}
     </Text>

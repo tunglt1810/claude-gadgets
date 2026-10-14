@@ -61,6 +61,8 @@ type Props = {
   spin: number | null
   // True when the engine draws a Button that holds a Text.
   holdsText: boolean
+  // The engine draws a Text in the monospaced face (2.1.299 and later).
+  holdsMono: boolean
   // The time the working times are read at.
   now: number
   columns: number
@@ -144,6 +146,10 @@ const CLOCK_WIDTH = 5
 const TOOLS = 'tools'
 const CALLS_WIDTH = 6
 const CALLS_PCT_WIDTH = 8
+// A desktop's tree on the tools screen before 2.1.299: the cells before the first level,
+// below the name of the row, and the cells of one level (a connector and its space).
+const TREE_INDENT = 2
+const TREE_LEVEL = 3
 const REWRITTEN_WIDTH = 9
 const LOST_WIDTH = 8
 // The columns of the context screen: a count of tokens fits `123.4k`, a share its header
@@ -202,6 +208,7 @@ export const AgentPane = ({
   shownUsd,
   spin,
   holdsText,
+  holdsMono,
   now,
   columns,
   scrollTop,
@@ -749,7 +756,14 @@ export const AgentPane = ({
                         // The connectors are a cell of their own: a cut text loses its runs
                         // of spaces. They start below the name of the row.
                         const branch = `  ${l.prefix}`.trimEnd()
-                        const leafWidth = Math.max(1, nameWidth - branch.length - 1)
+                        // A desktop before 2.1.299 draws the proportional face: spaces do not
+                        // align a connector, and a connector is wider than its cells. Its tree
+                        // is an indent of one level for each connector, with no connector.
+                        const isIndent = isClient && !holdsMono
+                        const branchWidth = isIndent
+                          ? TREE_INDENT + TREE_LEVEL * (l.prefix.length / TREE_LEVEL)
+                          : branch.length
+                        const leafWidth = Math.max(1, nameWidth - branchWidth - 1)
                         return (
                           <Box
                             key={`tools:subrow:${i}:${j}`}
@@ -757,11 +771,20 @@ export const AgentPane = ({
                             alignItems="center"
                             gap={1}
                           >
-                            {cell(`tools:sub:${i}:branch:${j}`, {
-                              text: branch,
-                              dim: true,
-                              width: branch.length,
-                            })}
+                            {isIndent ? (
+                              <Box
+                                key={`tools:sub:${i}:branch:${j}`}
+                                width={branchWidth}
+                                flexShrink={0}
+                              />
+                            ) : (
+                              cell(`tools:sub:${i}:branch:${j}`, {
+                                text: branch,
+                                dim: true,
+                                width: branch.length,
+                                ...(isClient ? { mono: true as const } : {}),
+                              })
+                            )}
                             {quiet(`tools:sub:${i}:name:${j}`, cut(l.name, leafWidth), leafWidth)}
                             {num(`tools:sub:${i}:calls:${j}`, String(l.calls), CALLS_WIDTH, {
                               dim: true,

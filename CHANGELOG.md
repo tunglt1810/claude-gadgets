@@ -7,6 +7,14 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [Unreleased]
+
+#### Fixed
+
+- On a desktop, the band no longer drops `bg` and `agents` while the row has room.
+- On a desktop, the band button stays on the row of the band.
+- On a desktop, the tree of the `tools` screen lines up its names: from Claude Code 2.1.299 with its connectors, before that with an indent only.
+
 ### [0.10.0] - 2026-10-14
 
 Tested on Claude Code 2.1.299.

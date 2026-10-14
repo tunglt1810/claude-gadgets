@@ -18,7 +18,7 @@ import {
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
-import { holdsText } from '../src/engine'
+import { holdsMono, holdsText } from '../src/engine'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
 import { costOf } from '../src/price'
@@ -1465,6 +1465,7 @@ export const register: Register = (on, options) => {
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
         spin={e.surface === 'terminal' ? await read($, spin) : null}
         holdsText={holdsText((await $.session.version()).base)}
+        holdsMono={holdsMono((await $.session.version()).base)}
         now={now}
         columns={e.props.bodyColumns - pad * 2}
         scrollTop={e.surface === 'terminal' ? Math.max(0, offset - above) : 0}
@@ -1545,6 +1546,7 @@ export const register: Register = (on, options) => {
         columns={e.props.bodyColumns ?? 120}
         isPaneOpen={isPaneOpen}
         isDesktop={isDesktop}
+        isMono={holdsMono((await $.session.version()).base)}
         onToggle={() => togglePane($)}
       />
     )

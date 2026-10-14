@@ -20,8 +20,14 @@ type Props = {
   isPaneOpen: boolean
   // A desktop: the text is a `Client`.
   isDesktop: boolean
+  // The engine draws a Text in the monospaced face (2.1.299 and later).
+  isMono: boolean
   onToggle: () => void
 }
+
+// The cells of the monospaced face that one character of a desktop's proportional face takes:
+// the band measured 0.64 for most letters, and 0.75 for a band with more digits.
+const PROPORTIONAL_CELL = 0.75
 
 // A single inline row. With the Flight Deck button the row is a Box of three parts: the text, a
 // part that takes the free room, and the button at the right end. Without the button it is
@@ -43,6 +49,7 @@ export const Band = ({
   context,
   isPaneOpen,
   isDesktop,
+  isMono,
   onToggle,
 }: Props) => {
   const { Box, Text, Button } = ui
@@ -74,22 +81,32 @@ export const Band = ({
     // A desktop holds the handle of a button for one drawing: the text, whose times change
     // each second, is a `Client` with a timer of its own, and this tree changes only with its
     // data. The parts of the snapshot that the band does not draw are left out.
+    // `columns` counts cells of the monospaced face. An engine before 2.1.299 draws the text
+    // in the proportional face, which is narrower: the band fits it to more cells.
     const props: BandProps = {
       snap: { ...snap, byAgent: {}, byModel: {}, costByModel: {}, mcpCalls: [], byTool: {} },
       busySince,
       ttl,
-      columns,
+      columns: isMono ? columns : Math.floor(columns / PROPORTIONAL_CELL),
       isPaneOpen,
+      ...(isMono ? { mono: true as const } : {}),
       ...(isAgentView === undefined ? {} : { isAgentView }),
       ...(model === undefined ? {} : { model }),
       ...(name === undefined ? {} : { name }),
       ...(context === undefined ? {} : { context }),
     }
     return (
-      <Box flexDirection="row">
-        <ui.Client key="band" module="./bandClient.tsx" props={props} flexGrow={1} height={1} />
+      // A resize draws the last tree at the new width before the hook answers, and a Client
+      // is laid out at the size of the viewport until its region is: no width comes from
+      // `columns`. The text shrinks and cuts, the button keeps its size, the row never wraps.
+      <Box key="bandrow" flexDirection="row" flexWrap="nowrap">
+        <Box key="bandtext" flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden" height={1}>
+          <ui.Client key="band" module="./bandClient.tsx" props={props} flexGrow={1} height={1} />
+        </Box>
         {button !== undefined && (
-          <Button key="agents" variant="primary" label={button.text} onPress={onToggle} />
+          <Box key="bandbutton" flexShrink={0}>
+            <Button key="agents" variant="primary" label={button.text} onPress={onToggle} />
+          </Box>
         )}
       </Box>
     )

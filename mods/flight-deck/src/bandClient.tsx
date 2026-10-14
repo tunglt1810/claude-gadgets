@@ -2,8 +2,9 @@ import type { ClientModule } from 'claude-code'
 import { remainingMs, ttlMs } from './countdown'
 import { type BandInput, bandSegments } from './layout'
 
-// What the band draws, without the time and without the counts of a tween.
-export type BandProps = Omit<BandInput, 'now' | 'shown'>
+// What the band draws, without the time and without the counts of a tween. `mono`: the text is
+// in the monospaced face, whose advance is the cell that `columns` counts.
+export type BandProps = Omit<BandInput, 'now' | 'shown'> & { mono?: true }
 
 // `hasTick` names the timer that runs; `isLive` is true while a time in the band changes.
 type State = { tick: number; hasTick?: true; isLive?: boolean }
@@ -32,9 +33,10 @@ const BandClient: ClientModule<BandProps, State> = (p, surface) => {
   if (isLive !== (s.isLive === true)) s = { ...s, isLive }
   if (s !== held) surface.setState(s)
   // The Flight Deck button is the page's: a button here has no handle of the engine.
-  const segments = bandSegments({ ...p, now }).filter((seg) => seg.isButton !== true)
+  const { mono, ...input } = p
+  const segments = bandSegments({ ...input, now }).filter((seg) => seg.isButton !== true)
   return (
-    <Text wrap="truncate">
+    <Text wrap="truncate" {...(mono === true ? { mono } : {})}>
       {segments.map((seg, i) => (
         <Text key={String(i)} color={seg.color} bold={seg.bold} inverse={seg.inverse}>
           {seg.text}
