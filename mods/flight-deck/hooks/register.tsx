@@ -99,6 +99,9 @@ const PANE_ID = 'agents'
 // The one drawn text with an emoji: the title row has no columns, so a double-width
 // character moves nothing.
 const PANE_TITLE = '🤖 Flight Deck'
+// The title with the version of the mod, once `loadTitle` read the manifest.
+let paneTitle = PANE_TITLE
+let isTitleRead = false
 // The store key of the last wrap choice: one for the plugin, not one per session.
 const WRAP_KEY = 'wrap'
 const initialPane: PaneView = {
@@ -165,6 +168,22 @@ const ttlsAtom = atom({ plugin: 'flight-deck', key: 'ttls' } as const, null as T
 
 // Load by session id on every event: covers --resume, in-process resume and /clear
 // without relying on session.start (which does not fire for those).
+// The engine gives no version of a plugin: it is read from the manifest, once. A manifest that
+// does not read keeps the title without a version.
+async function loadTitle($: Api): Promise<void> {
+  if (isTitleRead) return
+  isTitleRead = true
+  const manifest = await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`).catch(() => '')
+  const version = (() => {
+    try {
+      return (JSON.parse(manifest) as { version?: unknown }).version
+    } catch {
+      return undefined
+    }
+  })()
+  if (typeof version === 'string') paneTitle = `${PANE_TITLE} ${version}`
+}
+
 async function ensureLoaded($: Api): Promise<string> {
   const id = await $.session.id()
   const cur = await read($, meter)
@@ -698,7 +717,7 @@ async function focusField($: Api, agentId: string): Promise<void> {
   // Limit: the surface gives the keyboard only while the prompt of the session is empty. With
   // text in the prompt the field gets no focus, and the person must click the field.
   if (!isPaneFocused || first.deny !== undefined) {
-    await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true }).catch(() => undefined)
+    await $.ui.open({ id: PANE_ID, title: paneTitle, focus: true }).catch(() => undefined)
   }
   // The pane holds the keyboard a short time after it asked: a live log gave a refused move
   // 11 ms after the request, and a move that landed 80 ms after it.
@@ -807,11 +826,12 @@ async function togglePane($: Api): Promise<boolean> {
     return false
   }
   await loadAgents($, await $.session.id())
+  await loadTitle($)
   const isWrapped = (await $.store.get(WRAP_KEY)) !== false
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
   await syncPane($)
   // The pane takes the keyboard: a click on a pane without it only focuses.
-  await $.ui.open({ id: PANE_ID, title: PANE_TITLE, focus: true })
+  await $.ui.open({ id: PANE_ID, title: paneTitle, focus: true })
   startSpinner($)
   // After the pane is open: a usage call that fails leaves the pane and its state as one.
   // A summary breakdown estimates locally: it sends no request.
@@ -1423,6 +1443,8 @@ export const register: Register = (on, options) => {
     // Only `paneData`, the view and (on the terminal) the spinner are read here: each read
     // value redraws the pane when it changes.
     isPaneFocused = e.props.isFocused
+    // A hot reload keeps the pane open and resets the title.
+    await loadTitle($)
     const id = await $.session.id()
     const data = await read($, shownData)
     const isCurrent = data.sessionId === id
@@ -1501,7 +1523,7 @@ export const register: Register = (on, options) => {
     if (pad === 0) return body
     return (
       <ui.Box flexDirection="column" paddingX={pad}>
-        <ui.Text bold>{PANE_TITLE}</ui.Text>
+        <ui.Text bold>{paneTitle}</ui.Text>
         {/* An empty row parts the title from the body. */}
         <ui.Text> </ui.Text>
         {body}

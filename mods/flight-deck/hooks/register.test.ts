@@ -9,6 +9,8 @@ const USAGE = {
   cache_creation_input_tokens: 10,
   model: 'm',
 }
+// The pane title names the version in the mod's manifest, which `fs.read` answers.
+const TITLE = '🤖 Flight Deck 9.9.9'
 const STEP = { turnId: 't1', index: 0, model: 'm', messageCount: 1 }
 const DONE = { answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as const
 
@@ -105,6 +107,11 @@ const engine = (
     () => ({ value: { startedAt: 0, context: {}, rateLimits: [], ...usage() } }) as never,
   )
   on('session.id', () => ({ value: id() }))
+  on('fs.read', (_$, e) =>
+    e.path.endsWith('/.claude-plugin/plugin.json')
+      ? ({ value: '{ "name": "flight-deck", "version": "9.9.9" }' } as never)
+      : ({ deny: 'no file' } as never),
+  )
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -1098,7 +1105,7 @@ test('a second run counts and the open transcript is read again', async ($, on) 
   })
   await band.press({ key: 'agents' })
   expect(calls.opens).toBe(1)
-  expect(calls.title).toBe('🤖 Flight Deck')
+  expect(calls.title).toBe(TITLE)
   const ui = await mountPane($, 'terminal')
   await ui.press({ key: 'agent:a1' })
   expect(await paneText(ui)).not.toContain('Again.')
@@ -1333,9 +1340,8 @@ test('an agent row is colored by its status', async ($, on) => {
     // The title is a bold cell: a Text on the terminal, a Client's props on the desktop. The
     // terminal's first bold Text is the title of the pane.
     const titleColor = async () =>
-      (await ui.findAll({ type: 'Text' })).find(
-        (x) => x.props.bold === true && x.text !== '🤖 Flight Deck',
-      )?.props.color ??
+      (await ui.findAll({ type: 'Text' })).find((x) => x.props.bold === true && x.text !== TITLE)
+        ?.props.color ??
       (await ui.findAll({ type: 'Client' }))
         .map((c) => c.props.props as Cell)
         .find((c) => c.bold === true)?.color
@@ -1762,7 +1768,7 @@ test('the terminal pads the pane at the left and the right; a desktop has its ow
   const term = await mountPane($, 'terminal')
   expect(await term.drawn()).toMatchObject({ type: 'Box', props: { paddingX: 1 } })
   // The terminal draws no title of the pane: the pane's first row is the title there.
-  expect(await paneText(term)).toMatch(/^🤖 Flight Deck\n\s*\n/)
+  expect(await paneText(term)).toMatch(/^🤖 Flight Deck 9\.9\.9\n\s*\n/)
   await term.unmount()
   const desk = await mountPane($, 'desktop')
   expect(await paneText(desk)).not.toContain('Flight Deck')
