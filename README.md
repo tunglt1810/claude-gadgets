@@ -130,7 +130,7 @@ When the safety classifier gives no verdict for a tool call, the engine denies t
 
 A rule is a tool name (`Read`), or a Bash command with its subcommand (`Bash(git push:*)`). A compound command, a command with no subcommand and a command behind a wrapper such as `sudo` or `bash` get no rule. A rule lives in memory until the session or the mod reloads.
 
-A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input longer than 2000 characters gets none.
+A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input longer than 20,000 characters gets none.
 
 ## Adding a mod
 

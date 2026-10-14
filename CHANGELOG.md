@@ -234,6 +234,14 @@ Tested on Claude Code 2.1.291.
 
 ### [Unreleased]
 
+### [0.1.2] - 2026-10-14
+
+Tested on Claude Code 2.1.299.
+
+#### Changed
+
+- A call with an input of up to 20,000 characters gets a question, so a Write of a whole file can be approved.
+
 ### [0.1.1] - 2026-10-09
 
 Tested on Claude Code 2.1.295.

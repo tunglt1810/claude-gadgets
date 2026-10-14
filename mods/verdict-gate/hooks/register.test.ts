@@ -111,7 +111,7 @@ test('a dismissed question keeps the denial of the engine', async ($, on) => {
 test('a call too long to show whole keeps the denial of the engine', async ($, on) => {
   const seen = engine($, on, 'Run once')
 
-  const res = await $.tool.call({ ...CALL, command: 'x'.repeat(5000) })
+  const res = await $.tool.call({ ...CALL, command: 'x'.repeat(25_000) })
 
   expect(seen.asks).toHaveLength(0)
   expect(seen.runs).toBe(0)

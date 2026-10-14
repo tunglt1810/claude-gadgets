@@ -11,7 +11,7 @@ const REJECTION = /The user doesn't want to (proceed with this tool use|take thi
 export const isNoVerdict = (text: string): boolean =>
   !JUDGMENT.test(text) && !REJECTION.test(text) && NO_VERDICT.test(text)
 
-const MAX_DETAIL = 2000
+const MAX_DETAIL = 20_000
 
 // Each character that is not printable ASCII: a terminal hides a control or a format
 // character (bidi, zero width), and a letter of a different script can look like an ASCII

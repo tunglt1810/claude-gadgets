@@ -132,7 +132,7 @@ Khi safety classifier không đưa ra verdict cho một tool call, engine từ c
 
 Một rule là tên một tool (`Read`), hoặc một lệnh Bash kèm subcommand (`Bash(git push:*)`). Lệnh ghép, lệnh không có subcommand và lệnh đứng sau một wrapper như `sudo` hay `bash` không có rule. Rule nằm trong bộ nhớ cho tới khi session hoặc mod nạp lại.
 
-Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input dài hơn 2000 ký tự cũng không có câu hỏi.
+Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input dài hơn 20.000 ký tự cũng không có câu hỏi.
 
 ## Thêm một mod
 

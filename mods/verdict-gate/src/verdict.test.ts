@@ -47,7 +47,11 @@ test('a line break in a command is shown as written, not drawn', () => {
 })
 
 test('a call too long to show whole has no question', () => {
-  expect(question('Bash', 'x'.repeat(5000))).toBeUndefined()
+  expect(question('Bash', 'x'.repeat(20_001))).toBeUndefined()
+})
+
+test('a call of up to 20,000 characters has a question: a Write of a whole file fits', () => {
+  expect(question('Write', 'x'.repeat(20_000))).toContain('x'.repeat(20_000))
 })
 
 test('the question shows each hidden character as its code point', () => {
