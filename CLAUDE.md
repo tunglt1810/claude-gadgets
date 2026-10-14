@@ -23,7 +23,7 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 ## Conventions
 
 - Docs, code comments, identifiers, commit messages and user-visible strings are English.
-- The one exception: a translation of the README is `docs/i18n/README.<lang>.md`. `README.md` is the source. Each translation names the commit of `README.md` that it follows, and each README has the row of language links below its title.
+- The one exception: a translation of the README is `docs/i18n/README.<lang>.md`. `README.md` is the source. A change to `README.md` changes each translation in the same commit, and each README has the row of language links below its title. A translation names no commit hash: a squash merge gives the branch's commits new hashes.
 - Dependencies are pinned to exact versions (`bunfig.toml` `exact = true`); never add a range.
 - A changelog entry is one short sentence: what changed for the person who uses the mod. The cause and the method go in the commit message or the spec, not in the changelog.
 - Specs go in `docs/specs/`, plans in `docs/plans/`, scratch files in `.tmp/` (never `/tmp`).
