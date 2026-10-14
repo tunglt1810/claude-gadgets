@@ -43,7 +43,7 @@ Claude Desktop không có lệnh `/plugin install` trong tab Code. Hãy cài mod
 
 Một mod là code chạy trong Claude Code trên máy của bạn, với quyền truy cập mà Claude Code có. Hãy đọc mã nguồn trước khi bạn cài nó.
 
-Các mod được kiểm thử trên Claude Code 2.1.296.
+Các mod được kiểm thử trên Claude Code 2.1.299.
 
 ## Nạp một mod từ bản clone
 
@@ -58,7 +58,8 @@ Tuỳ chọn `cacheTtl` của `flight-deck` nhận `1h` (mặc định) hoặc `
 
 `flight-deck` có một pane hiển thị các subagent của session.
 
-- Bấm `◆ agents N` trên dải, hoặc chạy `/agent-log`, để mở pane. Làm lại thao tác đó để đóng pane.
+- Bấm `▸ Flight Deck` trên dải, hoặc chạy `/agent-log`, để mở pane. Làm lại thao tác đó để đóng pane.
+- Dải hiển thị số subagent mà session đã khởi chạy, ở dạng `◆ agents N`.
 - Pane liệt kê các subagent theo dạng cây. Agent con nằm dưới agent cha.
 - Bấm vào một agent để xem transcript của nó. Bấm vào một lần gọi tool để xem input và kết quả của nó.
 - Mỗi hàng agent có một hàng chi tiết và một nút mở rộng. Hàng chi tiết mở sẵn, và nút này ẩn hoặc hiện nó. Hàng chi tiết hiển thị model, effort và độ dài context của agent (`ctx 182.4k/1M 18%`). Màu là xanh lá dưới 50%, vàng từ 50% và đỏ từ 80%.
@@ -104,6 +105,15 @@ Một cache break là một step của vòng lặp chính đọc từ prompt cac
 - Các nguyên nhân: `compact` (một lần compaction), `history` (các message bị gỡ bỏ), `model` (một model khác), `ttl` (cache hết hạn), `tools` (danh sách tool thay đổi), `prompt` (system prompt thay đổi), `context` (một file chỉ dẫn hoặc ngày tháng thay đổi), `unknown`.
 - `rewritten` là số token mà API ghi lại. `lost($)` là một ước lượng: chi phí của chúng khi là cache write, trừ đi chi phí của chúng khi là cache read.
 - Mod chỉ tìm các break của vòng lặp chính. Một subagent có cache riêng.
+
+## Màn hình tools
+
+- Hàng `tools` trên màn hình agents hiển thị số lần gọi tool và số tool.
+- Bấm `tools` để xem từng tool cùng số lần gọi và tỉ lệ của nó trên tổng số lần gọi (`calls(%)`). Tool có nhiều lần gọi nhất đứng đầu.
+- Các số đếm gồm cả các lần gọi của mỗi subagent.
+- Pane hiển thị số đếm mới sau step tiếp theo của model.
+- Mod đếm số lần gọi, không đếm chi phí. Engine cho chi phí của mỗi request và mỗi model, không cho chi phí của mỗi tool call.
+- Một session từ phiên bản cũ của mod đã đếm các lần gọi, nhưng không đếm theo từng tool. Màn hình hiển thị số lần gọi mà nó không liệt kê được.
 
 ## Câu hỏi khi không có verdict
 

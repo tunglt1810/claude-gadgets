@@ -41,7 +41,7 @@ To get a new version, run `claude plugin marketplace update claude-gadgets`, the
 
 A mod is code that runs in Claude Code on your machine, with the access that Claude Code has. Read the source before you install it.
 
-The mods are tested on Claude Code 2.1.296.
+The mods are tested on Claude Code 2.1.299.
 
 ## Loading a mod from a clone
 
@@ -56,7 +56,8 @@ Use one source for a mod: the installed plugin or a directory, not the two toget
 
 `flight-deck` has a pane that shows the subagents of the session.
 
-- Press `◆ agents N` on the band, or run `/agent-log`, to open the pane. Do the same to close it.
+- Press `▸ Flight Deck` on the band, or run `/agent-log`, to open the pane. Do the same to close it.
+- The band shows the number of subagents that the session started as `◆ agents N`.
 - The pane lists the subagents as a tree. A child agent is below its parent.
 - Press an agent to see its transcript. Press a tool call to see its input and its result.
 - Each agent row has a detail row, open at first, and an expand button that hides or shows it. The detail row shows the model, the effort and the context length of the agent (`ctx 182.4k/1M 18%`). The color is green below 50%, yellow from 50% and red from 80%.
@@ -102,6 +103,15 @@ A cache break is a step of the main loop that reads much less from the prompt ca
 - The causes: `compact` (a compaction), `history` (messages were removed), `model` (another model), `ttl` (the cache expired), `tools` (the tool list changed), `prompt` (the system prompt changed), `context` (an instruction file or the date changed), `unknown`.
 - `rewritten` is the tokens that the API wrote again. `lost($)` is an estimate: their cost as cache writes less their cost as cache reads.
 - The mod finds the breaks of the main loop only. A subagent has its own cache.
+
+## Tools screen
+
+- The `tools` row on the agents screen shows the number of tool calls and of tools.
+- Press `tools` to see each tool with its calls and its share of all calls (`calls(%)`), the most calls first.
+- The counts include the calls of each subagent.
+- The pane shows a new count after the next step of the model.
+- The mod counts calls, not cost. The engine gives a cost for each request and each model, not for each tool call.
+- A session from an earlier version of the mod counted its calls, but not for each tool. The screen shows how many calls it cannot list.
 
 ## No-verdict question
 

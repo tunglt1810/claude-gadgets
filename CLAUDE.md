@@ -4,7 +4,7 @@ Mods (hot-reloadable function-hook plugins) for Claude Code. One self-contained 
 
 ## Compatibility
 
-- Built and tested against **Claude Code 2.1.296** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.296.`
+- Built and tested against **Claude Code 2.1.299** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.299.`
 - Bun 1.4.2 (not pinned in the repo).
 - The plugin API may change between Claude Code releases without notice. After an update: let the engine rewrite `mods/<name>/.claude-plugin/types/` (load the mod once), run `bun run check`, then update the version on this line.
 - Claude Desktop runs its own Claude Code (`~/Library/Application Support/Claude/claude-code/<version>/`), which is older than the CLI for some days after a release. An engine refuses the whole tree of a pane that has one element or prop it does not know, and the pane is then empty.
@@ -42,7 +42,8 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 - `ui.render` never writes state. Write from events or timers, and compute inside the updater (`update($, atom, c => ...)`) so concurrent events do not overwrite each other.
 - Plugin files link with static `import` only; `import()` does not load.
 - `session.start` does not fire on `/clear` or in-process resume: key data by `$.session.id()` and reload on mismatch.
-- A subagent raises `turn.complete` (with `agentId`) but no `turn.start`.
+- A subagent raises `turn.start` and `turn.complete` with `agentId` (`turn.start` from 2.1.299 only). A hook for the main loop returns `next(e)` when `e.agentId` is set.
+- 2.1.299 deprecates `Text` `bold` for `weight`. Keep `bold`: the desktop engine before 2.1.299 does not know `weight`, and 2.1.299 reads `bold: true` as `semibold`.
 
 ## Testing
 

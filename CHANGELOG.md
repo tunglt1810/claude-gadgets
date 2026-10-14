@@ -7,6 +7,23 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [0.10.0] - 2026-10-14
+
+Tested on Claude Code 2.1.299.
+
+#### Added
+
+- The `tools` screen of the pane shows the calls of each tool.
+
+#### Changed
+
+- The band shows the agent count as `◆ agents N` among the activity metrics.
+- The band button that opens the pane is `▸ Flight Deck`.
+
+#### Fixed
+
+- On Claude Code 2.1.299, a turn of a subagent no longer starts the working time of the main loop.
+
 ### [0.9.0] - 2026-10-11
 
 Tested on Claude Code 2.1.296.
