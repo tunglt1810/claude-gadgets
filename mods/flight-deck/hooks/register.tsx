@@ -1222,6 +1222,9 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    // A subagent's run raises turn.start too (from Claude Code 2.1.299): it is not a turn of
+    // the main loop, and its turn.complete does not close the main turn's interval.
+    if (e.agentId !== undefined) return next(e)
     const session = await ensureLoaded($)
     // The steps at the start of the turn: its end knows from them if the turn had a step.
     turnSteps = { id: session, steps: (await read($, meter)).steps }
@@ -1236,8 +1239,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    // A subagent's run raises turn.complete without a turn.start: it must not close
-    // the main turn's interval. It ends one run of that agent: an answer, or a stop (a kill
+    // A subagent's run must not close the main turn's interval: turn.start leaves it out. It ends one run of that agent: an answer, or a stop (a kill
     // gives `aborted`).
     const agentId = e.agentId
     if (agentId !== undefined) {

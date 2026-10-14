@@ -335,6 +335,19 @@ test('a subagent turn.complete does not close the main ◷ interval', async ($, 
   expect(await settled($, clock)).toContain('◷ work 0:05')
 })
 
+test('a subagent turn.start does not open the main ◷ interval', async ($, on) => {
+  const clock = mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+
+  await $.turn.start({ text: 'p', turnId: 'sub-turn', agentId: 'sub1' })
+  await clock.advance(4000)
+  await $.turn.complete({ ...DONE, turnId: 'sub-turn', agentId: 'sub1' })
+  await clock.advance(60_000)
+
+  expect(await settled($, clock)).toContain('◷ work 0:00')
+})
+
 test('parallel tool calls are all counted', async ($, on) => {
   const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
