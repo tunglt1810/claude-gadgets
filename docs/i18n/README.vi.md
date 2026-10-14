@@ -111,7 +111,7 @@ Một cache break là một step của vòng lặp chính đọc từ prompt cac
 - Hàng `tools` trên màn hình agents hiển thị số lần gọi tool và số tool.
 - Bấm `tools` để xem từng tool cùng số lần gọi và tỉ lệ của nó trên tổng số lần gọi (`calls(%)`). Tool có nhiều lần gọi nhất đứng đầu.
 - Các tool của một MCP server gộp thành một hàng (`mcp__figma`).
-- Hàng có dấu `▸` mở ra một cây cho biết các lần gọi của nó đã làm gì: các tool của một MCP server, các loại agent của `Agent`, các skill của `Skill`, và các lệnh của `Bash`.
+- Hàng có dấu `▸` mở ra một cây cho biết các lần gọi của nó đã làm gì: các tool của một MCP server, các loại agent của `Agent`, các skill của `Skill`, các operation của `LSP`, và các lệnh của `Bash`.
 - Cây của `Bash` hiển thị các pattern của lệnh: tên lệnh, kèm subcommand với các tool như `git` hoặc `bun` (`git status`, `bun run`, `rg`). Một call đếm từng lệnh của một chuỗi lệnh hoặc một pipe. Mod không đếm `cd`, phép gán biến, wrapper như `sudo` hoặc `rtk`, và phần thân của heredoc. Mod chỉ giữ pattern, không giữ lệnh. Sau 100 pattern, một pattern mới được đếm vào `(other)`.
 - Các số đếm gồm cả các lần gọi của mỗi subagent.
 - Pane hiển thị số đếm mới sau step tiếp theo của model.
@@ -163,6 +163,9 @@ docs/i18n/    các bản dịch của README
 
 - Transcript của agent
 ![Transcript của agent trên CLI](../../previews/preview-cli-agent-transcript.png)
+
+- Verdict gate
+![Câu hỏi đang mở của Verdict Gate trên CLI](../../previews/preview-cli-verdict-gate.png)
 
 ### Claude Desktop
 

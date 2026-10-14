@@ -153,10 +153,13 @@ docs/i18n/    translations of this README
 ![Claude Code CLI flight deck preview](previews/preview-cli.png)
 
 - Agent dashboard
-![alt text](previews/preview-cli-agent-dashboard.png)
+![Claude Code CLI flight deck - agent dashboard preview](previews/preview-cli-agent-dashboard.png)
 
 - Agent transcript view
-![alt text](previews/preview-cli-agent-transcript.png)
+![Claude Code CLI flight deck - agent transcript preview](previews/preview-cli-agent-transcript.png)
+
+- Verdict gate
+![Claude Code CLI Verdict Gate open ask](previews/preview-cli-verdict-gate.png)
 
 ### Claude Desktop
 

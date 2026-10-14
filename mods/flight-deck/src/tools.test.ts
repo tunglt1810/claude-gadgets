@@ -102,6 +102,8 @@ test('subKeysOf names what a call of each tool did', () => {
     'superpowers:brainstorming',
   ])
   expect(subKeysOf('Skill', {})).toEqual([])
+  expect(subKeysOf('LSP', { operation: 'hover', filePath: '/x', line: 1 })).toEqual(['hover'])
+  expect(subKeysOf('LSP', {})).toEqual([])
   expect(subKeysOf('Read', { file_path: '/x' })).toEqual([])
 })
 
