@@ -313,6 +313,76 @@ test('the band draws on the desktop surface too', async ($, on) => {
   expect(await settled($, clock, 'desktop')).toContain('⌘ calls 1')
 })
 
+// The band at `bodyColumns` cells, and the props of its `Client` on a desktop.
+const bandAt = async ($: Engine, surface: 'terminal' | 'desktop', bodyColumns: number) => {
+  const ui = await $.ui.mount({
+    plugin: 'flight-deck',
+    surface,
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns, view: {} } as never,
+  })
+  const client = await ui.find({ key: 'band' })
+  const text =
+    client === undefined
+      ? ((await ui.findAll({ type: 'Text' })).find((t) => t.props.wrap === 'truncate')?.text ?? '')
+      : textOf(await ui.drawn({ in: 'band' }))
+  await ui.unmount()
+  return {
+    text,
+    props: client?.props.props as { mono?: boolean } | undefined,
+  }
+}
+
+test('a desktop band on 2.1.299 draws its text in the monospaced face of the cells', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  engineBase = '2.1.299'
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+
+  const { text, props } = await bandAt($, 'desktop', 100)
+  expect(props?.mono).toBe(true)
+  // The cells are the face's own: the band drops what the terminal drops.
+  expect(text).not.toContain('◇ bg')
+  expect((await bandAt($, 'terminal', 100)).text).not.toContain('◇ bg')
+})
+
+test('a desktop band keeps its button on the row while the pane is resized', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  const ui = await $.ui.mount({
+    plugin: 'flight-deck',
+    surface: 'desktop',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns: 100, view: {} } as never,
+  })
+  // A resize draws the last tree at the new width before the hook answers: no width comes
+  // from `bodyColumns`. The text shrinks and cuts, the button keeps its size, and the row
+  // never wraps.
+  const row = (await ui.find({ key: 'bandrow' })) as Node | undefined
+  expect(row?.props).toMatchObject({ flexDirection: 'row', flexWrap: 'nowrap' })
+  const text = (await ui.find({ key: 'bandtext' })) as Node | undefined
+  expect(text?.props).toMatchObject({ flexGrow: 1, flexShrink: 1, minWidth: 0, overflow: 'hidden' })
+  expect((await ui.find({ key: 'band' }))?.props.width).toBeUndefined()
+  const button = (await ui.find({ key: 'bandbutton' })) as Node | undefined
+  expect(button?.props).toMatchObject({ flexShrink: 0 })
+  await ui.unmount()
+})
+
+test('a desktop band before 2.1.299 fits its narrower text to more cells', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+
+  const { text, props } = await bandAt($, 'desktop', 100)
+  // That engine refuses `mono`: the text is in the proportional face, which is narrower.
+  expect(props?.mono).toBeUndefined()
+  expect(text).toContain('◇ bg')
+  expect((await bandAt($, 'terminal', 100)).text).not.toContain('◇ bg')
+})
+
 test('a cache lifetime of 1h is honoured', { options: { cacheTtl: '1h' } }, async ($, on) => {
   const clock = mock.clock(on, { now: 0 })
   mock.store(on, {})
@@ -2140,8 +2210,9 @@ test('the agents button is at the right end of the band, after a part that takes
       children: { type: string; props: { flexGrow?: number } }[]
     }
     await ui.unmount()
-    // A desktop draws the text in a `Client` that takes the free room.
-    const types = surface === 'desktop' ? ['Client', 'Button'] : ['Text', 'Box', 'Button']
+    // A desktop draws the text in a `Client`, in a box that takes the free room, and the
+    // button in a box that keeps its size.
+    const types = surface === 'desktop' ? ['Box', 'Box'] : ['Text', 'Box', 'Button']
     expect(root.children.map((c) => c.type)).toEqual(types)
     expect(root.children[surface === 'desktop' ? 0 : 1]?.props.flexGrow).toBe(1)
   }
@@ -3625,10 +3696,19 @@ test('a tool row opens a tree of what its calls did', async ($, on) => {
     expect(await ui.find({ key: 'tools:sub:0:name:0' })).toBeUndefined()
     await ui.press({ key: 'trow:Bash' })
     expect(await label(ui, 'trow:Bash')).toContain('▾ Bash')
-    expect(await cellOf(ui, 'tools:sub:0:branch:0')).toContain('  ├─')
+    if (surface === 'terminal') {
+      expect(await cellOf(ui, 'tools:sub:0:branch:0')).toContain('  ├─')
+      expect(await cellOf(ui, 'tools:sub:0:branch:1')).toContain('  │  └─')
+    } else {
+      // A desktop before 2.1.299 has no monospaced Text: its connectors do not line up, so
+      // the tree is an indent of 3 cells for each level, with no connector.
+      const box = (await ui.find({ key: 'tools:sub:0:branch:1' })) as Node | undefined
+      expect(box?.type).toBe('Box')
+      expect(box?.props?.width).toBe(2 + 3 * 2)
+      expect(box?.children ?? []).toHaveLength(0)
+    }
     expect(await cellOf(ui, 'tools:sub:0:name:0')).toContain('git')
     expect(await cellOf(ui, 'tools:sub:0:calls:0')).toContain('2')
-    expect(await cellOf(ui, 'tools:sub:0:branch:1')).toContain('  │  └─')
     expect(await cellOf(ui, 'tools:sub:0:name:1')).toContain('status')
     expect(await cellOf(ui, 'tools:sub:0:name:2')).toContain('rg')
     expect(await cellOf(ui, 'tools:calls:0')).toContain('2')
@@ -3637,6 +3717,24 @@ test('a tool row opens a tree of what its calls did', async ($, on) => {
     await ui.press({ key: 'back' })
     await ui.unmount()
   }
+})
+
+test('a desktop on 2.1.299 draws the connectors of the tools tree in the monospaced face', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  engineBase = '2.1.299'
+  await $.tool.call({ tool: 'Bash', command: 'git status && rg -n x src' })
+  await measure($, 0.1)
+  const ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'tools' })
+  await ui.press({ key: 'trow:Bash' })
+  const branch = await ui.find({ key: 'tools:sub:0:branch:1' })
+  expect(branch?.type).toBe('Client')
+  expect(branch?.props.props).toMatchObject({ text: '  │  └─', mono: true })
+  expect(branch?.props.width).toBe('  │  └─'.length)
+  await ui.unmount()
 })
 
 test('an Agent call counts its type on the tools screen', async ($, on) => {

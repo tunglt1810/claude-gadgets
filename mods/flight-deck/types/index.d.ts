@@ -256,6 +256,8 @@ export type Cell = {
   ctx?: { tokens: number; window: number; isFull: boolean }
   width?: number
   align?: 'right'
+  // The text is in the monospaced face, whose advance is a cell (a desktop from 2.1.299).
+  mono?: true
 }
 
 // One model's row of the dashboard: its estimated cost (null with no price), the working
