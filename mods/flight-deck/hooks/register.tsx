@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { Caught, EngineInterface, Register, RenderInput } from 'claude-code'
 import { atom, read, update } from 'claude-code'
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
@@ -19,6 +19,7 @@ import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
 import { holdsMono, holdsText } from '../src/engine'
+import { PALETTE } from '../src/palette'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
 import { costOf } from '../src/price'
@@ -954,6 +955,25 @@ async function currentMeter($: Api): Promise<Meter> {
   }
 }
 
+// Draws why the pane failed to draw. Without it the engine skips the failed hook and draws an
+// empty pane, with no reason anywhere. Only the terminal draws the title: a desktop pane has
+// its own.
+async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
+  const ui = $.ui.resolve(e)
+  const reason = next.error.message ?? 'no message'
+  const isTerminal = e.surface === 'terminal'
+  return (
+    <ui.Box flexDirection="column" paddingX={isTerminal ? 1 : 0}>
+      {isTerminal && <ui.Text bold>{paneTitle}</ui.Text>}
+      {isTerminal && <ui.Text> </ui.Text>}
+      <ui.Text color={PALETTE.red}>
+        The pane failed to draw ({next.error.kind}): {reason}
+      </ui.Text>
+      <ui.Text dimColor>Close and open the pane to try again.</ui.Text>
+    </ui.Box>
+  )
+}
+
 export const register: Register = (on, options) => {
   // Start the tick for a session that already has a live cache (--resume, hot reload).
   on('session.start', async ($, e, next) => {
@@ -1529,7 +1549,7 @@ export const register: Register = (on, options) => {
         {body}
       </ui.Box>
     )
-  })
+  }).catch(paneFault)
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)

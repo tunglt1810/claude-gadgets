@@ -18,6 +18,8 @@ const DONE = { answer: '', durationMs: 1, isAborted: false, reason: 'answer' } a
 let toolList: { name: string; description: string; mcp: boolean }[] = []
 // The release of the engine that a test runs on; `engine` sets it back.
 let engineBase = '2.1.295'
+// While true, `session.version` throws: a render hook that reads it fails.
+let isVersionBroken = false
 
 const stepResult = (usage: typeof USAGE | null) => ({
   turnId: 't1',
@@ -100,8 +102,12 @@ const engine = (
 ) => {
   toolList = []
   engineBase = '2.1.295'
+  isVersionBroken = false
   mock.env(on, env)
-  on('session.version', () => ({ value: { version: engineBase, base: engineBase } }) as never)
+  on('session.version', () => {
+    if (isVersionBroken) throw new Error('boom')
+    return { value: { version: engineBase, base: engineBase } } as never
+  })
   on(
     'session.usage',
     () => ({ value: { startedAt: 0, context: {}, rateLimits: [], ...usage() } }) as never,
@@ -1002,6 +1008,31 @@ test('an empty registry shows a note', async ($, on) => {
   mock.store(on, {})
   engine(on)
   paneEngine(on)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).toContain('No agents yet.')
+    await ui.unmount()
+  }
+})
+
+test('a pane that fails to draw shows the reason, and draws as before when it is opened again', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  isVersionBroken = true
+  await $.command.run({ command: 'agent-log', args: '' } as never)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    const text = await paneText(ui)
+    // The reason is the engine's: the call of the render hook to `session.version` failed.
+    expect(text).toContain('The pane failed to draw (throw): ')
+    expect(text).toContain('session.version')
+    // A desktop pane has its own title.
+    expect(text.includes(TITLE)).toBe(surface === 'terminal')
+    await ui.unmount()
+  }
+  isVersionBroken = false
   for (const surface of SURFACES) {
     const ui = await mountPane($, surface)
     expect(await paneText(ui)).toContain('No agents yet.')

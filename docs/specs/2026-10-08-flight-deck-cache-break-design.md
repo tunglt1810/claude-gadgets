@@ -34,8 +34,8 @@ Out of scope:
 | prompt | The input side of one step: `input_tokens`, `cache_read_input_tokens` and `cache_creation_input_tokens` together (`contextTokens` in `window.ts`). |
 | prefix | The prompt of the main step before this one. The API can serve it from the cache. |
 | expected | The smaller of the prefix and the prompt of this step. |
-| break | A main step whose cache read is less than half of the expected tokens. |
-| rewritten | The expected tokens less the cache read of the step. |
+| break | A main step whose cache read is less than half of the expected tokens, or the first main step after a compaction. |
+| rewritten | The expected tokens less the cache read of the step. For a step after a compaction that reads half or more, the cache write of the step. |
 | lost cost | The cost of the rewritten tokens as cache writes, less their cost as cache reads. |
 | fingerprint | The hashes that the mod keeps of the system prompt sections, of the context blocks and of the listed tools. |
 | listed tool | A tool whose schema is in the tool list of a request. A deferred tool is not a listed tool. |
@@ -97,7 +97,7 @@ One break entry:
 | `rewritten` | Tokens. |
 | `lostUsd` | The lost cost, or `null` for a model with no price. |
 
-A module variable holds the compaction of the session that came after the last main step: its `trigger` and its two token counts. The next main step of that session reads it and clears it.
+A module variable holds the compaction of the session that came after the last main step: its `trigger` and its two token counts. The next main step of that session reads it and clears it. That step is always an entry. After a compaction the system prompt and the tools stay in the cache, and they can be more than half of the shorter prompt.
 
 ## 5. Calculations
 
