@@ -216,6 +216,30 @@ test('withStep keeps the prompt of the step and adds an entry for a break', () =
   expect(after.breakCount).toBe(1)
 })
 
+test('withStep adds an entry for each compaction, also when the step reads most of its prompt', () => {
+  const compaction = { trigger: 'auto', before: 366_609, after: 13_585 }
+  const before = withStep({}, step({ tokens: 366_609, cacheRead: 362_661 }), '1h', null)
+  // After the compaction the system prompt and the tools are still in the cache: the step reads
+  // more than half of its shorter prompt. It wrote the rest again, and that is the entry.
+  const after = withStep(
+    before,
+    step({ tokens: 62_530, cacheRead: 32_449, cacheWrite: 30_079, at: 3000 }),
+    '1h',
+    compaction,
+  )
+  expect(after.breakCount).toBe(1)
+  expect(after.breaks[0]).toMatchObject({
+    at: 3000,
+    cause: 'compact',
+    detail: 'auto · 366.6k → 13.6k',
+    rewritten: 30_079,
+  })
+  expect(after.lastPrompt.cause).toBe('compact')
+  // The first step that the mod sees after a compaction has no step before it: an entry too.
+  const first = withStep({}, step({ cacheWrite: 20_000 }), '1h', compaction)
+  expect(first.breaks[0]).toMatchObject({ cause: 'compact', rewritten: 20_000 })
+})
+
 test('withStep keeps the newest 50 entries and the sum of all', () => {
   let s: ReturnType<typeof withStep> = withStep({}, step({ model: 'm' }), '5m', null)
   for (let i = 0; i < 52; i++)

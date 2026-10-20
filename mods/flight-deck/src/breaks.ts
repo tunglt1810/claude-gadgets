@@ -104,6 +104,15 @@ export const diffOf = (
   return all.length === 1 ? first : `${first} · +${all.length - 1} more`
 }
 
+// The cause of an entry for a compaction: the trigger and the two token counts.
+const compactCause = (c: Compaction): { cause: BreakCause; detail: string } => {
+  const counts =
+    c.before === undefined || c.after === undefined
+      ? ''
+      : ` · ${formatTokens(c.before)} → ${formatTokens(c.after)}`
+  return { cause: 'compact', detail: `${c.trigger}${counts}` }
+}
+
 // Why a step broke the cache: the first cause that applies, in the order of the spec.
 export const causeOf = (
   last: LastPrompt,
@@ -111,13 +120,7 @@ export const causeOf = (
   lifetimeMs: number,
   compaction: Compaction | null,
 ): { cause: BreakCause; detail: string } => {
-  if (compaction !== null) {
-    const counts =
-      compaction.before === undefined || compaction.after === undefined
-        ? ''
-        : ` · ${formatTokens(compaction.before)} → ${formatTokens(compaction.after)}`
-    return { cause: 'compact', detail: `${compaction.trigger}${counts}` }
-  }
+  if (compaction !== null) return compactCause(compaction)
   if (step.messageCount < last.messageCount)
     return { cause: 'history', detail: `${last.messageCount} → ${step.messageCount} messages` }
   if (step.model !== last.model)
@@ -150,19 +153,26 @@ export const withStep = (
   const fingerprint = { ...s.lastPrompt?.fingerprint, ...step.fingerprint }
   const now = { ...step, fingerprint }
   const found = detect(s.lastPrompt, now)
+  // A compaction is an entry even when the step reads more than half of its shorter prompt:
+  // the system prompt and the tools stay in the cache, and the step writes the rest again.
+  const rewritten = found?.rewritten ?? (compaction === null ? null : step.cacheWrite)
   const why =
-    found === null || s.lastPrompt === undefined
+    rewritten === null
       ? null
-      : // The entry expires by the lifetime that it was written with.
-        causeOf(s.lastPrompt, now, ttlMs(s.lastPrompt.ttl ?? ttl), compaction)
+      : compaction !== null
+        ? compactCause(compaction)
+        : s.lastPrompt === undefined
+          ? null
+          : // The entry expires by the lifetime that it was written with.
+            causeOf(s.lastPrompt, now, ttlMs(s.lastPrompt.ttl ?? ttl), null)
   const entry: BreakEntry | null =
-    found === null || why === null
+    rewritten === null || why === null
       ? null
       : {
           at: step.at,
           ...why,
-          rewritten: found.rewritten,
-          lostUsd: rewriteCost(step.model, found.rewritten, ttl, step.tokens),
+          rewritten,
+          lostUsd: rewriteCost(step.model, rewritten, ttl, step.tokens),
         }
   return {
     lastPrompt: {
