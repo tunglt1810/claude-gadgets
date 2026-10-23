@@ -4,7 +4,7 @@ Mods (hot-reloadable function-hook plugins) for Claude Code. One self-contained 
 
 ## Compatibility
 
-- Built and tested against **Claude Code 2.1.299** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.299.`
+- Built and tested against **Claude Code 2.1.309** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.309.`
 - Bun 1.4.2 (not pinned in the repo).
 - The plugin API may change between Claude Code releases without notice. After an update: let the engine rewrite `mods/<name>/.claude-plugin/types/` (load the mod once), run `bun run check`, then update the version on this line.
 - Claude Desktop runs its own Claude Code (`~/Library/Application Support/Claude/claude-code/<version>/`), which is older than the CLI for some days after a release. An engine refuses the whole tree of a pane that has one element or prop it does not know, and the pane is then empty.
@@ -50,6 +50,7 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 - Tests import `test`, `expect`, `mock` from `claude-code/testing`; the test `$` has only event nouns (no `$.state`, `$.store`). Observe state through `$.ui.mount(...)` and persistence through a session-id round trip.
 - Test hooks sit beneath the plugin and must answer the events used (`session.id` returns `{ value }`; `turn.step` is an async generator echoing `turnId`/`index`). Read a step's stream to the end before awaiting `.result`.
 - Loop UI tests over `['terminal', 'desktop']`.
+- From 2.1.307, a test's `$.tool.call` runs `classic.PreToolUse` and `tool.check` before the test's `tool.call` hook, which then stands for the tool alone. `classic.PermissionRequest` settles an `ask`; with no answer the call is denied. `$.ui.ask` is a call of `AskUserQuestion` and passes the same check.
 
 ## Typings
 
@@ -78,5 +79,6 @@ The styling rules (palette, tones, number formats, glyphs, tables) are in [docs/
 - Text that must start below a Button's label is a Button too: a desktop draws a label after a margin of its own. Put words that belong together in one label: the font is not fixed-width, so cells of a fixed width stand apart.
 - A click on a pane that does not hold the keys raises only `ui.focus`, not `ui.press`. Read the focus state before `next(e)`: landing the ring redraws the pane focused inside `next`.
 - Before a screen change, call `$.ui.focus({ requestId, key })` for a button on the new screen; the ring is lost when its button leaves the screen.
+- A desktop refuses a tree around the `AskUserQuestion` dialog that has a Box with `minWidth` or `height`, and draws the dialog as it is.
 - `$.ui.open` `rows`/`columns` are requests: desktop ignores them, and no API sets or reads the pane size.
 - Debug with a log, not a guess: push events to a module array, write it to `$.store` in one call, and read `~/.claude/plugins/store/<name>_inline-*.json`.
