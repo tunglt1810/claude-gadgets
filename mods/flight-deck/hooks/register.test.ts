@@ -3811,3 +3811,54 @@ test('the Bash patterns survive a session id round trip', async ($, on) => {
   expect(await cellOf(ui, 'tools:sub:0:name:1')).toContain('run')
   await ui.unmount()
 })
+
+// The question dialog hides the band: the band is drawn above the engine's dialog instead.
+// The test's own drawing stands for the engine's dialog.
+const ENGINE_NODE = { type: 'engine', ref: 0 } as never
+const mountQuestion = ($: Engine, surface: 'terminal' | 'desktop') =>
+  $.ui.mount({
+    plugin: 'flight-deck',
+    surface,
+    component: 'AskUserQuestion',
+    props: { tool: 'AskUserQuestion', questions: [] },
+    viewport: { columns: 200, rows: 40 },
+  } as never)
+
+test('on the terminal the question dialog has the band above the dialog of the engine', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  on('ui.render', () => ENGINE_NODE)
+  const ui = await mountQuestion($, 'terminal')
+  const root = await ui.drawn()
+  expect(await ui.find({ key: 'agents' })).toBeDefined()
+  // The engine's node is the last child: nothing is drawn below it.
+  const kids = (root as { children: unknown[] }).children
+  expect(kids[kids.length - 1]).toMatchObject({ type: 'engine' })
+  await ui.unmount()
+})
+
+test('on the terminal the band button above the question dialog opens the pane', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  const calls = paneEngine(on)
+  on('ui.render', () => ENGINE_NODE)
+  const ui = await mountQuestion($, 'terminal')
+  await ui.press({ key: 'agents' })
+  expect(calls.opens).toBe(1)
+  await ui.press({ key: 'agents' })
+  expect(calls.closes).toBe(1)
+  await ui.unmount()
+})
+
+test('on a desktop the question dialog is drawn as it is', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  on('ui.render', () => ENGINE_NODE)
+  const ui = await mountQuestion($, 'desktop')
+  expect(await ui.find({ key: 'agents' })).toBeUndefined()
+  expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+  await ui.unmount()
+})

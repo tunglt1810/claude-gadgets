@@ -1593,4 +1593,33 @@ export const register: Register = (on, options) => {
       />
     )
   })
+
+  // The question dialog takes the place of the prompt, and the terminal then draws no band: the
+  // band is drawn above the dialog. A desktop refuses the band's sized boxes around the dialog:
+  // its dialog is drawn as it is.
+  on('ui.render', { component: 'AskUserQuestion' }, async ($, e, next) => {
+    const dialog = await next(e)
+    if (e.surface !== 'terminal') return dialog
+    const session = await currentMeter($)
+    const ttls = (await read($, ttlsAtom)) ?? cacheTtls({}, options.cacheTtl)
+    const ui = $.ui.resolve(e)
+    return (
+      <ui.Box flexDirection="column">
+        <Band
+          ui={ui}
+          snap={session}
+          busySince={session.busySince}
+          now={(await read($, nowAtom)) || (await $.clock.now())}
+          ttl={ttls.main}
+          // The band's own width: the terminal less the five cells of the engine's mark.
+          columns={(e.viewport?.columns ?? 125) - 5}
+          isPaneOpen={(await read($, pane)).isOpen}
+          isDesktop={false}
+          isMono={holdsMono((await $.session.version()).base)}
+          onToggle={() => togglePane($)}
+        />
+        {dialog}
+      </ui.Box>
+    )
+  })
 }

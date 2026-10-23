@@ -13,6 +13,7 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - A Flight Deck pane that fails to draw shows the reason instead of an empty pane.
 - The cache screen lists each compaction of the main conversation.
+- On the terminal, the band stays above a question dialog, and its button still opens the pane.
 
 ### [0.12.0] - 2026-10-15
 
