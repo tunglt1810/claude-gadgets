@@ -6,8 +6,10 @@ const JUDGMENT =
   'Permission for this action was denied by the Claude Code auto mode classifier. Reason: it deletes data'
 const CALL = { tool: 'Bash', command: 'git push', tool_use_id: 't1' } as const
 
-// The engine beneath the plugin: each run of a call asks `tool.check` first, as core does.
-// `ask` stands for a classifier that `verdict` answers; `answer` is the user's choice.
+// The engine beneath the plugin. The test engine runs `classic.PreToolUse` and `tool.check`
+// before each run of a call, as core does, and settles an `ask` with
+// `classic.PermissionRequest`: it stands for a classifier that `verdict` answers. `answer` is
+// the user's choice.
 const engine = (
   $: Engine,
   on: Parameters<typeof mock.store>[0],
@@ -51,7 +53,20 @@ const engine = (
     seen.toasts.push(e.text)
     return { value: undefined }
   })
-  on('tool.check', () => ({ decision: seen.beneath(seen.checks) }))
+  // A hook beneath the plugin's `tool.call` that changes the command before the check.
+  on('classic.PreToolUse', (_$, e) =>
+    e.tool === 'AskUserQuestion'
+      ? ({} as never)
+      : ({ updatedInput: { command: seen.rewrite(String(e.command), ++seen.checks) } } as never),
+  )
+  // The question of the plugin is the dialog itself: no verdict holds it back.
+  on('tool.check', (_$, e) => ({
+    decision: e.tool === 'AskUserQuestion' ? 'allow' : seen.beneath(seen.checks),
+  }))
+  on(
+    'classic.PermissionRequest',
+    () => ({ decision: { behavior: 'deny', message: seen.verdict } }) as never,
+  )
   on('classic.PostToolUse', () => ({}))
   on('tool.call', async (_$, e) => {
     if (e.tool === 'AskUserQuestion') {
@@ -66,12 +81,7 @@ const engine = (
       if (answer === undefined) return { deny: 'dismissed' } as never
       return { result: { questions, answers: { [asked]: answer } } as never, text: answer }
     }
-    const { decision } = await $.tool.check({
-      tool: e.tool,
-      input: { command: seen.rewrite(String(e.command), ++seen.checks) },
-      tool_use_id: e.tool_use_id,
-    })
-    if (decision !== 'allow') return { result: {} as never, text: seen.verdict, isError: true }
+    // The checks allowed the call: the tool runs.
     seen.runs++
     // The engine raises this event when a tool ran, before `tool.call` has its answer.
     await $.classic.PostToolUse({
@@ -416,12 +426,12 @@ test('a tool that the classifier let run, and that failed with the same words, r
   let runs = 0
   on('classic.PostToolUseFailure', () => ({}))
   on('tool.check', () => ({ decision: 'ask' }))
+  on('classic.PermissionRequest', () => ({ decision: { behavior: 'allow' } }) as never)
   on('tool.call', async (_$, e) => {
     if (e.tool === 'AskUserQuestion') {
       asks.push('asked')
       return { deny: 'dismissed' } as never
     }
-    await $.tool.check({ tool: e.tool, input: {}, tool_use_id: e.tool_use_id })
     runs++
     await $.classic.PostToolUseFailure({
       tool_name: e.tool,
