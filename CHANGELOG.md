@@ -7,7 +7,9 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
-### [Unreleased]
+### [0.12.1] - 2026-10-23
+
+Tested on Claude Code 2.1.309.
 
 #### Fixed
 
