@@ -14,6 +14,7 @@ import {
   contextTokens,
   contextTone,
   contextWindow,
+  layersOf,
   settingsKey,
 } from './window'
 
@@ -215,16 +216,6 @@ test('a settings value out of range is dropped, as if the file did not set it', 
   expect(compactWindow(OPUS, [user, { autoCompactWindow: 'x' }], undefined)).toBe(400_000)
 })
 
-test('the window of an agent definition only lowers the window', () => {
-  const user = { modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } } }
-  expect(compactWindow(OPUS, [user], undefined, 150_000)).toBe(150_000)
-  expect(compactWindow(OPUS, [user], undefined, 600_000)).toBe(400_000)
-  // With no setting the definition's window applies.
-  expect(compactWindow(OPUS, [], undefined, 300_000)).toBe(300_000)
-  // The variable wins over the definition.
-  expect(compactWindow(OPUS, [user], '700k', 150_000)).toBe(700_000)
-})
-
 test('an agent file gives its name and its window', () => {
   const file = (head: string) => `---\n${head}\n---\n\nYou review code.\n`
   expect(
@@ -278,4 +269,14 @@ test('an agent compacts at the lowest window of its definition and of its parent
   expect(ceilingOf(150_000, undefined)).toBe(150_000)
   expect(ceilingOf(undefined, 200_000)).toBe(200_000)
   expect(ceilingOf(300_000, 200_000)).toBe(200_000)
+})
+
+test('the layers of a merged read stand, unless the read carries none while it has settings', () => {
+  const user = { source: 'user', settings: { autoCompactWindow: 400_000 } }
+  expect(layersOf([user], { autoCompactWindow: 400_000 })).toEqual([user.settings])
+  // No settings file: no layer and no setting.
+  expect(layersOf([], {})).toEqual([])
+  // Settings with no layers: the engine filled none, so the layers are unknown.
+  expect(layersOf([], { autoCompactWindow: 400_000 })).toBeNull()
+  expect(layersOf(undefined, {})).toBeNull()
 })

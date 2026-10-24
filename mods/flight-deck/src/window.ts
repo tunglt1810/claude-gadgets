@@ -99,13 +99,12 @@ export const envWindow = (env: string | undefined): number | undefined => {
 // - the variable `CLAUDE_CODE_AUTO_COMPACT_WINDOW` wins;
 // - else the settings files (lowest precedence first) give it: a file with a top-level
 //   `autoCompactWindow` replaces the model windows of the files before it, a file with
-//   none adds its model windows to theirs;
-// - a subagent gets that window too, lowered to `ceiling`, the window of its definition.
+//   none adds its model windows to theirs.
+// A subagent gets that window too, lowered to the window of its definition (`capped`).
 export const compactWindow = (
   model: string,
   layers: readonly Readonly<Record<string, unknown>>[],
   env: string | undefined,
-  ceiling?: number,
 ): number | undefined => {
   const fromEnv = envWindow(env)
   if (fromEnv !== undefined) return fromEnv
@@ -127,8 +126,7 @@ export const compactWindow = (
   }
   const key = settingsKey(model)
   const w = Object.hasOwn(fold.byModel, key) ? fold.byModel[key] : fold.top
-  const set = isCompactWindow(w) ? w : undefined
-  return ceiling === undefined ? set : Math.min(set ?? ceiling, ceiling)
+  return isCompactWindow(w) ? w : undefined
 }
 
 // The `name` of an agent file (`.claude/agents/*.md`) and its `autoCompactWindow`, read
@@ -210,3 +208,14 @@ export const ceilingOf = (
   parent: number | undefined,
 ): number | undefined =>
   own === undefined ? parent : parent === undefined ? own : Math.min(own, parent)
+
+// The settings layers that a read of the merged settings is made of, lowest precedence
+// first; null when they are unknown: a read with settings but no layers, which the engine
+// did not fill.
+export const layersOf = (
+  layers: readonly { settings: Readonly<Record<string, unknown>> }[] | undefined,
+  merged: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>>[] | null =>
+  layers === undefined || (layers.length === 0 && Object.keys(merged).length > 0)
+    ? null
+    : layers.map((l) => l.settings)

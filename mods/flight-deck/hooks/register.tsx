@@ -26,6 +26,7 @@ import { costOf } from '../src/price'
 import {
   agentsKey,
   agentTitle,
+  capped,
   completed,
   ended,
   merged,
@@ -33,7 +34,6 @@ import {
   parseRegistry,
   ran,
   restored,
-  rewindowed,
   spawned,
   stopped,
   stopTarget,
@@ -75,6 +75,7 @@ import {
   contextWindow,
   envWindow,
   inDir,
+  layersOf,
 } from '../src/window'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
 import type {
@@ -989,49 +990,28 @@ async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
 // The settings files, lowest precedence first, as the engine folds them.
 const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
 
-// The definition of agent type `type` in `dir` or a folder below it, as the engine lists
-// them (`rg --files --follow`): a link is followed. Null when no file defines it. The
-// entries are read at once; the first in the listing that defines the type wins.
-async function definitionIn(
-  $: Api,
-  dir: string,
-  type: string,
-): Promise<{ window?: number } | null> {
+// The agent files in `dir` and the folders below it, as the engine lists them
+// (`rg --files --follow`): a link is followed. All are read at once, in listing order.
+async function definitionsIn($: Api, dir: string): Promise<{ name: string; window?: number }[]> {
   const found = await Promise.all(
     (await $.fs.list(dir).catch(() => [])).map(async (f) => {
       const path = inDir(dir, f.name)
-      if (f.kind === 'dir') return definitionIn($, path, type)
-      if (!f.name.endsWith('.md')) return null
+      const kind =
+        f.kind === 'other' ? (await $.fs.stat(path).catch(() => ({ kind: 'other' }))).kind : f.kind
+      if (kind === 'dir') return definitionsIn($, path)
+      if (kind !== 'file' || !f.name.endsWith('.md')) return []
       const text = await $.fs.read(path).catch(() => '')
       const def = agentFile(typeof text === 'string' ? text : '')
-      return def?.name === type ? def : null
+      return def === undefined ? [] : [def]
     }),
   )
-  return found.find((d) => d !== null) ?? null
+  return found.flat()
 }
 
-// The layers of the latest read of the merged settings (the engine fills them, the
-// `plugin` layer first), and the window of each agent type's definition by session id.
-let lastLayers: readonly Readonly<Record<string, unknown>>[] | null = null
-let ceilingCache: { session: string; byType: Map<string, Promise<number | undefined>> } | null =
-  null
-
-// The `autoCompactWindow` of the definition of agent type `type`, as the engine picks
-// the definition: the nearest project folder from the root up to the git root, then the
-// user's folder (`$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`).
-async function agentCeiling($: Api, type: string): Promise<number | undefined> {
-  const session = await $.session.id()
-  if (ceilingCache?.session !== session) ceilingCache = { session, byType: new Map() }
-  const known = ceilingCache.byType.get(type)
-  if (known !== undefined) return known
-  const found = findCeiling($, type)
-  ceilingCache.byType.set(type, found)
-  // A failed read is not kept: the next spawn reads again.
-  found.catch(() => ceilingCache?.byType.delete(type))
-  return found
-}
-
-async function findCeiling($: Api, type: string): Promise<number | undefined> {
+// The window of each agent type's definition, as the engine picks a definition: the
+// nearest project folder from the root up to the git root, then the user's folder
+// (`$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`); the first file of a name wins.
+async function definitionWindows($: Api): Promise<Map<string, number | undefined>> {
   const home = (await $.env.get('HOME')) ?? '/'
   const project: string[] = []
   for (const dir of ancestorDirs(await $.session.root(), home)) {
@@ -1039,11 +1019,31 @@ async function findCeiling($: Api, type: string): Promise<number | undefined> {
     if (await $.fs.exists(inDir(dir, '.git')).catch(() => false)) break
   }
   const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? inDir(home, '.claude')
-  for (const dir of [...project, `${config}/agents`]) {
-    const def = await definitionIn($, dir, type)
-    if (def !== null) return def.window
+  const dirs = [...project, inDir(config, 'agents')]
+  const windows = new Map<string, number | undefined>()
+  for (const defs of await Promise.all(dirs.map((d) => definitionsIn($, d))))
+    for (const d of defs) if (!windows.has(d.name)) windows.set(d.name, d.window)
+  return windows
+}
+
+// The layers of the latest read of the merged settings (the engine fills them, the
+// `plugin` layer first), and the definition windows of this session's agent files.
+let lastLayers: readonly Readonly<Record<string, unknown>>[] | null = null
+let definitions: { session: string; windows: Promise<Map<string, number | undefined>> } | null =
+  null
+
+// The `autoCompactWindow` of the definition of agent type `type`. The files are read one
+// time a session; a failed read is read again at the next spawn.
+async function agentCeiling($: Api, type: string): Promise<number | undefined> {
+  const session = await $.session.id()
+  if (definitions?.session !== session) {
+    const windows = definitionWindows($)
+    definitions = { session, windows }
+    windows.catch(() => {
+      if (definitions?.windows === windows) definitions = null
+    })
   }
-  return undefined
+  return (await definitions.windows).get(type)
 }
 
 // The settings layers, lowest precedence first: those of the latest merged read (each
@@ -1052,22 +1052,26 @@ async function settingsLayers($: Api): Promise<readonly Readonly<Record<string, 
   return lastLayers ?? Promise.all(SOURCES.map((source) => $.settings.read({ source })))
 }
 
-// The window an agent's context is measured against: the model's window, or the
-// smaller auto-compact window that the agent compacts at.
-async function agentWindow($: Api, model: string, ceiling: number | undefined): Promise<number> {
+// The window an agent's context is measured against, before the window of its
+// definition: the model's window, or the smaller auto-compact window of the variable or
+// the settings. `isEnv`: the variable sets it, and no definition lowers it.
+async function agentWindow($: Api, model: string): Promise<{ window: number; isEnv: boolean }> {
   const window = contextWindow(model, isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')))
-  // The variable decides alone: the files are not read.
-  const compact =
-    envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) ??
-    compactWindow(model, await settingsLayers($), undefined, ceiling)
-  return compact === undefined ? window : Math.min(window, compact)
+  const env = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW'))
+  // The variable decides alone: the settings are not read.
+  const compact = env ?? compactWindow(model, await settingsLayers($), undefined)
+  return {
+    window: compact === undefined ? window : Math.min(window, compact),
+    isEnv: env !== undefined,
+  }
 }
 
 export const register: Register = (on, options) => {
   // A read of the merged settings carries the layers it is made of: keep them.
-  on('settings.read', (_$, e, next) => {
-    if (e.source === undefined && e.layers.length > 0) lastLayers = e.layers.map((l) => l.settings)
-    return next(e)
+  on('settings.read', async (_$, e, next) => {
+    const res = await next(e)
+    if (e.source === undefined) lastLayers = layersOf(e.layers, res)
+    return res
   })
   // Start the tick for a session that already has a live cache (--resume, hot reload).
   on('session.start', async ($, e, next) => {
@@ -1204,18 +1208,17 @@ export const register: Register = (on, options) => {
       const effort = e.effort === undefined ? undefined : String(e.effort)
       if (agentId !== undefined) {
         // A step with no usage tells nothing of the window: the entry keeps its context.
+        const measured = res.usage === null ? null : await agentWindow($, e.model)
         const context =
-          res.usage === null
+          res.usage === null || measured === null
             ? undefined
-            : {
-                tokens: contextTokens(res.usage),
-                window: await agentWindow(
-                  $,
-                  e.model,
-                  (await read($, agents)).entries[agentId]?.compactCeiling,
-                ),
-              }
-        await trackAgent($, id, (r) => tuned(r, agentId, e.model, effort, context))
+            : { tokens: contextTokens(res.usage), window: measured.window }
+        // The window of the definition applies inside the updater: the spawn can store it
+        // while this step runs.
+        await trackAgent($, id, (r) => {
+          const stepped = tuned(r, agentId, e.model, effort, context)
+          return measured?.isEnv === true ? stepped : capped(stepped, agentId)
+        })
       } else {
         // The dashboard's numbers changed.
         await syncPane($)
@@ -1365,12 +1368,9 @@ export const register: Register = (on, options) => {
     const agentId = res.agentId
     if (agentId === undefined) return res
     const id = await ensureLoaded($)
-    // A step that came before this was measured without the window of the definition.
-    const early = (await read($, agents)).entries[agentId]
-    const window =
-      compactCeiling === undefined || early?.context === undefined || early.model === undefined
-        ? undefined
-        : await agentWindow($, early.model, compactCeiling)
+    // A step that came before this was measured without the window of the definition,
+    // which the variable overrides.
+    const isEnv = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) !== undefined
     // The agent's first step can arrive before this: keep what it already counted.
     const nextMeter = await update($, meter, (c) => ({
       ...c,
@@ -1381,19 +1381,16 @@ export const register: Register = (on, options) => {
       ),
     }))
     await save($, id, nextMeter)
-    await trackAgent($, id, (r, t) =>
-      rewindowed(
-        spawned(r, agentId, t, {
-          ...(e.parentAgentId === undefined ? {} : { parentId: e.parentAgentId }),
-          ...(e.subagentType === undefined ? {} : { type: e.subagentType }),
-          ...(e.description === undefined ? {} : { description: e.description }),
-          ...(e.name === undefined ? {} : { name: e.name }),
-          ...(compactCeiling === undefined ? {} : { compactCeiling }),
-        }),
-        agentId,
-        window,
-      ),
-    )
+    await trackAgent($, id, (r, t) => {
+      const entry = spawned(r, agentId, t, {
+        ...(e.parentAgentId === undefined ? {} : { parentId: e.parentAgentId }),
+        ...(e.subagentType === undefined ? {} : { type: e.subagentType }),
+        ...(e.description === undefined ? {} : { description: e.description }),
+        ...(e.name === undefined ? {} : { name: e.name }),
+        ...(compactCeiling === undefined ? {} : { compactCeiling }),
+      })
+      return isEnv ? entry : capped(entry, agentId)
+    })
     return res
   })
 

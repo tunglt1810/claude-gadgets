@@ -147,7 +147,8 @@ const engine = (
     const names = new Map<string, string>()
     for (const p of Object.keys(agentFiles).filter((p) => p.startsWith(dir))) {
       const [name = '', ...rest] = p.slice(dir.length).split('/')
-      names.set(name, rest.length > 0 ? 'dir' : agentLinks.has(p) ? 'other' : 'file')
+      const path = `${dir}${name}`
+      names.set(name, agentLinks.has(path) ? 'other' : rest.length > 0 ? 'dir' : 'file')
     }
     const value = [...names].map(([name, kind]) => ({ name, kind }))
     return value.length === 0 ? ({ deny: 'no dir' } as never) : ({ value } as never)
@@ -155,6 +156,14 @@ const engine = (
   on('session.root', () => {
     if (isRootBroken) throw new Error('no root')
     return { value: '/home/proj/app' } as never
+  })
+  // A path leads to a folder when a file is below it.
+  on('fs.stat', (_$, e) => {
+    const path = (e as { path: string }).path
+    if (path in agentFiles) return { value: { kind: 'file', size: 1, mtimeMs: 0 } } as never
+    return Object.keys(agentFiles).some((p) => p.startsWith(`${path}/`))
+      ? ({ value: { kind: 'dir', size: 0, mtimeMs: 0 } } as never)
+      : ({ deny: 'no path' } as never)
   })
   on('fs.exists', (_$, e) => ({ value: (e as { path: string }).path in agentFiles }) as never)
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
@@ -2349,7 +2358,7 @@ test('with no layers on the merged read, a step reads each source and sees a cha
   await ui.unmount()
 })
 
-test('the agent files are read once a session for each type', async ($, on) => {
+test('the agent files are read once a session, for every type', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on, () => 'S-files', undefined, undefined, undefined, { HOME: '/home' })
@@ -2360,9 +2369,23 @@ test('the agent files are read once a session for each type', async ($, on) => {
   paneEngine(on)
   await $.agent.spawn({ prompt: 'p', subagentType: 'reviewer' } as never)
   const once = agentFileReads
-  expect(once).toBeGreaterThan(0)
+  expect(once).toBe(2)
   await $.agent.spawn({ prompt: 'p', subagentType: 'reviewer' } as never)
+  await $.agent.spawn({ prompt: 'p', subagentType: 'other' } as never)
   expect(agentFileReads).toBe(once)
+})
+
+test('a link to a folder of agent files is followed', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? OPUS_400K : {}), {
+    HOME: '/home',
+  })
+  agentFiles = { '/home/.claude/agents/team/r.md': agentMd('reviewer', 150_000) }
+  agentLinks = new Set(['/home/.claude/agents/team'])
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/150k 0%')
 })
 
 test('an agent with no step shows no context part', async ($, on) => {

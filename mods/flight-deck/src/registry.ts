@@ -53,11 +53,14 @@ export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>
   [id]: fill(r[id] ?? blank(id, at), info),
 })
 
-// The context of agent `id` measured against `window`; unchanged with no window or no context.
-export const rewindowed = (r: Registry, id: string, window: number | undefined): Registry => {
+// The context of entry `id`, its window lowered to the entry's `compactCeiling`: the
+// window of the agent's definition, which the engine applies to the settings' window.
+export const capped = (r: Registry, id: string): Registry => {
   const a = r[id]
-  if (window === undefined || a?.context === undefined) return r
-  return { ...r, [id]: { ...a, context: { ...a.context, window } } }
+  const c = a?.context
+  if (a === undefined || c === undefined || a.compactCeiling === undefined) return r
+  if (c.window <= a.compactCeiling) return r
+  return { ...r, [id]: { ...a, context: { ...c, window: a.compactCeiling } } }
 }
 
 // An event of the agent's loop: the agent runs. Its first event can come before the spawn.
@@ -193,6 +196,7 @@ export const parseRegistry = (raw: unknown): Registry => {
       isRecord(c) && isNum(c.tokens) && isNum(c.window)
         ? { tokens: c.tokens, window: c.window }
         : undefined
+    const compactCeiling = isNum(v.compactCeiling) ? v.compactCeiling : undefined
     out[id] = {
       id,
       ...(parentId === undefined ? {} : { parentId }),
@@ -203,6 +207,7 @@ export const parseRegistry = (raw: unknown): Registry => {
       ...(model === undefined ? {} : { model }),
       ...(effort === undefined ? {} : { effort }),
       ...(context === undefined ? {} : { context }),
+      ...(compactCeiling === undefined ? {} : { compactCeiling }),
       status: v.status === 'running' || v.status === 'stopped' ? v.status : 'idle',
       // An older version counted a run at its end: an entry is one started run at least.
       runs: Math.max(1, v.runs),

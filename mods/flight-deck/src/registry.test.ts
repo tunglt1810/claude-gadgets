@@ -1,13 +1,13 @@
 import { expect, test } from 'claude-code/testing'
 import {
   agentsKey,
+  capped,
   completed,
   ended,
   merged,
   parseRegistry,
   ran,
   restored,
-  rewindowed,
   spawned,
   stopped,
   stopTarget,
@@ -228,11 +228,24 @@ test('a teammate keeps the address that TaskStop takes', () => {
   expect(stopTarget(spawned({}, 'a1', 100, {}), 'a1')).toBe('a1')
 })
 
-test('a new window replaces the window of a context and nothing else', () => {
-  const r = tuned(spawned({}, 'a1', 100, {}), 'a1', 'm', undefined, { tokens: 10, window: 400 })
-  expect(rewindowed(r, 'a1', 150).a1?.context).toEqual({ tokens: 10, window: 150 })
-  expect(rewindowed(r, 'a1', undefined)).toBe(r)
-  const none = spawned({}, 'a1', 100, {})
-  expect(rewindowed(none, 'a1', 150)).toBe(none)
-  expect(rewindowed({}, 'a1', 150)).toEqual({})
+test('capped lowers the window of a context to the ceiling of the entry', () => {
+  const r = tuned(spawned({}, 'a1', 100, { compactCeiling: 150 }), 'a1', 'm', undefined, {
+    tokens: 10,
+    window: 400,
+  })
+  expect(capped(r, 'a1').a1?.context).toEqual({ tokens: 10, window: 150 })
+  // A window below the ceiling stays.
+  const low = tuned(r, 'a1', 'm', undefined, { tokens: 10, window: 100 })
+  expect(capped(low, 'a1')).toBe(low)
+  // No ceiling, no context or no entry: nothing changes.
+  const free = tuned(spawned({}, 'a1', 100, {}), 'a1', 'm', undefined, { tokens: 1, window: 400 })
+  expect(capped(free, 'a1')).toBe(free)
+  const bare = spawned({}, 'a1', 100, { compactCeiling: 150 })
+  expect(capped(bare, 'a1')).toBe(bare)
+  expect(capped({}, 'a1')).toEqual({})
+})
+
+test('parseRegistry keeps the compaction window of a definition', () => {
+  const r = spawned({}, 'a1', 100, { compactCeiling: 150_000 })
+  expect(parseRegistry(JSON.parse(JSON.stringify(r)))).toEqual(r)
 })
