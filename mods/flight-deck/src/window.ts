@@ -77,6 +77,21 @@ const obj = (v: unknown): Record<string, unknown> =>
 const kept = (v: unknown): number | 'auto' | undefined =>
   v === 'auto' || isCompactWindow(v) ? v : undefined
 
+// A whole number as the engine reads one (`Au`, Claude Code 2.1.310): `1e6`, groups of
+// three digits with one separator (`400,000`, `400_000`), else what parseInt reads.
+const SCIENTIFIC = /^[+-]?(\d+(\.\d*)?|\.\d+)[eE][+-]?\d+$/
+const GROUPED = /^[+-]?\d{1,3}([_,\u00A0\u202F ])\d{3}(?:\1\d{3})*$/
+const wholeNumber = (text: string): number => {
+  if (text.length <= 32) {
+    if (SCIENTIFIC.test(text)) {
+      const n = Number(text)
+      return Number.isInteger(n) ? n : Number.NaN
+    }
+    if (GROUPED.test(text)) return Number.parseInt(text.replace(/[_,\u00A0\u202F ]/g, ''), 10)
+  }
+  return Number.parseInt(text, 10)
+}
+
 // The variable `CLAUDE_CODE_AUTO_COMPACT_WINDOW` as the engine reads it: `400k`, `0.4m`,
 // `400000` or `400,000`; a size below the minimum is the minimum, above the maximum the
 // maximum, and a value that is no size is ignored.
@@ -84,12 +99,7 @@ export const envWindow = (env: string | undefined): number | undefined => {
   if (env === undefined) return undefined
   const text = env.trim()
   const unit = { k: 1_000, m: 1_000_000 }[text.slice(-1).toLowerCase()]
-  const n =
-    unit !== undefined
-      ? Number.parseFloat(text) * unit
-      : /^[\d,_]+$/.test(text)
-        ? Number(text.replace(/[,_]/g, ''))
-        : Number.parseInt(text, 10)
+  const n = unit !== undefined ? Number.parseFloat(text) * unit : wholeNumber(text)
   if (Number.isNaN(n) || n < 1) return undefined
   return Math.min(MAX_COMPACT, Math.max(MIN_COMPACT, Math.round(n)))
 }
@@ -131,8 +141,13 @@ export const agentFile = (text: string): { name: string; window?: number } | und
   const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1]
   if (head === undefined) return undefined
   // A value, without its quotes and without a comment after it.
-  const value = (key: string) =>
-    new RegExp(`^${key}:[ \\t]*["']?(.*?)["']?(?:[ \\t]+#.*)?\\s*$`, 'm').exec(head)?.[1]
+  const value = (key: string) => {
+    const m = new RegExp(
+      `^${key}:[ \\t]*(?:"([^"]*)"|'([^']*)'|(.*?))(?:[ \\t]+#.*)?\\s*$`,
+      'm',
+    ).exec(head)
+    return m === null ? undefined : (m[1] ?? m[2] ?? m[3])
+  }
   const name = value('name')
   // The engine refuses a file with no name or description, or with a name that starts
   // with "-" or holds ":" (the plugin separator).

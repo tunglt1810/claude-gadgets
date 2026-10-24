@@ -193,6 +193,14 @@ test('the variable is read as the engine reads it', () => {
   expect(envWindow('0.5M')).toBe(500_000)
   expect(envWindow('350,000')).toBe(350_000)
   // Below the minimum it is the minimum, above the maximum the maximum.
+  expect(envWindow('400_000')).toBe(400_000)
+  expect(envWindow('1e6')).toBe(1_000_000)
+  expect(envWindow('2.5E5')).toBe(250_000)
+  // A number in scientific form that is not whole is no size.
+  expect(envWindow('1.5e0')).toBeUndefined()
+  // Mixed or wrong groups read up to the first separator, as parseInt does.
+  expect(envWindow('400,000_000')).toBe(100_000)
+  expect(envWindow('4000,000')).toBe(100_000)
   expect(envWindow('50000')).toBe(100_000)
   expect(envWindow('2m')).toBe(1_000_000)
   // A value that is no size is ignored.
@@ -227,6 +235,9 @@ test('an agent file gives its name and its window', () => {
     window: 200_000,
   })
   expect(agentFile(file('name: reviewer'))).toEqual({ name: 'reviewer' })
+  // A "#" inside quotes is part of the value; after it, a comment.
+  expect(agentFile(file('name: "rev #1"'))).toEqual({ name: 'rev #1' })
+  expect(agentFile(file("name: 'reviewer' # the one"))).toEqual({ name: 'reviewer' })
   // A window out of range is dropped.
   expect(agentFile(file('name: reviewer\nautoCompactWindow: 50000'))).toEqual({ name: 'reviewer' })
   // A key below the frontmatter is not read.

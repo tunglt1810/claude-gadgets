@@ -1071,8 +1071,6 @@ async function agentCeiling($: Api, type: string): Promise<number | undefined> {
 // The settings layers, lowest precedence first: those of the latest merged read (each
 // step reads the merged settings first), else each source read now.
 async function settingsLayers($: Api): Promise<readonly Readonly<Record<string, unknown>>[]> {
-  // A merged read fills the layers through this mod's own settings.read hook.
-  if (lastLayers === null) await $.settings.read()
   return lastLayers ?? Promise.all(SOURCES.map((source) => $.settings.read({ source })))
 }
 
