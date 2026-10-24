@@ -990,30 +990,48 @@ async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
 const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
 
 // The definition of agent type `type` in `dir` or a folder below it, as the engine lists
-// them (`rg --files --follow`): a link is followed. Null when no file defines it.
+// them (`rg --files --follow`): a link is followed. Null when no file defines it. The
+// entries are read at once; the first in the listing that defines the type wins.
 async function definitionIn(
   $: Api,
   dir: string,
   type: string,
 ): Promise<{ window?: number } | null> {
-  for (const f of await $.fs.list(dir).catch(() => [])) {
-    const path = inDir(dir, f.name)
-    if (f.kind === 'dir') {
-      const def = await definitionIn($, path, type)
-      if (def !== null) return def
-    } else if (f.name.endsWith('.md')) {
+  const found = await Promise.all(
+    (await $.fs.list(dir).catch(() => [])).map(async (f) => {
+      const path = inDir(dir, f.name)
+      if (f.kind === 'dir') return definitionIn($, path, type)
+      if (!f.name.endsWith('.md')) return null
       const text = await $.fs.read(path).catch(() => '')
       const def = agentFile(typeof text === 'string' ? text : '')
-      if (def?.name === type) return def
-    }
-  }
-  return null
+      return def?.name === type ? def : null
+    }),
+  )
+  return found.find((d) => d !== null) ?? null
 }
+
+// The layers of the latest read of the merged settings (the engine fills them, the
+// `plugin` layer first), and the window of each agent type's definition by session id.
+let lastLayers: readonly Readonly<Record<string, unknown>>[] | null = null
+let ceilingCache: { session: string; byType: Map<string, Promise<number | undefined>> } | null =
+  null
 
 // The `autoCompactWindow` of the definition of agent type `type`, as the engine picks
 // the definition: the nearest project folder from the root up to the git root, then the
 // user's folder (`$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`).
 async function agentCeiling($: Api, type: string): Promise<number | undefined> {
+  const session = await $.session.id()
+  if (ceilingCache?.session !== session) ceilingCache = { session, byType: new Map() }
+  const known = ceilingCache.byType.get(type)
+  if (known !== undefined) return known
+  const found = findCeiling($, type)
+  ceilingCache.byType.set(type, found)
+  // A failed read is not kept: the next spawn reads again.
+  found.catch(() => ceilingCache?.byType.delete(type))
+  return found
+}
+
+async function findCeiling($: Api, type: string): Promise<number | undefined> {
   const home = (await $.env.get('HOME')) ?? '/'
   const project: string[] = []
   for (const dir of ancestorDirs(await $.session.root(), home)) {
@@ -1028,6 +1046,12 @@ async function agentCeiling($: Api, type: string): Promise<number | undefined> {
   return undefined
 }
 
+// The settings layers, lowest precedence first: those of the latest merged read (each
+// step reads the merged settings first), else each source read now.
+async function settingsLayers($: Api): Promise<readonly Readonly<Record<string, unknown>>[]> {
+  return lastLayers ?? Promise.all(SOURCES.map((source) => $.settings.read({ source })))
+}
+
 // The window an agent's context is measured against: the model's window, or the
 // smaller auto-compact window that the agent compacts at.
 async function agentWindow($: Api, model: string, ceiling: number | undefined): Promise<number> {
@@ -1035,16 +1059,16 @@ async function agentWindow($: Api, model: string, ceiling: number | undefined): 
   // The variable decides alone: the files are not read.
   const compact =
     envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) ??
-    compactWindow(
-      model,
-      await Promise.all(SOURCES.map((source) => $.settings.read({ source }))),
-      undefined,
-      ceiling,
-    )
+    compactWindow(model, await settingsLayers($), undefined, ceiling)
   return compact === undefined ? window : Math.min(window, compact)
 }
 
 export const register: Register = (on, options) => {
+  // A read of the merged settings carries the layers it is made of: keep them.
+  on('settings.read', (_$, e, next) => {
+    if (e.source === undefined && e.layers.length > 0) lastLayers = e.layers.map((l) => l.settings)
+    return next(e)
+  })
   // Start the tick for a session that already has a live cache (--resume, hot reload).
   on('session.start', async ($, e, next) => {
     await ensureLoaded($)

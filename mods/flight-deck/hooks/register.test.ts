@@ -20,6 +20,13 @@ let toolList: { name: string; description: string; mcp: boolean }[] = []
 let agentFiles: Record<string, string> = {}
 // The agent files that are symbolic links.
 let agentLinks = new Set<string>()
+// The reads of one settings source, and of an agent file, since the engine started.
+let sourceReads = 0
+let agentFileReads = 0
+const readAgentFile = (path: string) => {
+  agentFileReads++
+  return { value: agentFiles[path] } as never
+}
 // While true, `session.root` throws.
 let isRootBroken = false
 // A step that a spawn runs before it resolves, as an agent's first step can.
@@ -111,6 +118,8 @@ const engine = (
   toolList = []
   agentFiles = {}
   agentLinks = new Set()
+  sourceReads = 0
+  agentFileReads = 0
   isRootBroken = false
   stepInSpawn = undefined
   engineBase = '2.1.295'
@@ -129,7 +138,7 @@ const engine = (
     e.path.endsWith('/.claude-plugin/plugin.json')
       ? ({ value: '{ "name": "flight-deck", "version": "9.9.9" }' } as never)
       : e.path in agentFiles
-        ? ({ value: agentFiles[e.path] } as never)
+        ? readAgentFile(e.path)
         : ({ deny: 'no file' } as never),
   )
   // A path in `agentLinks` is listed as a link; a deeper path gives its first folder.
@@ -156,7 +165,10 @@ const engine = (
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: [] }))
   on('tool.list', () => ({ value: toolList }) as never)
-  on('settings.read', (_$, e) => ({ value: settings(e.source) }) as never)
+  on('settings.read', (_$, e) => {
+    if (e.source !== undefined) sourceReads++
+    return { value: settings(e.source) } as never
+  })
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   let spawned = 0
   // A resume continues under the agent's id (Claude Code 2.1.299).
@@ -2311,6 +2323,46 @@ test('the auto-compact variable wins over the agent definition', async ($, on) =
   paneEngine(on)
   on('turn.step', stepHook(USAGE) as never)
   expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/300k 0%')
+})
+
+// The test engine fills no layers on a merged read: the mod then reads each source. (The
+// live engine fills them, and the mod reads no source: checked with Claude Code 2.1.310.)
+test('with no layers on the merged read, a step reads each source and sees a change', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  let windowOfOpus = 400_000
+  engine(on, undefined, undefined, undefined, (source) =>
+    source === 'user'
+      ? { modelSettings: { 'claude-opus-5-5': { autoCompactWindow: windowOfOpus } } }
+      : {},
+  )
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5', agentId: 'a1' } as never)
+  expect(sourceReads).toBe(5)
+  windowOfOpus = 200_000
+  await runStep($, { ...STEP, index: 1, model: 'claude-opus-5-5', agentId: 'a1' } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).toContain('/200k')
+  await ui.unmount()
+})
+
+test('the agent files are read once a session for each type', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, () => 'S-files', undefined, undefined, undefined, { HOME: '/home' })
+  agentFiles = {
+    '/home/.claude/agents/a.md': agentMd('other', 120_000),
+    '/home/.claude/agents/r.md': agentMd('reviewer', 150_000),
+  }
+  paneEngine(on)
+  await $.agent.spawn({ prompt: 'p', subagentType: 'reviewer' } as never)
+  const once = agentFileReads
+  expect(once).toBeGreaterThan(0)
+  await $.agent.spawn({ prompt: 'p', subagentType: 'reviewer' } as never)
+  expect(agentFileReads).toBe(once)
 })
 
 test('an agent with no step shows no context part', async ($, on) => {

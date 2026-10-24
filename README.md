@@ -92,7 +92,7 @@ Limits:
 
 - The numbers are for the main loop. The engine gives no breakdown of the context of a subagent.
 - A tool that loads on demand is not in the window. Its row (`deferred`) has no share.
-- The context length of a subagent uses the auto-compact window of the subagent. The mod reads that window from `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, from `autoCompactWindow` in the settings files, and from the agent file of the subagent. A window that the server sets, a plugin's settings or a plugin's agent is not visible to the mod: then the mod uses the window of the model.
+- The context length of a subagent uses the auto-compact window of the subagent. The mod reads that window from `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, from `autoCompactWindow` in the settings files, and from the agent file of the subagent. A window that the server sets or a plugin's agent is not visible to the mod: then the mod uses the window of the model. The mod reads an agent file one time in each session: a change to the file shows in the next session.
 
 ## Cache screen
 

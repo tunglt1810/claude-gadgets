@@ -94,7 +94,7 @@ Giới hạn:
 
 - Các con số là của vòng lặp chính. Engine không cho breakdown context của một subagent.
 - Một tool nạp theo yêu cầu thì không nằm trong window. Hàng của nó (`deferred`) không có tỉ lệ.
-- Độ dài context của một subagent dùng auto-compact window của subagent đó. Mod đọc window này từ `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, từ `autoCompactWindow` trong các file settings, và từ file agent của subagent. Mod không thấy window do server đặt, settings của plugin hay agent của plugin. Khi đó mod dùng window của model.
+- Độ dài context của một subagent dùng auto-compact window của subagent đó. Mod đọc window này từ `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, từ `autoCompactWindow` trong các file settings, và từ file agent của subagent. Mod không thấy window do server đặt hay agent của plugin. Khi đó mod dùng window của model. Mod đọc một file agent một lần trong mỗi phiên. Thay đổi trong file hiện ra ở phiên sau.
 
 ## Màn hình cache
 
