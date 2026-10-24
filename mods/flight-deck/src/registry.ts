@@ -53,14 +53,21 @@ export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>
   [id]: fill(r[id] ?? blank(id, at), info),
 })
 
-// The context of entry `id`, its window lowered to the entry's `compactCeiling`: the
-// window of the agent's definition, which the engine applies to the settings' window.
+// The context of entry `id`, its window lowered to the lowest `compactCeiling` of the
+// entry and of its parents: the engine nests each definition's window in the parent's.
 export const capped = (r: Registry, id: string): Registry => {
   const a = r[id]
   const c = a?.context
-  if (a === undefined || c === undefined || a.compactCeiling === undefined) return r
-  if (c.window <= a.compactCeiling) return r
-  return { ...r, [id]: { ...a, context: { ...c, window: a.compactCeiling } } }
+  if (a === undefined || c === undefined) return r
+  let ceiling = Number.POSITIVE_INFINITY
+  const seen = new Set<string>()
+  for (let e: AgentEntry | undefined = a; e !== undefined && !seen.has(e.id); ) {
+    seen.add(e.id)
+    if (e.compactCeiling !== undefined) ceiling = Math.min(ceiling, e.compactCeiling)
+    e = e.parentId === undefined ? undefined : r[e.parentId]
+  }
+  if (c.window <= ceiling) return r
+  return { ...r, [id]: { ...a, context: { ...c, window: ceiling } } }
 }
 
 // An event of the agent's loop: the agent runs. Its first event can come before the spawn.

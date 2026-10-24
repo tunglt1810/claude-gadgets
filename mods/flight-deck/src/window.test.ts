@@ -4,7 +4,6 @@ import {
   agentFile,
   agentsDir,
   ancestorDirs,
-  ceilingOf,
   compactWindow,
   contextColor,
   contextFit,
@@ -14,6 +13,7 @@ import {
   contextTokens,
   contextTone,
   contextWindow,
+  envWindow,
   layersOf,
   settingsKey,
 } from './window'
@@ -129,17 +129,17 @@ test('a settings key drops the [1m] suffix, the date and the cloud spellings', (
 const OPUS = 'claude-opus-5-5'
 
 test('with no setting there is no compaction window', () => {
-  expect(compactWindow(OPUS, [], undefined)).toBeUndefined()
-  expect(compactWindow(OPUS, [{}, { modelSettings: {} }], undefined)).toBeUndefined()
+  expect(compactWindow(OPUS, [])).toBeUndefined()
+  expect(compactWindow(OPUS, [{}, { modelSettings: {} }])).toBeUndefined()
 })
 
 test('the window of the model comes from its own settings, in any spelling of the key', () => {
   const user = { modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } } }
-  expect(compactWindow(OPUS, [user], undefined)).toBe(400_000)
-  expect(compactWindow('claude-opus-5-5[1m]', [user], undefined)).toBe(400_000)
-  expect(compactWindow('claude-sonnet-5-5', [user], undefined)).toBeUndefined()
+  expect(compactWindow(OPUS, [user])).toBe(400_000)
+  expect(compactWindow('claude-opus-5-5[1m]', [user])).toBe(400_000)
+  expect(compactWindow('claude-sonnet-5-5', [user])).toBeUndefined()
   const dated = { modelSettings: { 'claude-opus-5-5-20261001': { autoCompactWindow: 300_000 } } }
-  expect(compactWindow(OPUS, [dated], undefined)).toBe(300_000)
+  expect(compactWindow(OPUS, [dated])).toBe(300_000)
 })
 
 test('the canonical key wins over another spelling in the same file', () => {
@@ -149,7 +149,7 @@ test('the canonical key wins over another spelling in the same file', () => {
       'claude-opus-5-5[1m]': { autoCompactWindow: 300_000 },
     },
   }
-  expect(compactWindow(OPUS, [user], undefined)).toBe(400_000)
+  expect(compactWindow(OPUS, [user])).toBe(400_000)
 })
 
 test('the top-level window applies to a model with no window of its own', () => {
@@ -157,14 +157,14 @@ test('the top-level window applies to a model with no window of its own', () => 
     autoCompactWindow: 500_000,
     modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } },
   }
-  expect(compactWindow(OPUS, [user], undefined)).toBe(400_000)
-  expect(compactWindow('claude-sonnet-5-5', [user], undefined)).toBe(500_000)
+  expect(compactWindow(OPUS, [user])).toBe(400_000)
+  expect(compactWindow('claude-sonnet-5-5', [user])).toBe(500_000)
 })
 
 test('a later file with a top-level window drops the model windows of the files before it', () => {
   const user = { modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } } }
   const project = { autoCompactWindow: 600_000 }
-  expect(compactWindow(OPUS, [user, project], undefined)).toBe(600_000)
+  expect(compactWindow(OPUS, [user, project])).toBe(600_000)
 })
 
 test('a later file with only model windows keeps the files before it', () => {
@@ -173,9 +173,9 @@ test('a later file with only model windows keeps the files before it', () => {
     modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } },
   }
   const local = { modelSettings: { 'claude-sonnet-5-5': { autoCompactWindow: 300_000 } } }
-  expect(compactWindow(OPUS, [user, local], undefined)).toBe(400_000)
-  expect(compactWindow('claude-sonnet-5-5', [user, local], undefined)).toBe(300_000)
-  expect(compactWindow('claude-fable-5-1', [user, local], undefined)).toBe(500_000)
+  expect(compactWindow(OPUS, [user, local])).toBe(400_000)
+  expect(compactWindow('claude-sonnet-5-5', [user, local])).toBe(300_000)
+  expect(compactWindow('claude-fable-5-1', [user, local])).toBe(500_000)
 })
 
 test('auto is no window', () => {
@@ -183,37 +183,37 @@ test('auto is no window', () => {
     autoCompactWindow: 500_000,
     modelSettings: { [OPUS]: { autoCompactWindow: 'auto' } },
   }
-  expect(compactWindow(OPUS, [user], undefined)).toBeUndefined()
-  expect(compactWindow(OPUS, [{ autoCompactWindow: 'auto' }], undefined)).toBeUndefined()
+  expect(compactWindow(OPUS, [user])).toBeUndefined()
+  expect(compactWindow(OPUS, [{ autoCompactWindow: 'auto' }])).toBeUndefined()
 })
 
-test('the variable wins over the settings, and is read as the engine reads it', () => {
-  const user = { modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } } }
-  expect(compactWindow(OPUS, [user], '250000')).toBe(250_000)
-  expect(compactWindow(OPUS, [user], ' 300k ')).toBe(300_000)
-  expect(compactWindow(OPUS, [user], '0.5M')).toBe(500_000)
-  expect(compactWindow(OPUS, [user], '350,000')).toBe(350_000)
+test('the variable is read as the engine reads it', () => {
+  expect(envWindow('250000')).toBe(250_000)
+  expect(envWindow(' 300k ')).toBe(300_000)
+  expect(envWindow('0.5M')).toBe(500_000)
+  expect(envWindow('350,000')).toBe(350_000)
   // Below the minimum it is the minimum, above the maximum the maximum.
-  expect(compactWindow(OPUS, [user], '50000')).toBe(100_000)
-  expect(compactWindow(OPUS, [user], '2m')).toBe(1_000_000)
+  expect(envWindow('50000')).toBe(100_000)
+  expect(envWindow('2m')).toBe(1_000_000)
   // A value that is no size is ignored.
-  expect(compactWindow(OPUS, [user], 'abc')).toBe(400_000)
-  expect(compactWindow(OPUS, [user], '0')).toBe(400_000)
-  expect(compactWindow(OPUS, [user], '')).toBe(400_000)
+  expect(envWindow('abc')).toBeUndefined()
+  expect(envWindow('0')).toBeUndefined()
+  expect(envWindow('')).toBeUndefined()
+  expect(envWindow(undefined)).toBeUndefined()
 })
 
 test('a settings value out of range is dropped, as if the file did not set it', () => {
-  expect(compactWindow(OPUS, [{ autoCompactWindow: 50_000 }], undefined)).toBeUndefined()
-  expect(compactWindow(OPUS, [{ autoCompactWindow: 2_000_000 }], undefined)).toBeUndefined()
+  expect(compactWindow(OPUS, [{ autoCompactWindow: 50_000 }])).toBeUndefined()
+  expect(compactWindow(OPUS, [{ autoCompactWindow: 2_000_000 }])).toBeUndefined()
   // A bad model value does not hide the top-level window.
   const bad = {
     autoCompactWindow: 500_000,
     modelSettings: { [OPUS]: { autoCompactWindow: 50_000 } },
   }
-  expect(compactWindow(OPUS, [bad], undefined)).toBe(500_000)
+  expect(compactWindow(OPUS, [bad])).toBe(500_000)
   // A bad top-level value does not drop the model windows of the files before it.
   const user = { modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } } }
-  expect(compactWindow(OPUS, [user, { autoCompactWindow: 'x' }], undefined)).toBe(400_000)
+  expect(compactWindow(OPUS, [user, { autoCompactWindow: 'x' }])).toBe(400_000)
 })
 
 test('an agent file gives its name and its window', () => {
@@ -262,13 +262,6 @@ test('an agent file value may have a comment after it', () => {
 test('the agents folder of a folder has one slash, at the root too', () => {
   expect(agentsDir('/srv/app')).toBe('/srv/app/.claude/agents')
   expect(agentsDir('/')).toBe('/.claude/agents')
-})
-
-test('an agent compacts at the lowest window of its definition and of its parent', () => {
-  expect(ceilingOf(undefined, undefined)).toBeUndefined()
-  expect(ceilingOf(150_000, undefined)).toBe(150_000)
-  expect(ceilingOf(undefined, 200_000)).toBe(200_000)
-  expect(ceilingOf(300_000, 200_000)).toBe(200_000)
 })
 
 test('the layers of a merged read stand, unless the read carries none while it has settings', () => {

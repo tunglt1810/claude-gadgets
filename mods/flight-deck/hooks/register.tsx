@@ -68,7 +68,6 @@ import {
   agentFile,
   agentsDir,
   ancestorDirs,
-  ceilingOf,
   compactWindow,
   contextTargets,
   contextTokens,
@@ -990,15 +989,30 @@ async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
 // The settings files, lowest precedence first, as the engine folds them.
 const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
 
+// The deepest folder below an agents folder that is read.
+const MAX_AGENT_DEPTH = 8
+
 // The agent files in `dir` and the folders below it, as the engine lists them
-// (`rg --files --follow`): a link is followed. All are read at once, in listing order.
-async function definitionsIn($: Api, dir: string): Promise<{ name: string; window?: number }[]> {
+// (`rg --files --follow`): a link is followed, and a folder already read (a link loop) is
+// not read again. All are read at once, in listing order.
+async function definitionsIn(
+  $: Api,
+  dir: string,
+  seen: Set<string>,
+  depth = 0,
+): Promise<{ name: string; window?: number }[]> {
+  // A loop of links ends at a folder read before, or at the depth limit when a path
+  // does not resolve.
+  if (depth > MAX_AGENT_DEPTH) return []
+  const real = (await $.fs.stat(dir, { resolve: true }).catch(() => undefined))?.realPath ?? dir
+  if (seen.has(real)) return []
+  seen.add(real)
   const found = await Promise.all(
     (await $.fs.list(dir).catch(() => [])).map(async (f) => {
       const path = inDir(dir, f.name)
       const kind =
         f.kind === 'other' ? (await $.fs.stat(path).catch(() => ({ kind: 'other' }))).kind : f.kind
-      if (kind === 'dir') return definitionsIn($, path)
+      if (kind === 'dir') return definitionsIn($, path, seen, depth + 1)
       if (kind !== 'file' || !f.name.endsWith('.md')) return []
       const text = await $.fs.read(path).catch(() => '')
       const def = agentFile(typeof text === 'string' ? text : '')
@@ -1021,7 +1035,7 @@ async function definitionWindows($: Api): Promise<Map<string, number | undefined
   const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? inDir(home, '.claude')
   const dirs = [...project, inDir(config, 'agents')]
   const windows = new Map<string, number | undefined>()
-  for (const defs of await Promise.all(dirs.map((d) => definitionsIn($, d))))
+  for (const defs of await Promise.all(dirs.map((d) => definitionsIn($, d, new Set()))))
     for (const d of defs) if (!windows.has(d.name)) windows.set(d.name, d.window)
   return windows
 }
@@ -1049,6 +1063,8 @@ async function agentCeiling($: Api, type: string): Promise<number | undefined> {
 // The settings layers, lowest precedence first: those of the latest merged read (each
 // step reads the merged settings first), else each source read now.
 async function settingsLayers($: Api): Promise<readonly Readonly<Record<string, unknown>>[]> {
+  // A merged read fills the layers through this mod's own settings.read hook.
+  if (lastLayers === null) await $.settings.read()
   return lastLayers ?? Promise.all(SOURCES.map((source) => $.settings.read({ source })))
 }
 
@@ -1059,7 +1075,7 @@ async function agentWindow($: Api, model: string): Promise<{ window: number; isE
   const window = contextWindow(model, isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')))
   const env = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW'))
   // The variable decides alone: the settings are not read.
-  const compact = env ?? compactWindow(model, await settingsLayers($), undefined)
+  const compact = env ?? compactWindow(model, await settingsLayers($))
   return {
     window: compact === undefined ? window : Math.min(window, compact),
     isEnv: env !== undefined,
@@ -1351,18 +1367,13 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
-    // A subagent compacts at the lowest window of its definition and its parents'. Read
-    // before the agent starts, so that its first step finds the window in the registry.
+    // A subagent compacts at the lowest window of its definition and its parents'. The
+    // definition is read before the agent starts, so that its first step finds the window.
     // A failure to read the definition must not lose the record of the spawn.
     const own =
       e.subagentType === undefined
         ? undefined
         : await agentCeiling($, e.subagentType).catch(() => undefined)
-    const parent =
-      e.parentAgentId === undefined
-        ? undefined
-        : (await read($, agents)).entries[e.parentAgentId]?.compactCeiling
-    const compactCeiling = ceilingOf(own, parent)
     const res = await next(e)
     // A refused spawn started nothing.
     const agentId = res.agentId
@@ -1382,12 +1393,13 @@ export const register: Register = (on, options) => {
     }))
     await save($, id, nextMeter)
     await trackAgent($, id, (r, t) => {
+      // `capped` takes the parents' ceilings from the registry, as each one stands then.
       const entry = spawned(r, agentId, t, {
         ...(e.parentAgentId === undefined ? {} : { parentId: e.parentAgentId }),
         ...(e.subagentType === undefined ? {} : { type: e.subagentType }),
         ...(e.description === undefined ? {} : { description: e.description }),
         ...(e.name === undefined ? {} : { name: e.name }),
-        ...(compactCeiling === undefined ? {} : { compactCeiling }),
+        ...(own === undefined ? {} : { compactCeiling: own }),
       })
       return isEnv ? entry : capped(entry, agentId)
     })

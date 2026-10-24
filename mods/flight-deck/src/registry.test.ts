@@ -245,6 +245,19 @@ test('capped lowers the window of a context to the ceiling of the entry', () => 
   expect(capped({}, 'a1')).toEqual({})
 })
 
+test('capped takes the lowest ceiling of the entry and of its parents', () => {
+  let r = spawned({}, 'p', 100, { compactCeiling: 150 })
+  r = spawned(r, 'c', 100, { parentId: 'p', compactCeiling: 300 })
+  r = spawned(r, 'g', 100, { parentId: 'c' })
+  r = tuned(r, 'g', 'm', undefined, { tokens: 1, window: 400 })
+  expect(capped(r, 'g').g?.context?.window).toBe(150)
+  // A loop of parents ends.
+  let loop = spawned({}, 'x', 100, { parentId: 'y' })
+  loop = spawned(loop, 'y', 100, { parentId: 'x', compactCeiling: 200 })
+  loop = tuned(loop, 'x', 'm', undefined, { tokens: 1, window: 400 })
+  expect(capped(loop, 'x').x?.context?.window).toBe(200)
+})
+
 test('parseRegistry keeps the compaction window of a definition', () => {
   const r = spawned({}, 'a1', 100, { compactCeiling: 150_000 })
   expect(parseRegistry(JSON.parse(JSON.stringify(r)))).toEqual(r)

@@ -94,20 +94,16 @@ export const envWindow = (env: string | undefined): number | undefined => {
   return Math.min(MAX_COMPACT, Math.max(MIN_COMPACT, Math.round(n)))
 }
 
-// The auto-compact window that the engine gives a loop of `model`, or undefined when
-// nothing that a plugin can read sets one. Read from the Claude Code 2.1.310 binary:
-// - the variable `CLAUDE_CODE_AUTO_COMPACT_WINDOW` wins;
-// - else the settings files (lowest precedence first) give it: a file with a top-level
-//   `autoCompactWindow` replaces the model windows of the files before it, a file with
-//   none adds its model windows to theirs.
-// A subagent gets that window too, lowered to the window of its definition (`capped`).
+// The auto-compact window that the settings files (lowest precedence first) give a loop
+// of `model`, or undefined when none sets one. Read from the Claude Code 2.1.310 binary:
+// a file with a top-level `autoCompactWindow` replaces the model windows of the files
+// before it, a file with none adds its model windows to theirs. The variable
+// (`envWindow`) wins over the files; a subagent's window is lowered to the window of its
+// definition (`capped`).
 export const compactWindow = (
   model: string,
   layers: readonly Readonly<Record<string, unknown>>[],
-  env: string | undefined,
 ): number | undefined => {
-  const fromEnv = envWindow(env)
-  if (fromEnv !== undefined) return fromEnv
   let fold: { top: unknown; byModel: Record<string, unknown> } = { top: undefined, byModel: {} }
   for (const layer of layers) {
     const own: Record<string, unknown> = {}
@@ -200,14 +196,6 @@ export const inDir = (dir: string, rel: string): string =>
 
 // The folder of the agent files of a project folder.
 export const agentsDir = (dir: string): string => inDir(dir, '.claude/agents')
-
-// The window an agent compacts at by its definitions: the lower of its own definition's
-// and its parent's (the engine nests each ceiling inside the parent's).
-export const ceilingOf = (
-  own: number | undefined,
-  parent: number | undefined,
-): number | undefined =>
-  own === undefined ? parent : parent === undefined ? own : Math.min(own, parent)
 
 // The settings layers that a read of the merged settings is made of, lowest precedence
 // first; null when they are unknown: a read with settings but no layers, which the engine

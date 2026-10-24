@@ -29,6 +29,8 @@ const readAgentFile = (path: string) => {
 }
 // While true, `session.root` throws.
 let isRootBroken = false
+// While true, every listed folder holds a link `loop` to a folder, and no path resolves.
+let isLinkLoop = false
 // A step that a spawn runs before it resolves, as an agent's first step can.
 let stepInSpawn: { $: Engine; model: string } | undefined
 // The release of the engine that a test runs on; `engine` sets it back.
@@ -121,6 +123,7 @@ const engine = (
   sourceReads = 0
   agentFileReads = 0
   isRootBroken = false
+  isLinkLoop = false
   stepInSpawn = undefined
   engineBase = '2.1.295'
   isVersionBroken = false
@@ -143,6 +146,7 @@ const engine = (
   )
   // A path in `agentLinks` is listed as a link; a deeper path gives its first folder.
   on('fs.list', (_$, e) => {
+    if (isLinkLoop) return { value: [{ name: 'loop', kind: 'other' }] } as never
     const dir = `${(e as { path?: string }).path}/`
     const names = new Map<string, string>()
     for (const p of Object.keys(agentFiles).filter((p) => p.startsWith(dir))) {
@@ -160,6 +164,7 @@ const engine = (
   // A path leads to a folder when a file is below it.
   on('fs.stat', (_$, e) => {
     const path = (e as { path: string }).path
+    if (isLinkLoop) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: true } } as never
     if (path in agentFiles) return { value: { kind: 'file', size: 1, mtimeMs: 0 } } as never
     return Object.keys(agentFiles).some((p) => p.startsWith(`${path}/`))
       ? ({ value: { kind: 'dir', size: 0, mtimeMs: 0 } } as never)
@@ -2373,6 +2378,16 @@ test('the agent files are read once a session, for every type', async ($, on) =>
   await $.agent.spawn({ prompt: 'p', subagentType: 'reviewer' } as never)
   await $.agent.spawn({ prompt: 'p', subagentType: 'other' } as never)
   expect(agentFileReads).toBe(once)
+})
+
+test('a loop of folder links that do not resolve ends', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, { HOME: '/home' })
+  isLinkLoop = true
+  paneEngine(on)
+  const res = await $.agent.spawn({ prompt: 'p', subagentType: 'reviewer' } as never)
+  expect((res as { agentId?: string }).agentId).toBe('a1')
 })
 
 test('a link to a folder of agent files is followed', async ($, on) => {
