@@ -1085,8 +1085,8 @@ async function settingsLayers($: Api): Promise<readonly Readonly<Record<string, 
 async function agentWindow($: Api, model: string): Promise<{ window: number; isEnv: boolean }> {
   const window = contextWindow(model, isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')))
   const env = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW'))
-  // The variable decides alone: the settings are not read.
-  const compact = env ?? compactWindow(model, await settingsLayers($))
+  // The variable decides alone: the settings are not read. A failed read gives no window.
+  const compact = env ?? compactWindow(model, await settingsLayers($).catch(() => []))
   return {
     window: compact === undefined ? window : Math.min(window, compact),
     isEnv: env !== undefined,

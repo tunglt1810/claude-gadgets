@@ -193,7 +193,6 @@ test('the variable is read as the engine reads it', () => {
   expect(envWindow(' 300k ')).toBe(300_000)
   expect(envWindow('0.5M')).toBe(500_000)
   expect(envWindow('350,000')).toBe(350_000)
-  // Below the minimum it is the minimum, above the maximum the maximum.
   expect(envWindow('400_000')).toBe(400_000)
   expect(envWindow('1e6')).toBe(1_000_000)
   expect(envWindow('2.5E5')).toBe(250_000)
@@ -202,6 +201,7 @@ test('the variable is read as the engine reads it', () => {
   // Mixed or wrong groups read up to the first separator, as parseInt does.
   expect(envWindow('400,000_000')).toBe(100_000)
   expect(envWindow('4000,000')).toBe(100_000)
+  // Below the minimum it is the minimum, above the maximum the maximum.
   expect(envWindow('50000')).toBe(100_000)
   expect(envWindow('2m')).toBe(1_000_000)
   // A value that is no size is ignored.
@@ -309,4 +309,18 @@ test('the window of an agent type a plugin registers is kept by its full name', 
     false,
   )
   expect(agentTypeWindow(known, 'lab:plain', {}).size).toBe(0)
+})
+
+test('an agent file with a BOM, or a description on the next lines, defines an agent', () => {
+  expect(agentFile('\uFEFF---\nname: reviewer\ndescription: R\n---\n')).toEqual({
+    name: 'reviewer',
+  })
+  expect(agentFile('---\nname: reviewer\ndescription:\n  Reviews code\n---\n')).toEqual({
+    name: 'reviewer',
+  })
+  expect(agentFile('---\nname: reviewer\ndescription: >\n  Reviews code\n---\n')).toEqual({
+    name: 'reviewer',
+  })
+  // An empty description with no text below is none.
+  expect(agentFile('---\nname: reviewer\ndescription:\nmodel: opus\n---\n')).toBeUndefined()
 })

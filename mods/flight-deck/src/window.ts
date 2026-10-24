@@ -138,7 +138,7 @@ export const compactWindow = (
 // The `name` of an agent file (`.claude/agents/*.md`) and its `autoCompactWindow`, read
 // from its frontmatter; undefined for a file with no frontmatter or no name.
 export const agentFile = (text: string): { name: string; window?: number } | undefined => {
-  const head = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1]
+  const head = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1]
   if (head === undefined) return undefined
   // A value, without its quotes and without a comment after it.
   const value = (key: string) => {
@@ -153,7 +153,10 @@ export const agentFile = (text: string): { name: string; window?: number } | und
   // with "-" or holds ":" (the plugin separator).
   if (name === undefined || name === '' || name.startsWith('-') || name.includes(':'))
     return undefined
-  if (!value('description')) return undefined
+  // A description may start on the next, indented line.
+  const hasText = (v: string | undefined) => v !== undefined && v !== '' && !/^[>|][+-]?$/.test(v)
+  if (!hasText(value('description')) && !/^description:[^\n]*\n[ \t]+\S/m.test(head))
+    return undefined
   const raw = value('autoCompactWindow')
   const window = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : undefined
   return isCompactWindow(window) ? { name, window } : { name }

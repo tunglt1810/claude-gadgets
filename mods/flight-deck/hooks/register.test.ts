@@ -2192,6 +2192,23 @@ test('the auto-compact variable sets the window of an agent', async ($, on) => {
   await ui.unmount()
 })
 
+test('an agent whose settings sources fail to read is measured against its model window', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => {
+    if (source !== undefined) throw new Error('no source')
+    return {}
+  })
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5', agentId: 'a1' } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+  await ui.unmount()
+})
+
 const agentMd = (name: string, window: number) =>
   `---\nname: ${name}\ndescription: Reviews code\nautoCompactWindow: ${window}\n---\nYou review.\n`
 
