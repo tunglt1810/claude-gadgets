@@ -7,6 +7,7 @@ import {
   parseRegistry,
   ran,
   restored,
+  rewindowed,
   spawned,
   stopped,
   stopTarget,
@@ -225,4 +226,13 @@ test('a teammate keeps the address that TaskStop takes', () => {
   expect(parseRegistry(JSON.parse(JSON.stringify(r))).t1?.teammateId).toBe('ana@core')
   expect(stopTarget(r, 't1')).toBe('ana@core')
   expect(stopTarget(spawned({}, 'a1', 100, {}), 'a1')).toBe('a1')
+})
+
+test('a new window replaces the window of a context and nothing else', () => {
+  const r = tuned(spawned({}, 'a1', 100, {}), 'a1', 'm', undefined, { tokens: 10, window: 400 })
+  expect(rewindowed(r, 'a1', 150).a1?.context).toEqual({ tokens: 10, window: 150 })
+  expect(rewindowed(r, 'a1', undefined)).toBe(r)
+  const none = spawned({}, 'a1', 100, {})
+  expect(rewindowed(none, 'a1', 150)).toBe(none)
+  expect(rewindowed({}, 'a1', 150)).toEqual({})
 })

@@ -33,6 +33,7 @@ import {
   parseRegistry,
   ran,
   restored,
+  rewindowed,
   spawned,
   stopped,
   stopTarget,
@@ -63,7 +64,18 @@ import {
   snapShown,
 } from '../src/tween'
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
-import { contextTargets, contextTokens, contextWindow } from '../src/window'
+import {
+  agentFile,
+  agentsDir,
+  ancestorDirs,
+  ceilingOf,
+  compactWindow,
+  contextTargets,
+  contextTokens,
+  contextWindow,
+  envWindow,
+  inDir,
+} from '../src/window'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
 import type {
   Agents,
@@ -974,6 +986,64 @@ async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
   )
 }
 
+// The settings files, lowest precedence first, as the engine folds them.
+const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
+
+// The definition of agent type `type` in `dir` or a folder below it, as the engine lists
+// them (`rg --files --follow`): a link is followed. Null when no file defines it.
+async function definitionIn(
+  $: Api,
+  dir: string,
+  type: string,
+): Promise<{ window?: number } | null> {
+  for (const f of await $.fs.list(dir).catch(() => [])) {
+    const path = inDir(dir, f.name)
+    if (f.kind === 'dir') {
+      const def = await definitionIn($, path, type)
+      if (def !== null) return def
+    } else if (f.name.endsWith('.md')) {
+      const text = await $.fs.read(path).catch(() => '')
+      const def = agentFile(typeof text === 'string' ? text : '')
+      if (def?.name === type) return def
+    }
+  }
+  return null
+}
+
+// The `autoCompactWindow` of the definition of agent type `type`, as the engine picks
+// the definition: the nearest project folder from the root up to the git root, then the
+// user's folder (`$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`).
+async function agentCeiling($: Api, type: string): Promise<number | undefined> {
+  const home = (await $.env.get('HOME')) ?? '/'
+  const project: string[] = []
+  for (const dir of ancestorDirs(await $.session.root(), home)) {
+    project.push(agentsDir(dir))
+    if (await $.fs.exists(inDir(dir, '.git')).catch(() => false)) break
+  }
+  const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? inDir(home, '.claude')
+  for (const dir of [...project, `${config}/agents`]) {
+    const def = await definitionIn($, dir, type)
+    if (def !== null) return def.window
+  }
+  return undefined
+}
+
+// The window an agent's context is measured against: the model's window, or the
+// smaller auto-compact window that the agent compacts at.
+async function agentWindow($: Api, model: string, ceiling: number | undefined): Promise<number> {
+  const window = contextWindow(model, isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')))
+  // The variable decides alone: the files are not read.
+  const compact =
+    envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) ??
+    compactWindow(
+      model,
+      await Promise.all(SOURCES.map((source) => $.settings.read({ source }))),
+      undefined,
+      ceiling,
+    )
+  return compact === undefined ? window : Math.min(window, compact)
+}
+
 export const register: Register = (on, options) => {
   // Start the tick for a session that already has a live cache (--resume, hot reload).
   on('session.start', async ($, e, next) => {
@@ -1115,9 +1185,10 @@ export const register: Register = (on, options) => {
             ? undefined
             : {
                 tokens: contextTokens(res.usage),
-                window: contextWindow(
+                window: await agentWindow(
+                  $,
                   e.model,
-                  isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')),
+                  (await read($, agents)).entries[agentId]?.compactCeiling,
                 ),
               }
         await trackAgent($, id, (r) => tuned(r, agentId, e.model, effort, context))
@@ -1253,11 +1324,29 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
+    // A subagent compacts at the lowest window of its definition and its parents'. Read
+    // before the agent starts, so that its first step finds the window in the registry.
+    // A failure to read the definition must not lose the record of the spawn.
+    const own =
+      e.subagentType === undefined
+        ? undefined
+        : await agentCeiling($, e.subagentType).catch(() => undefined)
+    const parent =
+      e.parentAgentId === undefined
+        ? undefined
+        : (await read($, agents)).entries[e.parentAgentId]?.compactCeiling
+    const compactCeiling = ceilingOf(own, parent)
     const res = await next(e)
     // A refused spawn started nothing.
     const agentId = res.agentId
     if (agentId === undefined) return res
     const id = await ensureLoaded($)
+    // A step that came before this was measured without the window of the definition.
+    const early = (await read($, agents)).entries[agentId]
+    const window =
+      compactCeiling === undefined || early?.context === undefined || early.model === undefined
+        ? undefined
+        : await agentWindow($, early.model, compactCeiling)
     // The agent's first step can arrive before this: keep what it already counted.
     const nextMeter = await update($, meter, (c) => ({
       ...c,
@@ -1269,12 +1358,17 @@ export const register: Register = (on, options) => {
     }))
     await save($, id, nextMeter)
     await trackAgent($, id, (r, t) =>
-      spawned(r, agentId, t, {
-        ...(e.parentAgentId === undefined ? {} : { parentId: e.parentAgentId }),
-        ...(e.subagentType === undefined ? {} : { type: e.subagentType }),
-        ...(e.description === undefined ? {} : { description: e.description }),
-        ...(e.name === undefined ? {} : { name: e.name }),
-      }),
+      rewindowed(
+        spawned(r, agentId, t, {
+          ...(e.parentAgentId === undefined ? {} : { parentId: e.parentAgentId }),
+          ...(e.subagentType === undefined ? {} : { type: e.subagentType }),
+          ...(e.description === undefined ? {} : { description: e.description }),
+          ...(e.name === undefined ? {} : { name: e.name }),
+          ...(compactCeiling === undefined ? {} : { compactCeiling }),
+        }),
+        agentId,
+        window,
+      ),
     )
     return res
   })

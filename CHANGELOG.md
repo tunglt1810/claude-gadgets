@@ -7,6 +7,14 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [0.12.2] - 2026-10-24
+
+Tested on Claude Code 2.1.310.
+
+#### Fixed
+
+- The context of a subagent shows its share of the auto-compact window it compacts at, not of the model's full window.
+
 ### [0.12.1] - 2026-10-23
 
 Tested on Claude Code 2.1.309.

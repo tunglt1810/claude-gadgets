@@ -2,7 +2,10 @@ import type { AgentEntry, Registry } from '../types'
 
 export type { AgentEntry, Registry }
 
-type Info = Pick<AgentEntry, 'parentId' | 'type' | 'description' | 'name' | 'teammateId'>
+type Info = Pick<
+  AgentEntry,
+  'parentId' | 'type' | 'description' | 'name' | 'teammateId' | 'compactCeiling'
+>
 
 // What `$.agent.list()` gives for one agent, reduced to the fields the registry uses.
 export type Listed = {
@@ -37,6 +40,9 @@ const fill = (a: AgentEntry, info: Partial<Info>): AgentEntry => ({
   ...(a.teammateId === undefined && info.teammateId !== undefined
     ? { teammateId: info.teammateId }
     : {}),
+  ...(a.compactCeiling === undefined && info.compactCeiling !== undefined
+    ? { compactCeiling: info.compactCeiling }
+    : {}),
 })
 
 // What the TaskStop tool takes for an agent: the address of a teammate, the id of any other.
@@ -46,6 +52,13 @@ export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>
   ...r,
   [id]: fill(r[id] ?? blank(id, at), info),
 })
+
+// The context of agent `id` measured against `window`; unchanged with no window or no context.
+export const rewindowed = (r: Registry, id: string, window: number | undefined): Registry => {
+  const a = r[id]
+  if (window === undefined || a?.context === undefined) return r
+  return { ...r, [id]: { ...a, context: { ...a.context, window } } }
+}
 
 // An event of the agent's loop: the agent runs. Its first event can come before the spawn.
 // The first event after an end starts a run, and the run is counted then.

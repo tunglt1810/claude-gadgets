@@ -16,6 +16,14 @@ const DONE = { answer: '', durationMs: 1, isAborted: false, reason: 'answer' } a
 
 // What `$.tool.list()` answers. A test sets it before a step.
 let toolList: { name: string; description: string; mcp: boolean }[] = []
+// The agent files on disk, by path.
+let agentFiles: Record<string, string> = {}
+// The agent files that are symbolic links.
+let agentLinks = new Set<string>()
+// While true, `session.root` throws.
+let isRootBroken = false
+// A step that a spawn runs before it resolves, as an agent's first step can.
+let stepInSpawn: { $: Engine; model: string } | undefined
 // The release of the engine that a test runs on; `engine` sets it back.
 let engineBase = '2.1.295'
 // While true, `session.version` throws: a render hook that reads it fails.
@@ -96,11 +104,15 @@ const engine = (
   id: () => string = () => 'S1',
   toolResult: (e?: unknown) => object = () => ({ result: {} as never, text: 'ok' }),
   isSpawnRefused: () => boolean = () => false,
-  settings: () => object = () => ({}),
+  settings: (source?: string) => object = () => ({}),
   env: Record<string, string> = {},
   usage: () => object = () => ({}),
 ) => {
   toolList = []
+  agentFiles = {}
+  agentLinks = new Set()
+  isRootBroken = false
+  stepInSpawn = undefined
   engineBase = '2.1.295'
   isVersionBroken = false
   mock.env(on, env)
@@ -116,8 +128,26 @@ const engine = (
   on('fs.read', (_$, e) =>
     e.path.endsWith('/.claude-plugin/plugin.json')
       ? ({ value: '{ "name": "flight-deck", "version": "9.9.9" }' } as never)
-      : ({ deny: 'no file' } as never),
+      : e.path in agentFiles
+        ? ({ value: agentFiles[e.path] } as never)
+        : ({ deny: 'no file' } as never),
   )
+  // A path in `agentLinks` is listed as a link; a deeper path gives its first folder.
+  on('fs.list', (_$, e) => {
+    const dir = `${(e as { path?: string }).path}/`
+    const names = new Map<string, string>()
+    for (const p of Object.keys(agentFiles).filter((p) => p.startsWith(dir))) {
+      const [name = '', ...rest] = p.slice(dir.length).split('/')
+      names.set(name, rest.length > 0 ? 'dir' : agentLinks.has(p) ? 'other' : 'file')
+    }
+    const value = [...names].map(([name, kind]) => ({ name, kind }))
+    return value.length === 0 ? ({ deny: 'no dir' } as never) : ({ value } as never)
+  })
+  on('session.root', () => {
+    if (isRootBroken) throw new Error('no root')
+    return { value: '/home/proj/app' } as never
+  })
+  on('fs.exists', (_$, e) => ({ value: (e as { path: string }).path in agentFiles }) as never)
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -126,15 +156,17 @@ const engine = (
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('agent.list', () => ({ value: [] }))
   on('tool.list', () => ({ value: toolList }) as never)
-  on('settings.read', () => ({ value: settings() }) as never)
+  on('settings.read', (_$, e) => ({ value: settings(e.source) }) as never)
   on('command.register', (_$, e) => ({ value: { command: e.name } }))
   let spawned = 0
   // A resume continues under the agent's id (Claude Code 2.1.299).
-  on('agent.spawn', (_$, e) =>
-    isSpawnRefused()
-      ? { deny: 'no' }
-      : { model: 'm', agentId: e.resume?.agentId ?? `a${++spawned}` },
-  )
+  on('agent.spawn', async (_$, e) => {
+    if (isSpawnRefused()) return { deny: 'no' }
+    const agentId = e.resume?.agentId ?? `a${++spawned}`
+    if (stepInSpawn !== undefined)
+      await runStep(stepInSpawn.$, { ...STEP, model: stepInSpawn.model, agentId } as never)
+    return { model: 'm', agentId }
+  })
 }
 
 // The test `$` takes the whole spawn input; only the parent loop is under test.
@@ -2095,6 +2127,190 @@ test('the 1M disable variable gives a window of 200k', async ($, on) => {
   await ui.press({ key: 'agent:a1' })
   expect(await paneText(ui)).toContain('ctx 100/200k 0%')
   await ui.unmount()
+})
+
+test('an agent measures its context against the auto-compact window of its model', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  // The user file sets 400k for the agent's model; the merge has no file of its own.
+  const user = { modelSettings: { 'claude-opus-5-5': { autoCompactWindow: 400_000 } } }
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? user : {}))
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5', agentId: 'a1' } as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-sonnet-5-5', agentId: 'a2' } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).toContain('ctx 100/400k 0%')
+  await ui.press({ key: 'back' })
+  await ui.press({ key: 'agent:a2' })
+  expect(await paneText(ui)).toContain('ctx 100/1M 0%')
+  await ui.unmount()
+})
+
+test('the auto-compact variable sets the window of an agent', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, {
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '300000',
+  })
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  await spawn($)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5', agentId: 'a1' } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).toContain('ctx 100/300k 0%')
+  await ui.unmount()
+})
+
+const agentMd = (name: string, window: number) =>
+  `---\nname: ${name}\ndescription: Reviews code\nautoCompactWindow: ${window}\n---\nYou review.\n`
+
+const OPUS_400K = { modelSettings: { 'claude-opus-5-5': { autoCompactWindow: 400_000 } } }
+
+// Spawns `type` and runs one step of `agentId` on Opus, then reads the agent's screen.
+const agentScreen = async (
+  $: Engine,
+  spawns: { type: string; parent?: string }[],
+  agentId: string,
+): Promise<string> => {
+  for (const s of spawns)
+    await $.agent.spawn({ prompt: 'p', subagentType: s.type, parentAgentId: s.parent } as never)
+  await runStep($, { ...STEP, model: 'claude-opus-5-5', agentId } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: `agent:${agentId}` })
+  const text = await paneText(ui)
+  await ui.unmount()
+  return text
+}
+
+test('the window of the agent definition lowers the window of the settings', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? OPUS_400K : {}), {
+    HOME: '/home',
+  })
+  // No project file names the type: the user file defines it.
+  agentFiles = {
+    '/home/proj/app/.claude/agents/other.md': agentMd('other', 120_000),
+    '/home/.claude/agents/review.md': agentMd('reviewer', 150_000),
+  }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/150k 0%')
+})
+
+test('a project agent file wins over a user file of the same name, the nearest folder first', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? OPUS_400K : {}), {
+    CLAUDE_CONFIG_DIR: '/cfg',
+    HOME: '/home',
+  })
+  agentFiles = {
+    '/home/proj/app/.claude/agents/r.md': agentMd('reviewer', 200_000),
+    '/home/proj/.claude/agents/r.md': agentMd('reviewer', 250_000),
+    '/cfg/agents/r.md': agentMd('reviewer', 300_000),
+  }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/200k 0%')
+})
+
+test('the walk for project agent files stops at the git root', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? OPUS_400K : {}), {
+    HOME: '/home',
+  })
+  agentFiles = {
+    '/home/proj/app/.git': '',
+    '/home/proj/.claude/agents/r.md': agentMd('reviewer', 250_000),
+  }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/400k 0%')
+})
+
+test('a child agent keeps the window of the definition of its parent', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? OPUS_400K : {}), {
+    HOME: '/home',
+  })
+  agentFiles = { '/home/.claude/agents/r.md': agentMd('reviewer', 150_000) }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  const spawns = [{ type: 'reviewer' }, { type: 'general-purpose', parent: 'a1' }]
+  expect(await agentScreen($, spawns, 'a2')).toContain('ctx 100/150k 0%')
+})
+
+test('an agent file in a subfolder defines the type', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? OPUS_400K : {}), {
+    HOME: '/home',
+  })
+  agentFiles = { '/home/.claude/agents/team/r.md': agentMd('reviewer', 150_000) }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/150k 0%')
+})
+
+test('an agent file behind a link defines the type', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? OPUS_400K : {}), {
+    HOME: '/home',
+  })
+  agentFiles = { '/home/.claude/agents/w.md': agentMd('writer', 120_000) }
+  agentLinks = new Set(['/home/.claude/agents/w.md'])
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'writer' }], 'a1')).toContain('ctx 100/120k 0%')
+})
+
+test('a step that comes before the spawn is recorded is measured against the window of the definition', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, (source) => (source === 'user' ? OPUS_400K : {}), {
+    HOME: '/home',
+  })
+  agentFiles = { '/home/.claude/agents/r.md': agentMd('reviewer', 150_000) }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  stepInSpawn = { $, model: 'claude-opus-5-5' }
+  await $.agent.spawn({ prompt: 'p', subagentType: 'reviewer' } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'agent:a1' })
+  expect(await paneText(ui)).toContain('ctx 100/150k 0%')
+  await ui.unmount()
+})
+
+test('a spawn whose agent files cannot be read is still recorded', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  isRootBroken = true
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('reviewer · a1')
+})
+
+test('the auto-compact variable wins over the agent definition', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, {
+    HOME: '/home',
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '300k',
+  })
+  agentFiles = { '/home/.claude/agents/r.md': agentMd('reviewer', 150_000) }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/300k 0%')
 })
 
 test('an agent with no step shows no context part', async ($, on) => {
