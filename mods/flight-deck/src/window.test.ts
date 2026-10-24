@@ -3,6 +3,7 @@ import { PALETTE } from './palette'
 import {
   agentFile,
   agentsDir,
+  agentTypeWindow,
   ancestorDirs,
   compactWindow,
   contextColor,
@@ -294,4 +295,18 @@ test('the layers of a merged read stand, unless the read carries none while it h
   // Settings with no layers: the engine filled none, so the layers are unknown.
   expect(layersOf([], { autoCompactWindow: 400_000 })).toBeNull()
   expect(layersOf(undefined, {})).toBeNull()
+})
+
+test('the window of an agent type a plugin registers is kept by its full name', () => {
+  const known = new Map<string, number>()
+  expect(
+    agentTypeWindow(known, 'lab:runner', { autoCompactWindow: 150_000 }).get('lab:runner'),
+  ).toBe(150_000)
+  // A registration again without a window, or with one out of range, drops it.
+  const once = agentTypeWindow(known, 'lab:runner', { autoCompactWindow: 150_000 })
+  expect(agentTypeWindow(once, 'lab:runner', {}).has('lab:runner')).toBe(false)
+  expect(agentTypeWindow(once, 'lab:runner', { autoCompactWindow: 5 }).has('lab:runner')).toBe(
+    false,
+  )
+  expect(agentTypeWindow(known, 'lab:plain', {}).size).toBe(0)
 })

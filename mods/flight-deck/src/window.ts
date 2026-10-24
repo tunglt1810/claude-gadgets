@@ -226,3 +226,16 @@ export const layersOf = (
   layers === undefined || (layers.length === 0 && Object.keys(merged).length > 0)
     ? null
     : layers.map((l) => l.settings)
+
+// The windows of the agent types that plugins register, by full name (`<plugin>:<name>`),
+// with the registration of `agent` applied: its `autoCompactWindow`, or none.
+export const agentTypeWindow = (
+  known: ReadonlyMap<string, number>,
+  agent: string,
+  spec: { autoCompactWindow?: unknown },
+): Map<string, number> => {
+  const next = new Map(known)
+  if (isCompactWindow(spec.autoCompactWindow)) next.set(agent, spec.autoCompactWindow)
+  else next.delete(agent)
+  return next
+}

@@ -67,6 +67,7 @@ import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
 import {
   agentFile,
   agentsDir,
+  agentTypeWindow,
   ancestorDirs,
   compactWindow,
   contextTargets,
@@ -1053,10 +1054,14 @@ async function definitionWindows($: Api): Promise<Map<string, number | undefined
 let lastLayers: readonly Readonly<Record<string, unknown>>[] | null = null
 let definitions: { session: string; windows: Promise<Map<string, number | undefined>> } | null =
   null
+// The windows of the agent types that plugins registered while this mod was loaded.
+let registered: ReadonlyMap<string, number> = new Map()
 
 // The `autoCompactWindow` of the definition of agent type `type`. The files are read one
 // time a session; a failed read is read again at the next spawn.
 async function agentCeiling($: Api, type: string): Promise<number | undefined> {
+  // A plugin's type (`<plugin>:<name>`) has no agent file of this name.
+  if (registered.has(type)) return registered.get(type)
   const session = await $.session.id()
   if (definitions?.session !== session) {
     const windows = definitionWindows($)
@@ -1089,6 +1094,13 @@ async function agentWindow($: Api, model: string): Promise<{ window: number; isE
 }
 
 export const register: Register = (on, options) => {
+  // A plugin's agent type takes effect as an agent file does: keep its window.
+  on('agent.register', async (_$, e, next) => {
+    const res = await next(e)
+    if ('value' in res && res.value !== undefined)
+      registered = agentTypeWindow(registered, res.value.agent, e)
+    return res
+  })
   // A read of the merged settings carries the layers it is made of: keep them.
   on('settings.read', async (_$, e, next) => {
     const res = await next(e)
