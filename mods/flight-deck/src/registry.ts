@@ -2,7 +2,10 @@ import type { AgentEntry, Registry } from '../types'
 
 export type { AgentEntry, Registry }
 
-type Info = Pick<AgentEntry, 'parentId' | 'type' | 'description' | 'name' | 'teammateId'>
+type Info = Pick<
+  AgentEntry,
+  'parentId' | 'type' | 'description' | 'name' | 'teammateId' | 'compactCeiling'
+>
 
 // What `$.agent.list()` gives for one agent, reduced to the fields the registry uses.
 export type Listed = {
@@ -37,6 +40,9 @@ const fill = (a: AgentEntry, info: Partial<Info>): AgentEntry => ({
   ...(a.teammateId === undefined && info.teammateId !== undefined
     ? { teammateId: info.teammateId }
     : {}),
+  ...(a.compactCeiling === undefined && info.compactCeiling !== undefined
+    ? { compactCeiling: info.compactCeiling }
+    : {}),
 })
 
 // What the TaskStop tool takes for an agent: the address of a teammate, the id of any other.
@@ -46,6 +52,23 @@ export const spawned = (r: Registry, id: string, at: number, info: Partial<Info>
   ...r,
   [id]: fill(r[id] ?? blank(id, at), info),
 })
+
+// The context of entry `id`, its window lowered to the lowest `compactCeiling` of the
+// entry and of its parents: the engine nests each definition's window in the parent's.
+export const capped = (r: Registry, id: string): Registry => {
+  const a = r[id]
+  const c = a?.context
+  if (a === undefined || c === undefined) return r
+  let ceiling = Number.POSITIVE_INFINITY
+  const seen = new Set<string>()
+  for (let e: AgentEntry | undefined = a; e !== undefined && !seen.has(e.id); ) {
+    seen.add(e.id)
+    if (e.compactCeiling !== undefined) ceiling = Math.min(ceiling, e.compactCeiling)
+    e = e.parentId === undefined ? undefined : r[e.parentId]
+  }
+  if (c.window <= ceiling) return r
+  return { ...r, [id]: { ...a, context: { ...c, window: ceiling } } }
+}
 
 // An event of the agent's loop: the agent runs. Its first event can come before the spawn.
 // The first event after an end starts a run, and the run is counted then.
@@ -180,6 +203,7 @@ export const parseRegistry = (raw: unknown): Registry => {
       isRecord(c) && isNum(c.tokens) && isNum(c.window)
         ? { tokens: c.tokens, window: c.window }
         : undefined
+    const compactCeiling = isNum(v.compactCeiling) ? v.compactCeiling : undefined
     out[id] = {
       id,
       ...(parentId === undefined ? {} : { parentId }),
@@ -190,6 +214,7 @@ export const parseRegistry = (raw: unknown): Registry => {
       ...(model === undefined ? {} : { model }),
       ...(effort === undefined ? {} : { effort }),
       ...(context === undefined ? {} : { context }),
+      ...(compactCeiling === undefined ? {} : { compactCeiling }),
       status: v.status === 'running' || v.status === 'stopped' ? v.status : 'idle',
       // An older version counted a run at its end: an entry is one started run at least.
       runs: Math.max(1, v.runs),

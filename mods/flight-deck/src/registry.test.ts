@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
   agentsKey,
+  capped,
   completed,
   ended,
   merged,
@@ -225,4 +226,39 @@ test('a teammate keeps the address that TaskStop takes', () => {
   expect(parseRegistry(JSON.parse(JSON.stringify(r))).t1?.teammateId).toBe('ana@core')
   expect(stopTarget(r, 't1')).toBe('ana@core')
   expect(stopTarget(spawned({}, 'a1', 100, {}), 'a1')).toBe('a1')
+})
+
+test('capped lowers the window of a context to the ceiling of the entry', () => {
+  const r = tuned(spawned({}, 'a1', 100, { compactCeiling: 150 }), 'a1', 'm', undefined, {
+    tokens: 10,
+    window: 400,
+  })
+  expect(capped(r, 'a1').a1?.context).toEqual({ tokens: 10, window: 150 })
+  // A window below the ceiling stays.
+  const low = tuned(r, 'a1', 'm', undefined, { tokens: 10, window: 100 })
+  expect(capped(low, 'a1')).toBe(low)
+  // No ceiling, no context or no entry: nothing changes.
+  const free = tuned(spawned({}, 'a1', 100, {}), 'a1', 'm', undefined, { tokens: 1, window: 400 })
+  expect(capped(free, 'a1')).toBe(free)
+  const bare = spawned({}, 'a1', 100, { compactCeiling: 150 })
+  expect(capped(bare, 'a1')).toBe(bare)
+  expect(capped({}, 'a1')).toEqual({})
+})
+
+test('capped takes the lowest ceiling of the entry and of its parents', () => {
+  let r = spawned({}, 'p', 100, { compactCeiling: 150 })
+  r = spawned(r, 'c', 100, { parentId: 'p', compactCeiling: 300 })
+  r = spawned(r, 'g', 100, { parentId: 'c' })
+  r = tuned(r, 'g', 'm', undefined, { tokens: 1, window: 400 })
+  expect(capped(r, 'g').g?.context?.window).toBe(150)
+  // A loop of parents ends.
+  let loop = spawned({}, 'x', 100, { parentId: 'y' })
+  loop = spawned(loop, 'y', 100, { parentId: 'x', compactCeiling: 200 })
+  loop = tuned(loop, 'x', 'm', undefined, { tokens: 1, window: 400 })
+  expect(capped(loop, 'x').x?.context?.window).toBe(200)
+})
+
+test('parseRegistry keeps the compaction window of a definition', () => {
+  const r = spawned({}, 'a1', 100, { compactCeiling: 150_000 })
+  expect(parseRegistry(JSON.parse(JSON.stringify(r)))).toEqual(r)
 })

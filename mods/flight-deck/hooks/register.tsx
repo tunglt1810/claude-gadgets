@@ -26,6 +26,7 @@ import { costOf } from '../src/price'
 import {
   agentsKey,
   agentTitle,
+  capped,
   completed,
   ended,
   merged,
@@ -63,7 +64,19 @@ import {
   snapShown,
 } from '../src/tween'
 import { addUsage, advised, emptyTotals, rebased, settled } from '../src/usage'
-import { contextTargets, contextTokens, contextWindow } from '../src/window'
+import {
+  agentFile,
+  agentsDir,
+  agentTypeWindow,
+  ancestorDirs,
+  compactWindow,
+  contextTargets,
+  contextTokens,
+  contextWindow,
+  envWindow,
+  inDir,
+  layersOf,
+} from '../src/window'
 import { endRun, endTurn, startRun, startTurn } from '../src/work'
 import type {
   Agents,
@@ -974,7 +987,126 @@ async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
   )
 }
 
+// The settings files, lowest precedence first, as the engine folds them.
+const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
+
+// One entry of an agents folder: a folder to read, or the definitions of a file.
+type AgentEntryOf = { dir: string } | { defs: { name: string; window?: number }[] }
+
+// The deepest folder below an agents folder that is read.
+const MAX_AGENT_DEPTH = 8
+
+// The agent files in `dir` and the folders below it, as the engine lists them
+// (`rg --files --follow`): a link is followed, and a folder already read (a link loop) is
+// not read again. All are read at once, in listing order.
+async function definitionsIn(
+  $: Api,
+  dir: string,
+  seen: Set<string>,
+  depth = 0,
+): Promise<{ name: string; window?: number }[]> {
+  // A loop of links ends at a folder read before, or at the depth limit when a path
+  // does not resolve.
+  if (depth > MAX_AGENT_DEPTH) return []
+  const real = (await $.fs.stat(dir, { resolve: true }).catch(() => undefined))?.realPath ?? dir
+  if (seen.has(real)) return []
+  seen.add(real)
+  // The files of the folder are read at once; its folders one after another, in listing
+  // order, so that the first of two links to one folder reads it.
+  const entries = await Promise.all(
+    (await $.fs.list(dir).catch(() => [])).map(async (f): Promise<AgentEntryOf> => {
+      const path = inDir(dir, f.name)
+      const kind =
+        f.kind === 'other' ? (await $.fs.stat(path).catch(() => ({ kind: 'other' }))).kind : f.kind
+      if (kind === 'dir') return { dir: path }
+      if (kind !== 'file' || !f.name.endsWith('.md')) return { defs: [] }
+      const text = await $.fs.read(path).catch(() => '')
+      const def = agentFile(typeof text === 'string' ? text : '')
+      return { defs: def === undefined ? [] : [def] }
+    }),
+  )
+  const found: { name: string; window?: number }[] = []
+  for (const e of entries)
+    found.push(...('dir' in e ? await definitionsIn($, e.dir, seen, depth + 1) : e.defs))
+  return found
+}
+
+// The window of each agent type's definition, as the engine picks a definition: the
+// nearest project folder from the root up to the git root, then the user's folder
+// (`$CLAUDE_CONFIG_DIR/agents`, else `~/.claude/agents`); the first file of a name wins.
+async function definitionWindows($: Api): Promise<Map<string, number | undefined>> {
+  const home = (await $.env.get('HOME')) ?? '/'
+  const project: string[] = []
+  for (const dir of ancestorDirs(await $.session.root(), home)) {
+    project.push(agentsDir(dir))
+    if (await $.fs.exists(inDir(dir, '.git')).catch(() => false)) break
+  }
+  const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? inDir(home, '.claude')
+  const dirs = [...project, inDir(config, 'agents')]
+  const windows = new Map<string, number | undefined>()
+  for (const defs of await Promise.all(dirs.map((d) => definitionsIn($, d, new Set()))))
+    for (const d of defs) if (!windows.has(d.name)) windows.set(d.name, d.window)
+  return windows
+}
+
+// The layers of the latest read of the merged settings (the engine fills them, the
+// `plugin` layer first), and the definition windows of this session's agent files.
+let lastLayers: readonly Readonly<Record<string, unknown>>[] | null = null
+let definitions: { session: string; windows: Promise<Map<string, number | undefined>> } | null =
+  null
+// The windows of the agent types that plugins registered while this mod was loaded.
+let registered: ReadonlyMap<string, number> = new Map()
+
+// The `autoCompactWindow` of the definition of agent type `type`. The files are read one
+// time a session; a failed read is read again at the next spawn.
+async function agentCeiling($: Api, type: string): Promise<number | undefined> {
+  // A plugin's type (`<plugin>:<name>`) has no agent file of this name.
+  if (registered.has(type)) return registered.get(type)
+  const session = await $.session.id()
+  if (definitions?.session !== session) {
+    const windows = definitionWindows($)
+    definitions = { session, windows }
+    windows.catch(() => {
+      if (definitions?.windows === windows) definitions = null
+    })
+  }
+  return (await definitions.windows).get(type)
+}
+
+// The settings layers, lowest precedence first: those of the latest merged read (each
+// step reads the merged settings first), else each source read now.
+async function settingsLayers($: Api): Promise<readonly Readonly<Record<string, unknown>>[]> {
+  return lastLayers ?? Promise.all(SOURCES.map((source) => $.settings.read({ source })))
+}
+
+// The window an agent's context is measured against, before the window of its
+// definition: the model's window, or the smaller auto-compact window of the variable or
+// the settings. `isEnv`: the variable sets it, and no definition lowers it.
+async function agentWindow($: Api, model: string): Promise<{ window: number; isEnv: boolean }> {
+  const window = contextWindow(model, isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')))
+  const env = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW'))
+  // The variable decides alone: the settings are not read. A failed read gives no window.
+  const compact = env ?? compactWindow(model, await settingsLayers($).catch(() => []))
+  return {
+    window: compact === undefined ? window : Math.min(window, compact),
+    isEnv: env !== undefined,
+  }
+}
+
 export const register: Register = (on, options) => {
+  // A plugin's agent type takes effect as an agent file does: keep its window.
+  on('agent.register', async (_$, e, next) => {
+    const res = await next(e)
+    if ('value' in res && res.value !== undefined)
+      registered = agentTypeWindow(registered, res.value.agent, e)
+    return res
+  })
+  // A read of the merged settings carries the layers it is made of: keep them.
+  on('settings.read', async (_$, e, next) => {
+    const res = await next(e)
+    if (e.source === undefined) lastLayers = layersOf(e.layers, res)
+    return res
+  })
   // Start the tick for a session that already has a live cache (--resume, hot reload).
   on('session.start', async ($, e, next) => {
     await ensureLoaded($)
@@ -1110,17 +1242,17 @@ export const register: Register = (on, options) => {
       const effort = e.effort === undefined ? undefined : String(e.effort)
       if (agentId !== undefined) {
         // A step with no usage tells nothing of the window: the entry keeps its context.
+        const measured = res.usage === null ? null : await agentWindow($, e.model)
         const context =
-          res.usage === null
+          res.usage === null || measured === null
             ? undefined
-            : {
-                tokens: contextTokens(res.usage),
-                window: contextWindow(
-                  e.model,
-                  isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')),
-                ),
-              }
-        await trackAgent($, id, (r) => tuned(r, agentId, e.model, effort, context))
+            : { tokens: contextTokens(res.usage), window: measured.window }
+        // The window of the definition applies inside the updater: the spawn can store it
+        // while this step runs.
+        await trackAgent($, id, (r) => {
+          const stepped = tuned(r, agentId, e.model, effort, context)
+          return measured?.isEnv === true ? stepped : capped(stepped, agentId)
+        })
       } else {
         // The dashboard's numbers changed.
         await syncPane($)
@@ -1253,11 +1385,22 @@ export const register: Register = (on, options) => {
   })
 
   on('agent.spawn', async ($, e, next) => {
+    // A subagent compacts at the lowest window of its definition and its parents'. The
+    // definition is read while the agent starts: the updater below caps a step that came
+    // first. A failure to read the definition must not lose the record of the spawn.
+    const ownRead =
+      e.subagentType === undefined
+        ? Promise.resolve(undefined)
+        : agentCeiling($, e.subagentType).catch(() => undefined)
     const res = await next(e)
+    const own = await ownRead
     // A refused spawn started nothing.
     const agentId = res.agentId
     if (agentId === undefined) return res
     const id = await ensureLoaded($)
+    // A step that came before this was measured without the window of the definition,
+    // which the variable overrides.
+    const isEnv = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) !== undefined
     // The agent's first step can arrive before this: keep what it already counted.
     const nextMeter = await update($, meter, (c) => ({
       ...c,
@@ -1268,14 +1411,17 @@ export const register: Register = (on, options) => {
       ),
     }))
     await save($, id, nextMeter)
-    await trackAgent($, id, (r, t) =>
-      spawned(r, agentId, t, {
+    await trackAgent($, id, (r, t) => {
+      // `capped` takes the parents' ceilings from the registry, as each one stands then.
+      const entry = spawned(r, agentId, t, {
         ...(e.parentAgentId === undefined ? {} : { parentId: e.parentAgentId }),
         ...(e.subagentType === undefined ? {} : { type: e.subagentType }),
         ...(e.description === undefined ? {} : { description: e.description }),
         ...(e.name === undefined ? {} : { name: e.name }),
-      }),
-    )
+        ...(own === undefined ? {} : { compactCeiling: own }),
+      })
+      return isEnv ? entry : capped(entry, agentId)
+    })
     return res
   })
 

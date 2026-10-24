@@ -1,6 +1,11 @@
 import { expect, test } from 'claude-code/testing'
 import { PALETTE } from './palette'
 import {
+  agentFile,
+  agentsDir,
+  agentTypeWindow,
+  ancestorDirs,
+  compactWindow,
   contextColor,
   contextFit,
   contextPct,
@@ -9,6 +14,9 @@ import {
   contextTokens,
   contextTone,
   contextWindow,
+  envWindow,
+  layersOf,
+  settingsKey,
 } from './window'
 
 test('context tokens are the input side of a step, without the output', () => {
@@ -103,4 +111,216 @@ test('the context targets name each agent that has a context', () => {
       a2: { ...entry, id: 'a2' },
     }),
   ).toEqual({ 'ctx:a1': 100 })
+})
+
+test('a settings key drops the [1m] suffix, the date and the cloud spellings', () => {
+  for (const m of [
+    'claude-opus-5-5',
+    'claude-opus-5-5[1m]',
+    'Claude-Opus-5-5[1M]',
+    'claude-opus-5-5-20261001',
+    'us.anthropic.claude-opus-5-5-20261001-v1:0',
+    'global.anthropic.claude-opus-5-5-v1:0',
+    'anthropic.claude-opus-5-5-v1',
+    'claude-opus-5-5@20261001',
+  ])
+    expect(settingsKey(m)).toBe('claude-opus-5-5')
+})
+
+const OPUS = 'claude-opus-5-5'
+
+test('with no setting there is no compaction window', () => {
+  expect(compactWindow(OPUS, [])).toBeUndefined()
+  expect(compactWindow(OPUS, [{}, { modelSettings: {} }])).toBeUndefined()
+})
+
+test('the window of the model comes from its own settings, in any spelling of the key', () => {
+  const user = { modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } } }
+  expect(compactWindow(OPUS, [user])).toBe(400_000)
+  expect(compactWindow('claude-opus-5-5[1m]', [user])).toBe(400_000)
+  expect(compactWindow('claude-sonnet-5-5', [user])).toBeUndefined()
+  const dated = { modelSettings: { 'claude-opus-5-5-20261001': { autoCompactWindow: 300_000 } } }
+  expect(compactWindow(OPUS, [dated])).toBe(300_000)
+})
+
+test('the canonical key wins over another spelling in the same file', () => {
+  const user = {
+    modelSettings: {
+      [OPUS]: { autoCompactWindow: 400_000 },
+      'claude-opus-5-5[1m]': { autoCompactWindow: 300_000 },
+    },
+  }
+  expect(compactWindow(OPUS, [user])).toBe(400_000)
+})
+
+test('the top-level window applies to a model with no window of its own', () => {
+  const user = {
+    autoCompactWindow: 500_000,
+    modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } },
+  }
+  expect(compactWindow(OPUS, [user])).toBe(400_000)
+  expect(compactWindow('claude-sonnet-5-5', [user])).toBe(500_000)
+})
+
+test('a later file with a top-level window drops the model windows of the files before it', () => {
+  const user = { modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } } }
+  const project = { autoCompactWindow: 600_000 }
+  expect(compactWindow(OPUS, [user, project])).toBe(600_000)
+})
+
+test('a later file with only model windows keeps the files before it', () => {
+  const user = {
+    autoCompactWindow: 500_000,
+    modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } },
+  }
+  const local = { modelSettings: { 'claude-sonnet-5-5': { autoCompactWindow: 300_000 } } }
+  expect(compactWindow(OPUS, [user, local])).toBe(400_000)
+  expect(compactWindow('claude-sonnet-5-5', [user, local])).toBe(300_000)
+  expect(compactWindow('claude-fable-5-1', [user, local])).toBe(500_000)
+})
+
+test('auto is no window', () => {
+  const user = {
+    autoCompactWindow: 500_000,
+    modelSettings: { [OPUS]: { autoCompactWindow: 'auto' } },
+  }
+  expect(compactWindow(OPUS, [user])).toBeUndefined()
+  expect(compactWindow(OPUS, [{ autoCompactWindow: 'auto' }])).toBeUndefined()
+})
+
+test('the variable is read as the engine reads it', () => {
+  expect(envWindow('250000')).toBe(250_000)
+  expect(envWindow(' 300k ')).toBe(300_000)
+  expect(envWindow('0.5M')).toBe(500_000)
+  expect(envWindow('350,000')).toBe(350_000)
+  expect(envWindow('400_000')).toBe(400_000)
+  expect(envWindow('1e6')).toBe(1_000_000)
+  expect(envWindow('2.5E5')).toBe(250_000)
+  // A number in scientific form that is not whole is no size.
+  expect(envWindow('1.5e0')).toBeUndefined()
+  // Mixed or wrong groups read up to the first separator, as parseInt does.
+  expect(envWindow('400,000_000')).toBe(100_000)
+  expect(envWindow('4000,000')).toBe(100_000)
+  // Below the minimum it is the minimum, above the maximum the maximum.
+  expect(envWindow('50000')).toBe(100_000)
+  expect(envWindow('2m')).toBe(1_000_000)
+  // A value that is no size is ignored.
+  expect(envWindow('abc')).toBeUndefined()
+  expect(envWindow('0')).toBeUndefined()
+  expect(envWindow('')).toBeUndefined()
+  expect(envWindow(undefined)).toBeUndefined()
+})
+
+test('a settings value out of range is dropped, as if the file did not set it', () => {
+  expect(compactWindow(OPUS, [{ autoCompactWindow: 50_000 }])).toBeUndefined()
+  expect(compactWindow(OPUS, [{ autoCompactWindow: 2_000_000 }])).toBeUndefined()
+  // A bad model value does not hide the top-level window.
+  const bad = {
+    autoCompactWindow: 500_000,
+    modelSettings: { [OPUS]: { autoCompactWindow: 50_000 } },
+  }
+  expect(compactWindow(OPUS, [bad])).toBe(500_000)
+  // A bad top-level value does not drop the model windows of the files before it.
+  const user = { modelSettings: { [OPUS]: { autoCompactWindow: 400_000 } } }
+  expect(compactWindow(OPUS, [user, { autoCompactWindow: 'x' }])).toBe(400_000)
+})
+
+test('an agent file gives its name and its window', () => {
+  const file = (head: string) => `---\n${head}\ndescription: Reviews\n---\n\nYou review code.\n`
+  expect(agentFile(file('name: reviewer\nautoCompactWindow: 150000'))).toEqual({
+    name: 'reviewer',
+    window: 150_000,
+  })
+  expect(agentFile(file('name: "reviewer"\nautoCompactWindow: "200000"'))).toEqual({
+    name: 'reviewer',
+    window: 200_000,
+  })
+  expect(agentFile(file('name: reviewer'))).toEqual({ name: 'reviewer' })
+  // A "#" inside quotes is part of the value; after it, a comment.
+  expect(agentFile(file('name: "rev #1"'))).toEqual({ name: 'rev #1' })
+  expect(agentFile(file("name: 'reviewer' # the one"))).toEqual({ name: 'reviewer' })
+  // A window out of range is dropped.
+  expect(agentFile(file('name: reviewer\nautoCompactWindow: 50000'))).toEqual({ name: 'reviewer' })
+  // A key below the frontmatter is not read.
+  expect(
+    agentFile('---\nname: reviewer\ndescription: R\n---\nautoCompactWindow: 150000\n'),
+  ).toEqual({ name: 'reviewer' })
+  expect(agentFile('no frontmatter')).toBeUndefined()
+  expect(agentFile(file('autoCompactWindow: 150000'))).toBeUndefined()
+})
+
+test('an agent file the engine refuses defines no agent', () => {
+  // No description.
+  expect(agentFile('---\nname: reviewer\nautoCompactWindow: 150000\n---\n')).toBeUndefined()
+  // A name that starts with "-" or holds ":".
+  expect(agentFile('---\nname: -reviewer\ndescription: R\n---\n')).toBeUndefined()
+  expect(agentFile('---\nname: lab:reviewer\ndescription: R\n---\n')).toBeUndefined()
+})
+
+test('the folders above the project root are listed up to the home folder, the nearest first', () => {
+  expect(ancestorDirs('/Users/u/work/app', '/Users/u')).toEqual([
+    '/Users/u/work/app',
+    '/Users/u/work',
+  ])
+  expect(ancestorDirs('/Users/u/work/app/', '/Users/u/')).toEqual([
+    '/Users/u/work/app',
+    '/Users/u/work',
+  ])
+  // The home folder itself is no project folder.
+  expect(ancestorDirs('/Users/u', '/Users/u')).toEqual([])
+  // Outside the home folder the walk goes to the root.
+  expect(ancestorDirs('/srv/app', '/Users/u')).toEqual(['/srv/app', '/srv', '/'])
+})
+
+test('an agent file value may have a comment after it', () => {
+  const text =
+    '---\nname: reviewer # the reviewer\ndescription: R\nautoCompactWindow: 150000  # small\n---\n'
+  expect(agentFile(text)).toEqual({ name: 'reviewer', window: 150_000 })
+})
+
+test('an empty agent file value does not take the next line', () => {
+  expect(agentFile('---\nname:\ndescription: Reviews\n---\n')).toBeUndefined()
+})
+
+test('the agents folder of a folder has one slash, at the root too', () => {
+  expect(agentsDir('/srv/app')).toBe('/srv/app/.claude/agents')
+  expect(agentsDir('/')).toBe('/.claude/agents')
+})
+
+test('the layers of a merged read stand, unless the read carries none while it has settings', () => {
+  const user = { source: 'user', settings: { autoCompactWindow: 400_000 } }
+  expect(layersOf([user], { autoCompactWindow: 400_000 })).toEqual([user.settings])
+  // No settings file: no layer and no setting.
+  expect(layersOf([], {})).toEqual([])
+  // Settings with no layers: the engine filled none, so the layers are unknown.
+  expect(layersOf([], { autoCompactWindow: 400_000 })).toBeNull()
+  expect(layersOf(undefined, {})).toBeNull()
+})
+
+test('the window of an agent type a plugin registers is kept by its full name', () => {
+  const known = new Map<string, number>()
+  expect(
+    agentTypeWindow(known, 'lab:runner', { autoCompactWindow: 150_000 }).get('lab:runner'),
+  ).toBe(150_000)
+  // A registration again without a window, or with one out of range, drops it.
+  const once = agentTypeWindow(known, 'lab:runner', { autoCompactWindow: 150_000 })
+  expect(agentTypeWindow(once, 'lab:runner', {}).has('lab:runner')).toBe(false)
+  expect(agentTypeWindow(once, 'lab:runner', { autoCompactWindow: 5 }).has('lab:runner')).toBe(
+    false,
+  )
+  expect(agentTypeWindow(known, 'lab:plain', {}).size).toBe(0)
+})
+
+test('an agent file with a BOM, or a description on the next lines, defines an agent', () => {
+  expect(agentFile('\uFEFF---\nname: reviewer\ndescription: R\n---\n')).toEqual({
+    name: 'reviewer',
+  })
+  expect(agentFile('---\nname: reviewer\ndescription:\n  Reviews code\n---\n')).toEqual({
+    name: 'reviewer',
+  })
+  expect(agentFile('---\nname: reviewer\ndescription: >\n  Reviews code\n---\n')).toEqual({
+    name: 'reviewer',
+  })
+  // An empty description with no text below is none.
+  expect(agentFile('---\nname: reviewer\ndescription:\nmodel: opus\n---\n')).toBeUndefined()
 })
