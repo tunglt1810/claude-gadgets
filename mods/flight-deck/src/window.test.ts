@@ -217,10 +217,8 @@ test('a settings value out of range is dropped, as if the file did not set it', 
 })
 
 test('an agent file gives its name and its window', () => {
-  const file = (head: string) => `---\n${head}\n---\n\nYou review code.\n`
-  expect(
-    agentFile(file('name: reviewer\ndescription: Reviews\nautoCompactWindow: 150000')),
-  ).toEqual({
+  const file = (head: string) => `---\n${head}\ndescription: Reviews\n---\n\nYou review code.\n`
+  expect(agentFile(file('name: reviewer\nautoCompactWindow: 150000'))).toEqual({
     name: 'reviewer',
     window: 150_000,
   })
@@ -232,11 +230,19 @@ test('an agent file gives its name and its window', () => {
   // A window out of range is dropped.
   expect(agentFile(file('name: reviewer\nautoCompactWindow: 50000'))).toEqual({ name: 'reviewer' })
   // A key below the frontmatter is not read.
-  expect(agentFile('---\nname: reviewer\n---\nautoCompactWindow: 150000\n')).toEqual({
-    name: 'reviewer',
-  })
+  expect(
+    agentFile('---\nname: reviewer\ndescription: R\n---\nautoCompactWindow: 150000\n'),
+  ).toEqual({ name: 'reviewer' })
   expect(agentFile('no frontmatter')).toBeUndefined()
-  expect(agentFile(file('description: no name'))).toBeUndefined()
+  expect(agentFile(file('autoCompactWindow: 150000'))).toBeUndefined()
+})
+
+test('an agent file the engine refuses defines no agent', () => {
+  // No description.
+  expect(agentFile('---\nname: reviewer\nautoCompactWindow: 150000\n---\n')).toBeUndefined()
+  // A name that starts with "-" or holds ":".
+  expect(agentFile('---\nname: -reviewer\ndescription: R\n---\n')).toBeUndefined()
+  expect(agentFile('---\nname: lab:reviewer\ndescription: R\n---\n')).toBeUndefined()
 })
 
 test('the folders above the project root are listed up to the home folder, the nearest first', () => {
@@ -255,8 +261,13 @@ test('the folders above the project root are listed up to the home folder, the n
 })
 
 test('an agent file value may have a comment after it', () => {
-  const text = '---\nname: reviewer # the reviewer\nautoCompactWindow: 150000  # small\n---\n'
+  const text =
+    '---\nname: reviewer # the reviewer\ndescription: R\nautoCompactWindow: 150000  # small\n---\n'
   expect(agentFile(text)).toEqual({ name: 'reviewer', window: 150_000 })
+})
+
+test('an empty agent file value does not take the next line', () => {
+  expect(agentFile('---\nname:\ndescription: Reviews\n---\n')).toBeUndefined()
 })
 
 test('the agents folder of a folder has one slash, at the root too', () => {

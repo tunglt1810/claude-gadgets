@@ -132,9 +132,13 @@ export const agentFile = (text: string): { name: string; window?: number } | und
   if (head === undefined) return undefined
   // A value, without its quotes and without a comment after it.
   const value = (key: string) =>
-    new RegExp(`^${key}:\\s*["']?(.*?)["']?(?:\\s+#.*)?\\s*$`, 'm').exec(head)?.[1]
+    new RegExp(`^${key}:[ \\t]*["']?(.*?)["']?(?:[ \\t]+#.*)?\\s*$`, 'm').exec(head)?.[1]
   const name = value('name')
-  if (name === undefined || name === '') return undefined
+  // The engine refuses a file with no name or description, or with a name that starts
+  // with "-" or holds ":" (the plugin separator).
+  if (name === undefined || name === '' || name.startsWith('-') || name.includes(':'))
+    return undefined
+  if (!value('description')) return undefined
   const raw = value('autoCompactWindow')
   const window = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) : undefined
   return isCompactWindow(window) ? { name, window } : { name }

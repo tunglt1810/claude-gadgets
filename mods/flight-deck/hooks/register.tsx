@@ -989,6 +989,9 @@ async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
 // The settings files, lowest precedence first, as the engine folds them.
 const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
 
+// One entry of an agents folder: a folder to read, or the definitions of a file.
+type AgentEntryOf = { dir: string } | { defs: { name: string; window?: number }[] }
+
 // The deepest folder below an agents folder that is read.
 const MAX_AGENT_DEPTH = 8
 
@@ -1007,19 +1010,24 @@ async function definitionsIn(
   const real = (await $.fs.stat(dir, { resolve: true }).catch(() => undefined))?.realPath ?? dir
   if (seen.has(real)) return []
   seen.add(real)
-  const found = await Promise.all(
-    (await $.fs.list(dir).catch(() => [])).map(async (f) => {
+  // The files of the folder are read at once; its folders one after another, in listing
+  // order, so that the first of two links to one folder reads it.
+  const entries = await Promise.all(
+    (await $.fs.list(dir).catch(() => [])).map(async (f): Promise<AgentEntryOf> => {
       const path = inDir(dir, f.name)
       const kind =
         f.kind === 'other' ? (await $.fs.stat(path).catch(() => ({ kind: 'other' }))).kind : f.kind
-      if (kind === 'dir') return definitionsIn($, path, seen, depth + 1)
-      if (kind !== 'file' || !f.name.endsWith('.md')) return []
+      if (kind === 'dir') return { dir: path }
+      if (kind !== 'file' || !f.name.endsWith('.md')) return { defs: [] }
       const text = await $.fs.read(path).catch(() => '')
       const def = agentFile(typeof text === 'string' ? text : '')
-      return def === undefined ? [] : [def]
+      return { defs: def === undefined ? [] : [def] }
     }),
   )
-  return found.flat()
+  const found: { name: string; window?: number }[] = []
+  for (const e of entries)
+    found.push(...('dir' in e ? await definitionsIn($, e.dir, seen, depth + 1) : e.defs))
+  return found
 }
 
 // The window of each agent type's definition, as the engine picks a definition: the
@@ -1368,13 +1376,14 @@ export const register: Register = (on, options) => {
 
   on('agent.spawn', async ($, e, next) => {
     // A subagent compacts at the lowest window of its definition and its parents'. The
-    // definition is read before the agent starts, so that its first step finds the window.
-    // A failure to read the definition must not lose the record of the spawn.
-    const own =
+    // definition is read while the agent starts: the updater below caps a step that came
+    // first. A failure to read the definition must not lose the record of the spawn.
+    const ownRead =
       e.subagentType === undefined
-        ? undefined
-        : await agentCeiling($, e.subagentType).catch(() => undefined)
+        ? Promise.resolve(undefined)
+        : agentCeiling($, e.subagentType).catch(() => undefined)
     const res = await next(e)
+    const own = await ownRead
     // A refused spawn started nothing.
     const agentId = res.agentId
     if (agentId === undefined) return res
