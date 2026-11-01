@@ -4,7 +4,6 @@ const KEYS = ['file_path', 'command', 'description', 'pattern', 'url', 'query', 
 
 const oneRow = (v: string): string => v.replace(/\s+/g, ' ').trim()
 
-// One line for a tool call: the tool name and the argument that identifies the call.
 export const toolSummary = (tool: string, input: Record<string, unknown>): string => {
   for (const k of KEYS) {
     const v = input[k]
@@ -14,14 +13,10 @@ export const toolSummary = (tool: string, input: Record<string, unknown>): strin
   return first === undefined ? tool : `${tool} ${oneRow(first)}`
 }
 
-// What the `Code` element of an expanded tool call draws.
 export type CodeView = { source: string; language?: string; format?: 'diff'; path?: string }
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined)
 
-// The input as the expanded tool call shows it, at most `max` lines: a shell command as
-// shell source, an edit as a diff of its old and new text, a written file as its content,
-// anything else as JSON.
 export const inputCode = (tool: string, input: Record<string, unknown>, max: number): CodeView => {
   const path = str(input.file_path)
   const command = str(input.command)

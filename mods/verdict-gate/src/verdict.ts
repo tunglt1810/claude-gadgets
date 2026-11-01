@@ -35,14 +35,12 @@ export const question = (tool: string, detail: string): string | undefined => {
   return `Auto mode did not review this ${tool} call: ${shown}. Run it?`
 }
 
-// The question beside the pane that shows the whole input.
 export const paneQuestion = (tool: string, detail: string): string | undefined => {
   const shown = visible(detail)
   if (shown.length > MAX_PANE) return undefined
   return `Auto mode did not review this ${tool} call (${count(shown.length)} characters, full input in the pane). Run it?`
 }
 
-// The input in the pane: one field to a line. A line break in a value stays as written.
 export const paneInput = (detail: string): string =>
   JSON.stringify(JSON.parse(detail), null, 2).split('\n').map(visible).join('\n')
 

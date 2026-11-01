@@ -18,7 +18,6 @@ export const endTurn = (w: Work, at: number): Work => {
     : { workMs: w.workMs + Math.max(0, at - (w.busySince ?? at)), active: 0, busySince: null }
 }
 
-// Total including the interval that is still open.
 export const workElapsed = (w: Work, now: number): number =>
   w.workMs + (w.busySince === null ? 0 : Math.max(0, now - w.busySince))
 

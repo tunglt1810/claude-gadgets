@@ -13,12 +13,10 @@ type Props = {
   ttl: '5m' | '1h'
   columns: number
   isAgentView?: boolean
-  // In an agent view: the agent's model id and effort, its name and its context length.
   model?: string
   name?: string
   context?: { tokens: number; window: number }
   isPaneOpen: boolean
-  // A desktop: the text is a `Client`.
   isDesktop: boolean
   // The engine draws a Text in the monospaced face (2.1.299 and later).
   isMono: boolean

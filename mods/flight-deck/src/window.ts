@@ -2,7 +2,6 @@ import type { Registry } from '../types'
 import { formatTokens } from './format'
 import { PALETTE } from './palette'
 
-// The input side of an agent's latest step, and the window of the step's model.
 export type Context = { tokens: number; window: number }
 
 // A step's usage: its output is not part of the window, so it is never read.
@@ -68,7 +67,6 @@ export const settingsKey = (model: string): string =>
     .replace(/-v\d+(?::\d+)?$/, '')
     .replace(/[-@]\d{8}$/, '')
 
-// A settings value as an object, or an empty one.
 const obj = (v: unknown): Record<string, unknown> =>
   typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
 
@@ -135,12 +133,9 @@ export const compactWindow = (
   return isCompactWindow(w) ? w : undefined
 }
 
-// The `name` of an agent file (`.claude/agents/*.md`) and its `autoCompactWindow`, read
-// from its frontmatter; undefined for a file with no frontmatter or no name.
 export const agentFile = (text: string): { name: string; window?: number } | undefined => {
   const head = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1]
   if (head === undefined) return undefined
-  // A value, without its quotes and without a comment after it.
   const value = (key: string) => {
     const m = new RegExp(
       `^${key}:[ \\t]*(?:"([^"]*)"|'([^']*)'|(.*?))(?:[ \\t]+#.*)?\\s*$`,
@@ -162,7 +157,6 @@ export const agentFile = (text: string): { name: string; window?: number } | und
   return isCompactWindow(window) ? { name, window } : { name }
 }
 
-// `tokens` over `window` as a whole percentage, kept between 0 and 100.
 export const contextPct = (c: Context): number =>
   c.window > 0 ? Math.min(100, Math.max(0, Math.round((c.tokens / c.window) * 100))) : 0
 
@@ -173,22 +167,18 @@ const TONE = { ok: PALETTE.green, warn: PALETTE.yellow, danger: PALETTE.red } as
 
 export const contextColor = (c: Context): string => TONE[contextTone(contextPct(c))]
 
-// A window as `1M` or `200k`: a whole count has no decimal.
 const windowLabel = (n: number): string => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${n / 1000}k`)
 
-// `ctx 182.4k/1M 18%`, or `ctx 18%` where the row has no room for the counts.
 export const contextText = (c: Context, isFull: boolean): string =>
   isFull
     ? `ctx ${formatTokens(c.tokens)}/${windowLabel(c.window)} ${contextPct(c)}%`
     : `ctx ${contextPct(c)}%`
 
-// The text of a context in `room` cells: with its counts, the percentage alone, or none.
 export const contextFit = (c: Context, room: number): string | null =>
   [contextText(c, true), contextText(c, false)].find((t) => t.length <= room) ?? null
 
 export const ctxKey = (agentId: string): string => `ctx:${agentId}`
 
-// The tokens of each agent's context that run to a new count when they change, by name.
 export const contextTargets = (entries: Registry): Record<string, number> =>
   Object.fromEntries(
     Object.values(entries).flatMap((a) =>
@@ -212,11 +202,9 @@ export const ancestorDirs = (root: string, home: string): string[] => {
   return dirs
 }
 
-// `rel` in `dir`, with one slash at the root too.
 export const inDir = (dir: string, rel: string): string =>
   dir === '/' ? `/${rel}` : `${dir}/${rel}`
 
-// The folder of the agent files of a project folder.
 export const agentsDir = (dir: string): string => inDir(dir, '.claude/agents')
 
 // The settings layers that a read of the merged settings is made of, lowest precedence
@@ -230,8 +218,6 @@ export const layersOf = (
     ? null
     : layers.map((l) => l.settings)
 
-// The windows of the agent types that plugins register, by full name (`<plugin>:<name>`),
-// with the registration of `agent` applied: its `autoCompactWindow`, or none.
 export const agentTypeWindow = (
   known: ReadonlyMap<string, number>,
   agent: string,

@@ -71,14 +71,10 @@ const priceOf = (name: string) => {
   return id === undefined ? undefined : PRICES[id]
 }
 
-// The cache read price of a price row: its own, or a tenth of the input price.
 const readOf = (p: { input: number; read?: number }): number => p.read ?? p.input * 0.1
 
-// The cache write price of a price row, by the lifetime of the cache entry.
 const writeOf = (p: { input: number }, ttl: Ttl): number => p.input * (ttl === '1h' ? 2 : 1.25)
 
-// The rate of a model for one request with a prompt of `prompt` tokens: the long rate above
-// its limit, else the base rate.
 const rateOf = (p: Rate & { long?: Rate & { above: number } }, prompt: number): Rate =>
   p.long !== undefined && prompt > p.long.above ? p.long : p
 

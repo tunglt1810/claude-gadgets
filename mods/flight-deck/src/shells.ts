@@ -1,7 +1,6 @@
 import type { Cell, Shell } from '../types'
 import { PALETTE } from './palette'
 
-// The newest shells that the pane keeps.
 export const MAX_SHELLS = 20
 // The most characters of one line of output: the pane cuts a line to its columns, and a
 // long line must not take the tree near the engine's limit of 100,000 characters.

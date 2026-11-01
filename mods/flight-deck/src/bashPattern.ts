@@ -1,4 +1,3 @@
-// The row of the patterns that came after the list was full.
 export const OTHER = '(other)'
 
 // The most patterns a session keeps, `OTHER` included: a meter is stored on each change.
@@ -113,7 +112,6 @@ const patternOf = (words: readonly string[]): string | undefined => {
     : name
 }
 
-// The patterns of a Bash command, one for each simple command in it, in order.
 export const bashPatterns = (command: string): string[] =>
   PRINTABLE.test(command)
     ? commands(command).flatMap((words) => {
@@ -122,8 +120,6 @@ export const bashPatterns = (command: string): string[] =>
       })
     : []
 
-// The counts with one call's patterns added. Once the list holds `limit` patterns, a new one
-// is counted under `OTHER`.
 export const countPatterns = (
   counts: Readonly<Record<string, number>>,
   patterns: readonly string[],

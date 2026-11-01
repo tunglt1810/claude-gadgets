@@ -4,14 +4,11 @@ import { cellWidth, wrapRows } from './wrap'
 // terminal, `[ » message ]` and `[ ■ stop? ]`, with one cell between them.
 const WIDE = 25
 
-// The labels of an agent's control buttons: words in a wide row, icons in a narrow one. A
-// stop button that waits for its second press ends with `?`.
 export const controlLabels = (room: number, isAsked: boolean): { message: string; stop: string } =>
   room >= WIDE
     ? { message: '» message', stop: isAsked ? '■ stop?' : '■ stop' }
     : { message: '»', stop: isAsked ? '■?' : '■' }
 
-// The row below the controls when the engine did not stop the agent.
 export const stopFailure = (reason: string | undefined): string =>
   reason === undefined || reason === '' ? 'not stopped' : `not stopped: ${reason.split('\n')[0]}`
 
@@ -33,7 +30,6 @@ export const isOpenAsk = (verdict: {
   verdict.hook === undefined &&
   verdict.ceiling === undefined
 
-// The name of the mod, as the engine gives it for an element and for the origin of a call.
 export const PLUGIN = 'flight-deck'
 
 // Whether a SendMessage call is a message of the pane: the mod made the call (`plugin`, the
@@ -53,7 +49,6 @@ export const isPaneSend = (
   )
 }
 
-// The button that lets the messages of the pane go in auto mode.
 export const ALLOW_LABEL = 'allow messages in auto mode'
 
 // The row below a message field when the engine did not send the message. With the answer of
@@ -68,11 +63,8 @@ export const sendFailure = (reason: string | undefined): string => {
 // hint ` ⏎ send` after it.
 const FIELD_CHROME = 9
 
-// The cells of each row of `text`, wrapped at a space in rows of `width` cells. A word that
-// is longer than a row fills rows.
 const wrapped = (text: string, width: number): number[] => wrapRows(text, width).map(cellWidth)
 
-// The most cells that the label of a field grows by.
 const MAX_PAD = 3
 
 // How the terminal draws a focused message field in a box of `columns` cells: the rows of

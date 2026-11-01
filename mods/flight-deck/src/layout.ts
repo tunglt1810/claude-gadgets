@@ -13,7 +13,6 @@ export type Segment = {
   color?: string
   bold?: boolean
   inverse?: boolean
-  // The band draws it as the button that toggles the Flight Deck pane.
   isButton?: boolean
 }
 
@@ -23,13 +22,10 @@ export type BandInput = {
   now: number
   ttl: '5m' | '1h'
   columns: number
-  // The counts as they are drawn during a tween; the snapshot's own counts when absent.
   shown?: Counts
   // One agent's numbers are drawn: the metrics that exist per session only are left out.
   isAgentView?: boolean
-  // The Flight Deck pane is open: the button carries a mark.
   isPaneOpen?: boolean
-  // In an agent view: the agent's model id and effort, drawn after the mark.
   model?: string
   // In an agent view: the agent's name, in the room that the band has left, and the context
   // length of its latest step. The band stays in view when the pane's header scrolls away.
@@ -38,7 +34,6 @@ export type BandInput = {
 }
 
 const TONE = { ok: PALETTE.green, warn: PALETTE.yellow, danger: PALETTE.red } as const
-// Between groups; metrics inside a group are separated by two spaces.
 const SEP: Segment = { text: ' │ ', color: PALETTE.dim }
 
 // Every metric reads `icon label value`, with the same spacing. Icons are single-width,
@@ -57,12 +52,9 @@ const LABEL = {
   cost: '$ cost',
   diff: '± diff',
   cache: '◔ cache',
-  // The countdown beside the percentage: the percentage has the label.
   clock: '◔',
 } as const
 
-// The percentage of the prompt tokens that the cache gave, and the time the cache has left.
-// The Flight Deck button is in no group: it is the last part of the band, at its right end.
 const GROUPS: readonly (readonly Part[])[] = [
   ['ctx'],
   ['in', 'out'],
@@ -71,7 +63,6 @@ const GROUPS: readonly (readonly Part[])[] = [
   ['cost', 'diff'],
 ]
 
-// Metrics in the order they are dropped when the band is too narrow (first = dropped first).
 const DROP_ORDER = [
   'break',
   'bg',
@@ -87,7 +78,6 @@ const DROP_ORDER = [
   'deck',
 ] as const
 type Part = (typeof DROP_ORDER)[number] | 'cache'
-// `timer` is the countdown with no label: it is drawn in place of `cache`, never dropped by name.
 type Parts = Record<Part | 'timer', Segment[]>
 
 const SESSION_ONLY = ['cost', 'work', 'agents', 'bg', 'deck'] as const
@@ -143,7 +133,6 @@ export const bandSegments = ({
   // The terminal has no blink attribute: pulse by alternating bold/inverse each second.
   const pulse = tone === 'danger' && Math.floor(now / 1000) % 2 === 0
   const cacheColor = expired ? PALETTE.dim : TONE[tone]
-  // The cause of the cache break of the last main step. An agent view has none.
   const cause = isAgentView ? undefined : snap.lastPrompt?.cause
   const countdown = (label: string): Segment[] => [
     { text: `${label} ${formatCountdown(rem)}`, color: cacheColor, bold: pulse, inverse: pulse },
@@ -163,7 +152,6 @@ export const bandSegments = ({
     agents: [{ text: `${LABEL.agents} ${snap.agents}`, color: PALETTE.orange }],
     deck: [
       {
-        // The icon is the pane's disclosure mark: closed or open.
         text: `${isPaneOpen ? '▾' : '▸'} Flight Deck`,
         color: PALETTE.orange,
         isButton: true,
@@ -198,11 +186,9 @@ export const bandSegments = ({
       if (segs.length > start) segs.push(SEP)
       present.forEach((part, i) => {
         if (i > 0) segs.push({ text: '  ' })
-        // Beside the percentage the countdown has no label of its own.
         segs.push(...(part === 'cache' && !dropped.has('hit') ? parts.timer : parts[part]))
       })
     }
-    // The band draws the free room of the row before the button: a gap parts them, not a `│`.
     if (!dropped.has('deck')) segs.push({ text: '  ' }, ...parts.deck)
     return segs
   }
@@ -217,7 +203,6 @@ export const bandSegments = ({
     dropped.add(next)
     segs = build(target, dropped)
   }
-  // The name takes the place of `agent` in the room that is left: no part is dropped for it.
   const room = AGENT.length + columns - width(segs)
   const title =
     !isAgentView || name === undefined || Math.min(name.length, room) < MIN_NAME

@@ -1,6 +1,5 @@
 import type { TranscriptItem } from '../types'
 
-// The part of the engine's SessionMessage that the pane reads.
 export type Row = {
   role: 'user' | 'assistant'
   text: string
@@ -53,8 +52,6 @@ export const MAX_ITEMS = 300
 // keeps its drawn items below that, with room for the rows around them.
 export const MAX_CHARS = 80_000
 
-// The newest items the pane draws, and how many older ones it leaves out: 300 at most, and no
-// more than fit `limit` by the `size` of each. The newest item is drawn at any size.
 export const lastItems = (
   items: TranscriptItem[],
   size: (it: TranscriptItem) => number = () => 0,

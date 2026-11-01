@@ -9,5 +9,4 @@ export const spinnerFrame = (n: number): string => {
   return SPINNER[i] ?? SPINNER[0]
 }
 
-// The time between two frames of a turning mark, in milliseconds.
 export const SPIN_MS = 120

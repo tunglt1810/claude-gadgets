@@ -21,7 +21,6 @@ export const addUsage = (t: Totals, u: Usage | null): Totals =>
         cacheWrite: t.cacheWrite + (u.cache_creation_input_tokens ?? 0),
       }
 
-// Share of prompt tokens served from the cache; 0 before any tokens exist.
 export const cacheHitPct = (t: Totals): number => {
   const all = t.input + t.cacheRead + t.cacheWrite
   return all === 0 ? 0 : Math.round((t.cacheRead / all) * 100)
@@ -29,7 +28,6 @@ export const cacheHitPct = (t: Totals): number => {
 
 type ServerToolUse = { name: string; startedAt: number; endedAt?: number }
 
-// The ledger cost that no step holds.
 export const restOf = (s: Pick<Snapshot, 'costUsd' | 'costByModel'>): number =>
   s.costUsd - Object.values(s.costByModel).reduce((sum, c) => sum + c, 0)
 
@@ -67,7 +65,6 @@ export const settled = (s: Snapshot): Snapshot['advisor'] => {
   return pending === true && grown > 0 ? { ...a, usd: a.usd + grown, base: restOf(s) } : s.advisor
 }
 
-// At the start of a turn: settle, then take the rest as the start of the next growth.
 export const rebased = (s: Snapshot): Snapshot['advisor'] => {
   const a = settled(s)
   return a.pending === true ? a : { ...a, base: restOf(s) }

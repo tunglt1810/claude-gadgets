@@ -147,7 +147,6 @@ const parseBreaks = (raw: unknown): BreakEntry[] =>
       : [],
   )
 
-// A count by name; a count that is not a number, or is less than zero, is left out.
 const parseCounts = (raw: unknown): Record<string, number> =>
   Object.fromEntries(
     Object.entries(isRecord(raw) ? raw : {}).flatMap(([k, n]): [string, number][] =>

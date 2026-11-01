@@ -8,8 +8,6 @@ const MONO_TEXT = [2, 1, 299] as const
 // CLAUDE_CODE_AUTO_COMPACT_WINDOW sets. An earlier engine lets the variable win.
 const CAPPED_ENV = [2, 1, 312] as const
 
-// True when `base` is the release `min` or a later one. `base` is the release of
-// `$.session.version()`; a version that is not a release has none.
 const isAtLeast = (base: string | undefined, min: readonly number[]): boolean => {
   const m = /^(\d+)\.(\d+)\.(\d+)/.exec(base ?? '')
   if (m === null) return false
@@ -20,11 +18,8 @@ const isAtLeast = (base: string | undefined, min: readonly number[]): boolean =>
   return true
 }
 
-// True when the engine of that release draws a Button that holds a Text.
 export const holdsText = (base: string | undefined): boolean => isAtLeast(base, TEXT_IN_BUTTON)
 
-// True when the engine of that release draws a Text in the monospaced face of the cells.
 export const holdsMono = (base: string | undefined): boolean => isAtLeast(base, MONO_TEXT)
 
-// True when the engine of that release lowers the variable's window by the agent definitions.
 export const capsEnv = (base: string | undefined): boolean => isAtLeast(base, CAPPED_ENV)

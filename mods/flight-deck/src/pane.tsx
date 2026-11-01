@@ -44,17 +44,11 @@ type Props = {
   ui: Elements[keyof Elements]
   entries: Registry
   view: PaneView
-  // The numbers of the agent on the transcript screen, with the agents below it.
   stats: Snapshot | null
-  // The session's cost and a row per model, above the agents table.
   dashboard: Dashboard | null
-  // The context of the main loop, below the dashboard; null with no sample.
   context: ContextView | null
-  // The cache breaks of the main loop; null on a transcript screen.
   breaks: BreaksView | null
-  // The calls of each tool; null on a transcript screen.
   tools: ToolsView | null
-  // The shell commands in the background, the newest first; null on a transcript screen.
   shells: Shell[] | null
   // The dashboard's costs and the tokens of each context as they are on screen, by name, where
   // the pane is drawn on each frame (the terminal). Absent on a desktop: a cell runs to its
@@ -63,14 +57,10 @@ type Props = {
   // The spinner's tick count: a running mark turns with it. Null where the pane must not be
   // drawn again on each frame (a desktop): each cell is a `Client` with its own timer then.
   spin: number | null
-  // True when the engine draws a Button that holds a Text.
   holdsText: boolean
-  // The engine draws a Text in the monospaced face (2.1.299 and later).
   holdsMono: boolean
-  // The time the working times are read at.
   now: number
   columns: number
-  // The rows of this tree that the pane's window has scrolled past: 0 at the top.
   scrollTop: number
   // While a scroll is on its way: the row that the window still shows. `scrollTop` is then
   // the row it goes to.
@@ -88,7 +78,6 @@ type Props = {
   onToolRow: (name: string) => void
   onRecount: () => void
   onCategory: (name: string) => void
-  // The text of each message field as the person typed it, by agent.
   drafts: Record<string, string>
   onCompose: (agentId: string) => void
   onStop: (agentId: string) => void
@@ -97,42 +86,33 @@ type Props = {
   onSend: (agentId: string, text: string) => void
 }
 
-// The most lines of a tool call's input, and of its result, that the pane draws.
 const MAX_LINES = 40
 // The mark of an ended agent; a running one turns. Every agent mark is an eight-dot braille
 // glyph, as the spinner's frames are: one font draws them all at one size.
 const END_MARK = { idle: '⣿', stopped: '⣿' } as const
 // The width of every mark: a glyph a desktop draws wider than one cell is not cut.
 const MARK_WIDTH = 2
-// The width of the expand button of an agent's row, as a mark's.
 const EXPAND_WIDTH = 2
-// The color of an agent's mark by its status.
 const TONE = { running: PALETTE.green, idle: PALETTE.dim, stopped: PALETTE.red } as const
 const OPEN_CHILD = ' [open]'
 const BACK = '← agents'
 // The terminal draws a button as `[ label ]`.
 const BUTTON_CHROME = 4
-// The rows of the bar of a scrolled transcript: the back button's row and the controls' row.
 const STICKY_ROWS = 2
-// The least room that the bar of a scrolled transcript keeps for the agent's name.
 const MIN_STICKY_NAME = 8
-// The columns that the toolbar of a transcript keeps for its back and wrap buttons.
 const TOOLBAR_USED = BACK.length + BUTTON_CHROME + 1 + 'wrap off'.length + BUTTON_CHROME + 1
 // A tool call by its outcome: its mark and the color of the mark. A finished call is dim at
 // rest, so the failed and the running ones stand out.
 const TOOL_MARK = { done: '✓', failed: '✗' } as const
 const TOOL_TONE = { done: PALETTE.green, failed: PALETTE.red, running: PALETTE.yellow } as const
-// The icon of a working time, as the band's work clock. A table's time column has no icon.
 const CLOCK = '◷ '
 const TIME_WIDTH = 9
-// Parts the model, the runs and the time below an agent's title.
 const SEP = '·'
 // The dashboard's columns: a cost fits `≈1234.56`, a share its header `cost(%)`. The model
 // takes the rest of the pane, five cells at least.
 const MIN_MODEL = 5
 const USD_WIDTH = 9
 const PCT_WIDTH = 7
-// The color of an agent's runs and time by how recent its activity is.
 const RECENCY_TONE = { active: PALETTE.green, recent: PALETTE.yellow } as const
 const RUNS_WIDTH = 7
 // The characters of a terminal's rule: more than the columns of a pane.
@@ -140,7 +120,6 @@ const RULE_LENGTH = 600
 // The characters of the rule between two turns of a transcript: shorter than a table's rule,
 // so it does not read as the end of the header.
 const TURN_RULE_LENGTH = 12
-// The button of the context screen, and the button that reads its breakdown again.
 const CONTEXT = 'context'
 const RECOUNT = 'recount'
 // The button of the cache screen, and the columns of that screen: a time fits `HH:MM`, the
@@ -156,10 +135,8 @@ const CALLS_PCT_WIDTH = 8
 // below the name of the row, and the cells of one level (a connector and its space).
 const TREE_INDENT = 2
 const TREE_LEVEL = 3
-// The button of the background screen, and the mark of an ended shell by its status.
 const SHELLS = 'background'
 const BACK_SHELLS = '← background'
-// The most cells of a command on the background list: the newest line takes the rest.
 const MAX_SHELL_COMMAND = 32
 const SHELL_MARK = {
   completed: { text: '✓', color: PALETTE.green },
@@ -175,7 +152,6 @@ const SHARE_WIDTH = 9
 const CARRY_WIDTH = 8
 const TOOLS_WIDTH = 7
 
-// The tone of a cell: dim, or a color.
 type Tone = Pick<Cell, 'dim' | 'color'>
 
 const name = agentTitle
@@ -303,8 +279,6 @@ export const AgentPane = ({
       </Box>
     </Box>
   )
-  // The box that takes the rest of its row, around a button with `label`: `width` cells on a
-  // desktop.
   const restBox = (key: string, width: number, label: string, button: ReturnType<typeof cell>) =>
     isClient ? (
       <Box key={key} width={width} flexShrink={0}>
@@ -325,7 +299,6 @@ export const AgentPane = ({
 
   const allow = (id: string) => {
     const button = <Button key={`allow:${id}`} label={ALLOW_LABEL} onPress={() => onAllow(id)} />
-    // A real button of the terminal: its box has room for the label and the `[ ]` around it.
     return isClient ? (
       button
     ) : (
@@ -336,9 +309,6 @@ export const AgentPane = ({
       </Box>
     )
   }
-  // The reason of a message or a stop that the engine refused, below the controls of the agent.
-  // A message that auto mode did not judge has a button there: it lets the messages of the
-  // pane go.
   const controlError = (key: string, id: string) =>
     view.controlError?.agentId !== id ? null : 'isAsk' in view.controlError ? (
       <Box key={key} flexDirection="row" {...oneRowOnly}>
@@ -379,7 +349,6 @@ export const AgentPane = ({
       </Box>
     ) : null
 
-  // A context cell with the tokens that are on screen, where the pane draws each frame.
   const shownCtx = (agentId: string, c: Cell): Cell => {
     const tokens = shownUsd?.[ctxKey(agentId)]
     return c.ctx === undefined || tokens === undefined ? c : { ...c, ctx: { ...c.ctx, tokens } }
@@ -398,8 +367,6 @@ export const AgentPane = ({
       ) : (
         line(key)
       )
-    // The dashboard: the session's cost, then per model an estimated cost (≈), its share of
-    // the total (colored by its size), the working time and the runs of its agents.
     const board = () => {
       if (dashboard === null) return null
       // As wide as the pane, with the runs and the time last, as in the agents table: the two
@@ -475,7 +442,6 @@ export const AgentPane = ({
         </Text>
       </Box>
     )
-    // A row of cells with one cell between them.
     const cells = (key: string, row: Cell[]) => (
       <Box key={key} flexDirection="row" alignItems="center" gap={1} overflow="hidden">
         {row.map((c, i) => cell(`${key}:${i}`, c))}
@@ -526,8 +492,6 @@ export const AgentPane = ({
         </Box>
       )
 
-    // The calls of each tool: the button of the tools screen, then the count of calls and of
-    // tools. It is built as the cache row is.
     const toolsRow = () =>
       tools === null ? null : (
         <Box key="toolsblock" flexDirection="column">
@@ -546,8 +510,6 @@ export const AgentPane = ({
         </Box>
       )
 
-    // The shell commands in the background: the button of the background screen, then how
-    // many run and how many ended. It is built as the cache row is.
     const shellsRow = () =>
       shells === null || shells.length === 0 ? null : (
         <Box key="shellsblock" flexDirection="column">
@@ -583,8 +545,6 @@ export const AgentPane = ({
     const num = (key: string, text: string, width: number, tone: Tone = {}) =>
       cell(key, { text, ...tone, width, align: 'right' })
 
-    // The context screen: each row of the window, what the overhead costs to carry, and the
-    // MCP servers that the session did not call.
     const contextScreen = () => {
       const nameWidth = Math.max(
         MIN_MODEL,
@@ -626,10 +586,8 @@ export const AgentPane = ({
               </Box>
               {context.rows.map((r) => {
                 const isOpen = open.includes(r.name)
-                // A category with no items has no mark, and its press does nothing.
                 const mark = r.items.length === 0 ? ' ' : isOpen ? '▾' : '▸'
                 const label = cut(`${mark} ${r.name}`, nameWidth)
-                // A part of the bar that is too dark for text, and a deferred row: dim.
                 const color = rowColor(r)
                 return (
                   <Box key={`catrow:${r.name}`} flexDirection="column">
@@ -654,7 +612,6 @@ export const AgentPane = ({
                       )}
                       {num(
                         `catnum:carry:${r.name}`,
-                        // Only the overhead has a carry cost; `—` is a model with no price.
                         !isOverhead(r)
                           ? ''
                           : r.carryUsd === null
@@ -718,7 +675,6 @@ export const AgentPane = ({
         </Box>
       )
     }
-    // The tools screen: each tool, its calls and their share of all calls, the most first.
     const toolsScreen = () => {
       const v = tools ?? { total: 0, hidden: 0, kinds: 0, rows: [] }
       // State of an older shape (a hot reload) has no list.
@@ -841,7 +797,6 @@ export const AgentPane = ({
         </Box>
       )
     }
-    // The cache screen: each cache break of the main loop, with its cause and its cost.
     const cacheScreen = () => {
       const b = breaks ?? { count: 0, lostUsd: 0, entries: [] }
       const causeWidth = Math.max(
@@ -890,7 +845,6 @@ export const AgentPane = ({
                     LOST_WIDTH,
                   )}
                 </Box>,
-                // The detail starts below the cause.
                 <Box key={`cache:detailrow:${i}`} flexDirection="row" gap={1}>
                   {cell(`cache:pad:${i}`, { text: '', width: CLOCK_WIDTH })}
                   {rest(`cache:detail:${i}`, e.detail, detailWidth, { dim: true })}
@@ -914,8 +868,6 @@ export const AgentPane = ({
             dim: true,
             width: TIME_WIDTH,
           }
-    // The background screen: a row a shell, the running ones first, with its newest line. A
-    // press on the command opens the screen of the shell.
     const shellsScreen = () => {
       const list = shownOrder(shells ?? [])
       const titleWidth = Math.max(1, columns - (BACK.length + BUTTON_CHROME + 1))
@@ -974,7 +926,6 @@ export const AgentPane = ({
         </Box>
       )
     }
-    // The screen of one shell: its command, its state, and the last lines of its output.
     const shellScreen = (sh: Shell) => {
       const titleWidth = Math.max(1, columns - (BACK_SHELLS.length + BUTTON_CHROME + 1))
       return (
@@ -1019,7 +970,6 @@ export const AgentPane = ({
     if (view.isTools === true) return toolsScreen()
 
     const labels = (id: string, room: number) => controlLabels(room, view.stopAsk === id)
-    // A plain button of a control row, on one row of the terminal.
     const control = (key: string, label: string, onPress: () => void) => {
       const button = <Button key={key} plain label={label} onPress={onPress} />
       return isClient ? button : oneRow(`${key}:box`, label, button)
@@ -1040,7 +990,6 @@ export const AgentPane = ({
       rows.map((r) => r.agent),
       columns,
     )
-    // The name column without the expand button and its gap, as a root agent's name is.
     const headName = Math.max(1, t.name - EXPAND_WIDTH - 1)
     return (
       <Box flexDirection="column">
@@ -1075,15 +1024,12 @@ export const AgentPane = ({
           // A detail row is open until its button closes it. State of an older shape (a hot
           // reload) has no list: each row is open then.
           const isOpen = !(view.collapsedAgents ?? []).includes(agent.id)
-          // The name gives its first cells to the expand button and a gap.
           const nameWidth = Math.max(1, t.name - depth * 2 - EXPAND_WIDTH - 1)
-          // The detail row starts below the name's first character: the cells before it.
           const inset = depth * 2 + MARK_WIDTH + 1 + EXPAND_WIDTH + 1
           const detail = isOpen ? detailCells(agent, columns - inset) : []
           const label = cut(name(agent), nameWidth)
           const ctl = labels(agent.id, columns - inset)
           const ctx = detail.find((c) => c.ctx !== undefined)
-          // The cells before the context as one text; its last dot parts it from the context.
           const lead = detail
             .filter((c) => c.ctx === undefined)
             .map((c) => c.text)
@@ -1173,8 +1119,6 @@ export const AgentPane = ({
                 </Box>
               )}
               {isOpen && (
-                // The controls of the agent, built as the detail row is: a message to it, and
-                // a stop while it runs.
                 <Box key={`controlrow:${agent.id}`} flexDirection="row" alignItems="center" gap={1}>
                   {depth > 0 && (
                     <Box key={`control:indent:${agent.id}`} width={depth * 2 - 1} flexShrink={0} />
@@ -1250,7 +1194,6 @@ export const AgentPane = ({
           {isWrapped ? `> ${it.text}` : cut(`> ${it.text}`, isClient ? columns : Infinity)}
         </Text>
       )
-      // A short rule parts a new prompt from the turn before it.
       return i === 0 ? (
         prompt
       ) : (
@@ -1306,11 +1249,8 @@ export const AgentPane = ({
     )
   }
 
-  // The characters that an item draws: its text, or the summary of a tool call with the input
-  // and the result of an open one.
   const drawnChars = (it: TranscriptItem): number => {
     if (it.kind === 'prompt') return it.text.length
-    // A table that the pane draws has its borders and the pad of its cells too.
     if (it.kind !== 'tool')
       return (tables(it.text) ?? [it.text]).flat().reduce((n, row) => n + row.length, 0)
     const open = view.expanded.includes(it.id)
@@ -1337,8 +1277,6 @@ export const AgentPane = ({
 
   const agent = entries[viewed]
   const titleWidth = columns - MARK_WIDTH - 1
-  // The context takes what the row below the title has left: its padding, then each cell
-  // before the context with the gap after it, then the dot and its gap.
   const metaLabel = modelLabel(agent)
   const metaUsed =
     MARK_WIDTH +
@@ -1417,11 +1355,9 @@ export const AgentPane = ({
   // header keeps empty rows for it. A desktop scrolls by the pixel and has no bar: the box
   // is in the flow of the header there.
   const isComposing = view.compose === viewed
-  // The field takes the rows of its text: the rule and the transcript start below them.
   const spaceRows =
     (isComposing ? fieldLayout(drafts[viewed] ?? '', columns).rows : 0) +
     (view.controlError?.agentId === viewed ? 1 : 0)
-  // The rows of the header above the field: the toolbar, the title, the meta row, the stats.
   const headRows = 2 + (agent === undefined ? 0 : 1) + (stats === null ? 0 : 1)
   const field = (
     <Box
@@ -1469,8 +1405,6 @@ export const AgentPane = ({
           color: agent?.status === 'running' ? TONE.running : PALETTE.fg,
         })}
       </Box>
-      {/* Below the title: the model, the runs and the working time, with a dot between them,
-          under the title's text. */}
       {agent !== undefined && (
         <Box
           key="meta"
@@ -1508,7 +1442,6 @@ export const AgentPane = ({
         </Text>
       )}
       {isClient ? field : spaceRows > 0 && <Box key="sayspace" height={spaceRows} />}
-      {/* Parts the header (toolbar and title) from the transcript below it. */}
       {isClient ? (
         <Text key="rule" dimColor wrap="truncate">
           {'─'.repeat(Math.max(0, columns))}

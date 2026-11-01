@@ -19,7 +19,6 @@ import { contextColor } from './window'
 // from the overhead.
 const MESSAGES = 'Messages'
 
-// The color of each row that has its own part of the bar. Each other used row is in one part.
 export const PART_COLORS: Record<string, string> = {
   [MESSAGES]: PALETTE.cyan,
   'System tools': PALETTE.orange,
@@ -27,10 +26,8 @@ export const PART_COLORS: Record<string, string> = {
   Skills: PALETTE.yellow,
 }
 
-// The order of the kinds on the screen.
 const KINDS: ContextKind[] = ['used', 'buffer', 'free', 'deferred']
 
-// A row of the overhead: content of the window that is not the conversation.
 export const isOverhead = (r: Pick<ContextRow, 'name' | 'kind'>): boolean =>
   r.kind === 'used' && r.name !== MESSAGES
 
@@ -62,20 +59,15 @@ export type UsageContext = {
   }
 }
 
-// The rows that have tokens, the costliest first.
 const byTokens = <T extends { tokens: number }>(rows: T[]): T[] =>
   rows.filter((r) => r.tokens > 0).sort((a, b) => b.tokens - a.tokens)
 
-// `Project/CLAUDE.md`: the type of a memory file and the last part of its path.
 const memoryName = (f: { path: string; type: string }): string =>
   `${f.type}/${f.path.slice(f.path.lastIndexOf('/') + 1)}`
 
-// What the mod keeps of a usage reply, or null for a reply with no breakdown or no window.
-// The items of a row go by the row's name: a row of another name has none.
 export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSample | null => {
   const b = c.breakdown
   if (b === undefined) return null
-  // The engine measures the context against the compaction window.
   const window = b.rawMaxTokens !== undefined && b.rawMaxTokens > 0 ? b.rawMaxTokens : c.window
   if (window === undefined || window <= 0) return null
   type Tool = NonNullable<typeof b.mcpTools>[number]
@@ -136,7 +128,6 @@ export const sampleOf = (c: UsageContext, detail: 'summary' | 'full'): ContextSa
   }
 }
 
-// The part of the last sample below which a full count is a compaction.
 const COMPACTED = 0.8
 
 // The state with a new sample. The first sample of a session is the base of its growth, and
@@ -182,7 +173,6 @@ export const contextView = (
     state.base === null || state.turns === 0
       ? null
       : Math.round((s.tokens - state.base) / state.turns)
-  // A context that is shorter than its base has no growth to show.
   const growth = perTurn !== null && perTurn > 0 ? perTurn : null
   const toCompact = s.threshold === null ? null : Math.max(0, s.threshold - s.tokens)
   const turnsLeft = growth === null || toCompact === null ? null : Math.floor(toCompact / growth)
@@ -221,7 +211,6 @@ export const BAR_CELLS = 40
 
 export type BarSegment = { text: string; color: string }
 
-// A hex color with each channel at 55 percent: the darker shade of a tone.
 export const darker = (hex: string): string =>
   `#${[1, 3, 5]
     .map((i) =>
@@ -262,9 +251,6 @@ export const barSegments = (v: Pick<ContextView, 'rows' | 'window'>): BarSegment
   return [...segs, { text: '█'.repeat(left), color: PALETTE.strip }].filter((s) => s.text !== '')
 }
 
-// The row of a context length: the length, the growth of a turn, the tokens before a
-// compaction and the turns before it. A row wider than `room` drops the turns, then the
-// growth, then the tokens before a compaction, then the counts.
 export const contextHead = (v: ContextView, room: number): Cell[] => {
   const ctx = (isFull: boolean): Cell => ({
     text: '',
@@ -285,7 +271,6 @@ export const contextHead = (v: ContextView, room: number): Cell[] => {
   return rows.find((cells) => rowWidth(cells) <= room) ?? [ctx(false)]
 }
 
-// The totals below the bar of the agents screen.
 export const contextSummary = (v: ContextView): Cell[] =>
   dotted([
     { text: `overhead ${formatTokens(v.overhead)}`, dim: true },
@@ -293,7 +278,6 @@ export const contextSummary = (v: ContextView): Cell[] =>
     ...(v.deadWeight > 0 ? [{ text: `dead weight ${formatTokens(v.deadWeight)}`, dim: true }] : []),
   ])
 
-// The headline of the overhead table: its tokens, its share of the window and its carry cost.
 export const overheadHead = (v: ContextView): Cell[] =>
   dotted([
     { text: `overhead ${formatTokens(v.overhead)}`, bold: true },

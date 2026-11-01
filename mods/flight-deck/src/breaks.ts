@@ -16,9 +16,7 @@ import type { Ttl } from './ttl'
 
 // A prefix below this count can be below the minimum that the API caches.
 const MIN_EXPECTED = 4000
-// A step that reads less than this part of the expected tokens is a break.
 const BREAK_SHARE = 0.5
-// The entries that the list keeps.
 const MAX_BREAKS = 50
 
 // A short hash of a text (djb2): the mod keeps no text of a prompt.
@@ -53,8 +51,6 @@ export const listedTools = (
   }
 }
 
-// One main step with a usage. `tokens` is its prompt: the input, the cache reads and the
-// cache writes.
 export type StepPrompt = {
   tokens: number
   cacheRead: number
@@ -66,7 +62,6 @@ export type StepPrompt = {
   fingerprint: Fingerprint
 }
 
-// The compaction of the main loop that came after the last main step.
 export type Compaction = { trigger: string; before?: number; after?: number }
 
 // The break of a step, or null. `expected` is what the cache can serve: the prompt of the
@@ -104,7 +99,6 @@ export const diffOf = (
   return all.length === 1 ? first : `${first} · +${all.length - 1} more`
 }
 
-// The cause of an entry for a compaction: the trigger and the two token counts.
 const compactCause = (c: Compaction): { cause: BreakCause; detail: string } => {
   const counts =
     c.before === undefined || c.after === undefined
@@ -113,7 +107,6 @@ const compactCause = (c: Compaction): { cause: BreakCause; detail: string } => {
   return { cause: 'compact', detail: `${c.trigger}${counts}` }
 }
 
-// Why a step broke the cache: the first cause that applies, in the order of the spec.
 export const causeOf = (
   last: LastPrompt,
   step: StepPrompt,
@@ -197,7 +190,6 @@ export const breaksView = (s: Pick<Snapshot, 'breaks' | 'breakCount' | 'lostUsd'
   entries: s.breaks ?? [],
 })
 
-// The cell after the cache button, and the headline of the cache screen.
 export const breaksHead = (v: BreaksView): Cell =>
   v.count === 0
     ? { text: 'no break', dim: true }
@@ -206,8 +198,6 @@ export const breaksHead = (v: BreaksView): Cell =>
         color: PALETTE.yellow,
       }
 
-// The local time of a moment as `HH:MM`. `offsetMin` is the minutes that the local time is
-// behind UTC, as `Date.getTimezoneOffset` gives them.
 export const clockText = (at: number, offsetMin = new Date(at).getTimezoneOffset()): string => {
   const d = new Date(at - offsetMin * 60_000)
   const two = (n: number) => String(n).padStart(2, '0')

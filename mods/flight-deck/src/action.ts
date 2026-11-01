@@ -22,20 +22,14 @@ export const focusAction = (raw: string, transcript: Transcript | null): PaneAct
     element.slice(element.indexOf(':') + 1),
   ]
   if (id === '' || !element.includes(':')) return null
-  // An agent's name, and the button of its detail row.
   if (kind === 'agent' || kind === 'detail') return { kind: 'open', agentId: id }
   if (kind === 'expand') return { kind: 'expand', agentId: id }
-  // The buttons of an agent's control row, and the stop button of the transcript screen.
   if (kind === 'msg') return { kind: 'compose', agentId: id }
   if (kind === 'stop') return { kind: 'stop', agentId: id }
-  // The button below a message that auto mode did not judge.
   if (kind === 'allow') return { kind: 'allow', agentId: id }
-  // A category row of the context screen.
   if (kind === 'cat') return { kind: 'category', name: id }
-  // A row of the tools screen that has children.
   if (kind === 'trow') return { kind: 'toolRow', name: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }
-  // A row of the background screen.
   if (kind === 'bgtask') return { kind: 'shell', id }
   if (kind !== 'child' || transcript === null || !('items' in transcript)) return null
   const item = transcript.items.find((it) => it.kind === 'tool' && it.id === id)

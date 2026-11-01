@@ -122,7 +122,6 @@ const PANE_ID = 'agents'
 // The one drawn text with an emoji: the title row has no columns, so a double-width
 // character moves nothing.
 const PANE_TITLE = '🤖 Flight Deck'
-// The title with the version of the mod, once `loadTitle` read the manifest.
 let paneTitle = PANE_TITLE
 // The pane takes the keyboard: a click on a pane without it only focuses. An engine with no
 // `backgroundColor` (2.1.309 has none) drops it and keeps its own look.
@@ -170,11 +169,8 @@ const shellsAtom = atom({ plugin: 'flight-deck', key: 'shells' } as const, initi
 const TAIL_LINES = 40
 const TAIL_BYTES = '20000'
 const SHELL_POLL_MS = 1000
-// The context of the main loop: the latest breakdown that an event read, and its growth.
 const initialContext: ContextState = { sessionId: null, sample: null, base: null, turns: 0 }
 const contextAtom = atom({ plugin: 'flight-deck', key: 'context' } as const, initialContext)
-// The dashboard's costs and the context lengths as the terminal draws them: a changed number
-// runs to its new value.
 const initialPaneShown: NamedShown = { sessionId: null, tweens: {} }
 const paneShown = atom({ plugin: 'flight-deck', key: 'paneShown' } as const, initialPaneShown)
 const spin = atom({ plugin: 'flight-deck', key: 'spin' } as const, 0)
@@ -194,9 +190,7 @@ let drawnOffset = 0
 // engine gives an offset in rows, so a bar there moves with the text between two rows: only
 // the terminal has the bar, and only its scroll waits.
 let isPaneOnTerminal = false
-// Ends the wait of a scroll for the pane's next drawing.
 let onPaneDrawn: (() => void) | null = null
-// The longest that a scroll waits for that drawing.
 const SCROLL_WAIT_MS = 40
 // Null until an event read the settings: the mod option stands in for them.
 const ttlsAtom = atom({ plugin: 'flight-deck', key: 'ttls' } as const, null as Ttls | null)
@@ -321,8 +315,6 @@ async function syncPane($: Api): Promise<void> {
   )
   const cur = await read($, shownData)
   if (JSON.stringify(cur) !== JSON.stringify(next)) await update($, shownData, () => next)
-  // The numbers that run to a new value: the costs of the dashboard and the tokens of each
-  // context on the screen.
   const target = {
     ...(next.dashboard === null ? {} : usdTargets(next.dashboard)),
     ...contextTargets(next.entries),
@@ -336,12 +328,10 @@ async function syncPane($: Api): Promise<void> {
 
 // Counts the context samples that were asked for: a reply knows from it if it is the newest.
 let contextSeq = 0
-// The count of the newest sample that is kept.
 let sampleSeq = 0
 // The main steps at the start of the latest turn, with its session: a turn with no step grows
 // no context.
 let turnSteps = { id: '', steps: 0 }
-// The turns with a step whose end gave no sample: the next sample of a turn end counts them.
 let missedTurns = 0
 
 // What the mod knows of the next request of the main loop, for the cause of a cache break.
@@ -357,10 +347,8 @@ type Seen = {
   compaction: Compaction | null
 }
 let seen: Seen = { sessionId: null, sections: null, context: null, compaction: null }
-// Whether each tool is deferred, by the `tool.describe` results of this process.
 const deferral = new Map<string, boolean>()
 
-// What the hooks saw for the current session: the values of another session are dropped.
 async function seenOf($: Api): Promise<Seen> {
   const id = await $.session.id()
   if (seen.sessionId !== id)
@@ -368,9 +356,6 @@ async function seenOf($: Api): Promise<Seen> {
   return seen
 }
 
-// Keeps the breakdown of a usage reply as the context sample of the session `id`, and says
-// if it did: a reply with no breakdown or no window is no sample, and it changes nothing.
-// `isTurnEnd` counts a turn of the growth, and `missed` the turns whose end gave no sample.
 async function recordContext(
   $: Api,
   id: string,
@@ -409,7 +394,6 @@ async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void>
   await syncPane($)
 }
 
-// The longest that a press waits on a full count before another count can start.
 const COUNT_WAIT_MS = 60_000
 // A full count sends many requests: a press while one is on its way starts no other.
 let isCounting = false
@@ -515,13 +499,11 @@ async function openAgent($: Api, agentId: string): Promise<void> {
   await loadTranscript($, agentId)
 }
 
-// The agent on the transcript screen had an event: read its transcript again.
 async function refreshViewed($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.isOpen && cur.agentId === agentId) await loadTranscript($, agentId)
 }
 
-// Back to the tree, with the focus on the row of the agent that was open.
 async function backToTree($: Api): Promise<void> {
   answersToShow.clear()
   const from = (await read($, pane)).agentId
@@ -549,42 +531,36 @@ async function openContext($: Api): Promise<void> {
   if ((await read($, contextAtom)).sample?.detail !== 'full') void countFull($)
 }
 
-// Back to the tree, with the focus on the button that opened the context screen.
 async function closeContext($: Api): Promise<void> {
   await focusAfter($, 'context', async () => {
     await update($, pane, (c) => ({ ...c, isContext: false }))
   })
 }
 
-// The cache screen, with the focus on its back button.
 async function openCache($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isCache: true }))
   })
 }
 
-// Back to the tree, with the focus on the button that opened the cache screen.
 async function closeCache($: Api): Promise<void> {
   await focusAfter($, 'cache', async () => {
     await update($, pane, (c) => ({ ...c, isCache: false }))
   })
 }
 
-// The tools screen, with the focus on its back button.
 async function openTools($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isTools: true }))
   })
 }
 
-// Back to the tree, with the focus on the button that opened the tools screen.
 async function closeTools($: Api): Promise<void> {
   await focusAfter($, 'tools', async () => {
     await update($, pane, (c) => ({ ...c, isTools: false }))
   })
 }
 
-// The background screen, with the focus on its back button.
 async function openShells($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isShells: true }))
@@ -593,14 +569,12 @@ async function openShells($: Api): Promise<void> {
   startShellPoll($)
 }
 
-// Back to the tree, with the focus on the button that opened the background screen.
 async function closeShells($: Api): Promise<void> {
   await focusAfter($, 'shells', async () => {
     await update($, pane, (c) => ({ ...c, isShells: false, shellId: null }))
   })
 }
 
-// The screen of one shell, with the focus on its back button.
 async function openShell($: Api, id: string): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, shellId: id }))
@@ -608,7 +582,6 @@ async function openShell($: Api, id: string): Promise<void> {
   await readTails($, [id])
 }
 
-// Back to the background list, with the focus on the row of the shell.
 async function closeShell($: Api, id: string): Promise<void> {
   await focusAfter($, `bgtask:${id}`, async () => {
     await update($, pane, (c) => ({ ...c, shellId: null }))
@@ -644,8 +617,6 @@ async function readTails($: Api, ids?: readonly string[]): Promise<void> {
   }
 }
 
-// A tick that reads the output of the running shells while the background screen is open.
-// It stops itself when the screen closes or no shell runs.
 let shellPoll: { cancel: () => void } | null = null
 function startShellPoll($: Api): void {
   if (shellPoll !== null) return
@@ -662,7 +633,6 @@ function startShellPoll($: Api): void {
   })
 }
 
-// A shell that ended: its status, and the last lines that it wrote.
 async function endShell($: Api, id: string, status: 'completed' | 'failed' | 'killed') {
   const cur = await read($, shellsAtom)
   if (!cur.list.some((sh) => sh.id === id)) return
@@ -679,14 +649,12 @@ async function patchPane($: Api, change: (c: PaneView) => PaneView): Promise<voi
   await update($, pane, change)
 }
 
-// The reason on the screen without the one of `agentId`: the reason of another agent stays.
 const ownErrorGone = (c: PaneView, agentId: string): PaneView['controlError'] =>
   c.controlError?.agentId === agentId ? null : c.controlError
 
 // The text of each message field as the person typed it, by agent. Kept here, not in state:
 // a write to state on each key would draw the pane again.
 const drafts: Record<string, string> = {}
-// The agents that have a message on its way.
 const sending = new Set<string>()
 // The store key of the person's answer: the messages of the pane go in auto mode. It is not
 // of a session.
@@ -694,7 +662,6 @@ const ALLOW_KEY = 'allowSend'
 // The agents that a stop of the pane is on its way to: the `tool.call` hook of the mod sees
 // each stop, and it is not a tool call of the session.
 const ownStops = new Set<string>()
-// The task that a TaskStop call names.
 const taskOf = (e: object): string =>
   'task_id' in e && typeof e.task_id === 'string' ? e.task_id : ''
 
@@ -703,15 +670,12 @@ const taskOf = (e: object): string =>
 // moves the window or goes to another screen: the person then reads another place.
 const answersToShow = new Set<string>()
 
-// Moves the window of the transcript of `agentId` to its end, when that transcript is on
-// the screen.
 async function showEnd($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.isOpen && cur.agentId === agentId)
     await $.ui.scroll({ in: PANE_ID, to: 'end' }).catch(() => ({}))
 }
 
-// Draws the pane again for a change that is not in its state: the text of a field.
 async function redraw($: Api): Promise<void> {
   await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
 }
@@ -719,7 +683,6 @@ async function redraw($: Api): Promise<void> {
 // Sends the text of a message field to an agent, as the SendMessage tool does. The engine
 // starts an ended agent again. A message that is not sent stays in its field, with the reason.
 async function sendMessage($: Api, agentId: string, text: string): Promise<void> {
-  // A second Enter while the message is on its way sends nothing.
   if (text.trim() === '' || sending.has(agentId)) return
   sending.add(agentId)
   let session: string
@@ -745,12 +708,9 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   // The session changed while the message was on its way: the pane is of another session.
   if ((await $.session.id()) !== session) return
   if (res.isDelivered) {
-    // The field and the reason of another agent stay.
     const close = () =>
       patchPane($, (c) => ({
         ...c,
-        // The field of the tree closes. The field of the transcript screen stays for the
-        // next message.
         compose: c.compose === agentId && c.agentId !== agentId ? null : c.compose,
         controlError: ownErrorGone(c, agentId),
       }))
@@ -769,7 +729,6 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
     return
   }
   if (isAdded) answersToShow.delete(agentId)
-  // The text comes back to the field, unless the person typed a new one.
   if (drafts[agentId] === undefined) drafts[agentId] = text
   // Auto mode did not judge the message: the pane asks the person once. With the answer
   // and still no verdict, the reason names the rule of the settings.
@@ -812,7 +771,6 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
   } finally {
     ownStops.delete(task)
   }
-  // A stop that worked takes back the reason of this agent only.
   await patchPane($, (c) => ({
     ...c,
     controlError:
@@ -824,7 +782,6 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
 // this wait.
 const REFOCUS_MS = 80
 
-// The field that the later focus moves go to, or null when the person chose another place.
 let wantedFocus: string | null = null
 
 // Puts the focus in the message field of an agent, so the person can type at once. The
@@ -850,14 +807,11 @@ async function focusField($: Api, agentId: string): Promise<void> {
   $.clock.after(REFOCUS_MS * 4, move)
 }
 
-// A stop button that waits for its second press forgets the question when its agent ends.
 async function forgetStop($: Api, agentId: string): Promise<void> {
   if ((await read($, pane)).stopAsk !== agentId) return
   await update($, pane, (c) => (c.stopAsk === agentId ? { ...c, stopAsk: null } : c))
 }
 
-// Opens the message field of an agent with the focus in it, or closes it: below the agent's
-// row on the tree, as the last row of the header on the transcript screen.
 async function toggleCompose($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.compose === agentId) {
@@ -875,11 +829,9 @@ async function toggleCompose($: Api, agentId: string): Promise<void> {
   await focusField($, agentId)
 }
 
-// What a pane button does, from its press or from the click that gave the pane the focus.
 async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind !== 'compose') wantedFocus = null
   if (action.kind === 'stop') return stopAgent($, action.agentId)
-  // Any other press takes back the question of a stop button.
   if ((await read($, pane)).stopAsk != null) await update($, pane, (c) => ({ ...c, stopAsk: null }))
   if (action.kind === 'compose') return toggleCompose($, action.agentId)
   if (action.kind === 'send') return sendMessage($, action.agentId, action.text)
@@ -1023,7 +975,6 @@ async function loadTtls($: Api, settings: Record<string, unknown>, option: unkno
   return next
 }
 
-// The open turns of the main loop: the open intervals that are not a run of an agent.
 const mainTurns = (m: Meter): number => m.active - (m.working ?? []).length
 
 // The steps whose request is out and whose usage is not counted yet. The engine's ledger can
@@ -1115,10 +1066,8 @@ async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
 // The settings files, lowest precedence first, as the engine folds them.
 const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
 
-// One entry of an agents folder: a folder to read, or the definitions of a file.
 type AgentEntryOf = { dir: string } | { defs: { name: string; window?: number }[] }
 
-// The deepest folder below an agents folder that is read.
 const MAX_AGENT_DEPTH = 8
 
 // The agent files in `dir` and the folders below it, as the engine lists them
@@ -1179,7 +1128,6 @@ async function definitionWindows($: Api): Promise<Map<string, number | undefined
 let lastLayers: readonly Readonly<Record<string, unknown>>[] | null = null
 let definitions: { session: string; windows: Promise<Map<string, number | undefined>> } | null =
   null
-// The windows of the agent types that plugins registered while this mod was loaded.
 let registered: ReadonlyMap<string, number> = new Map()
 
 // The `autoCompactWindow` of the definition of agent type `type`. The files are read one
@@ -1391,7 +1339,6 @@ export const register: Register = (on, options) => {
           return measured?.isEnv === true ? stepped : capped(stepped, agentId)
         })
       } else {
-        // The dashboard's numbers changed.
         await syncPane($)
       }
       startTimer($, ttls)
@@ -1526,7 +1473,6 @@ export const register: Register = (on, options) => {
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
     if (loop !== undefined) {
-      // The counts of the agent changed.
       await syncPane($)
       await refreshViewed($, loop)
     }
@@ -1555,7 +1501,6 @@ export const register: Register = (on, options) => {
     // The agent's first step can arrive before this: keep what it already counted.
     const nextMeter = await update($, meter, (c) => ({
       ...c,
-      // Its first step can count it before this.
       agents: c.agents + (agentId in c.byAgent ? 0 : 1),
       byAgent: bumpAgent(c.byAgent, agentId, (a) =>
         e.parentAgentId === undefined ? a : { ...a, parentId: e.parentAgentId },
@@ -1776,7 +1721,6 @@ export const register: Register = (on, options) => {
     // side, and the title as the first row.
     const ui = $.ui.resolve(e)
     const pad = e.surface === 'terminal' ? 1 : 0
-    // The rows above the pane body on the terminal: the title and the empty row below it.
     const above = e.surface === 'terminal' ? TITLE_ROWS : 0
     // The offset of a scroll event is newer than the pane's own until the engine gives the
     // pane another offset: that one is then the newest (the window can move with no event).
@@ -1785,7 +1729,6 @@ export const register: Register = (on, options) => {
       asked !== null && asked.seen === e.props.scroll.offset ? asked.offset : e.props.scroll.offset
     drawnOffset = e.props.scroll.offset
     isPaneOnTerminal = e.surface === 'terminal'
-    // After this hook returns its drawing: a scroll that waits for it goes on.
     const drawn = onPaneDrawn
     if (drawn !== null) setTimeout(drawn, 0)
     const view = await read($, pane)
@@ -1848,7 +1791,6 @@ export const register: Register = (on, options) => {
     return (
       <ui.Box flexDirection="column" paddingX={pad}>
         <ui.Text bold>{paneTitle}</ui.Text>
-        {/* An empty row parts the title from the body. */}
         <ui.Text> </ui.Text>
         {body}
       </ui.Box>

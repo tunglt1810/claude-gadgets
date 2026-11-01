@@ -2,7 +2,6 @@ export type Ttl = '5m' | '1h'
 
 const isTtl = (v: unknown): v is Ttl => v === '5m' || v === '1h'
 
-// The environment variables that change a cache lifetime, as the engine reads them.
 export const TTL_ENV = [
   'FORCE_PROMPT_CACHING_5M',
   'CLAUDE_CODE_PROMPT_CACHE_TTL',

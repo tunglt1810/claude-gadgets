@@ -3,7 +3,6 @@ import { PALETTE } from './palette'
 import { costOf } from './price'
 import { workedMs } from './registry'
 
-// A model id without its vendor prefix and its date: `haiku-4-5`.
 export const shortModel = (model: string): string =>
   model.replace(/^claude-/, '').replace(/-\d{8}$/, '')
 
@@ -72,10 +71,8 @@ export const dashboard = (snap: Snapshot, entries: Registry, now: number): Dashb
   }
 }
 
-// The name of a row's cost among the costs the pane animates.
 export const rowKey = (model: string): string => `row:${model}`
 
-// The costs of a dashboard that run to a new value when they change, by name.
 export const usdTargets = (d: Dashboard): Record<string, number> => ({
   total: d.costUsd,
   ...Object.fromEntries(
@@ -88,10 +85,8 @@ export const usdTargets = (d: Dashboard): Record<string, number> => ({
 export const runsText = (r: ModelRow): string =>
   r.main !== true ? String(r.runs) : r.runs === 0 ? 'main' : `main+${r.runs}`
 
-// The share of a cost in the session's total, a whole percent. Null with no cost or no total.
 export const sharePct = (costUsd: number | null, total: number): number | null =>
   costUsd === null || total <= 0 ? null : Math.round((costUsd / total) * 100)
 
-// The color of a share: warmer for a larger one, so the costly rows stand out.
 export const shareColor = (pct: number): string =>
   pct >= 50 ? PALETTE.red : pct >= 25 ? PALETTE.orange : pct >= 10 ? PALETTE.yellow : PALETTE.dim
