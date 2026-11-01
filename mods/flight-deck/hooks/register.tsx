@@ -18,7 +18,7 @@ import {
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
-import { holdsMono, holdsText } from '../src/engine'
+import { capsEnv, holdsMono, holdsText } from '../src/engine'
 import { PALETTE } from '../src/palette'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
@@ -40,6 +40,14 @@ import {
   taskNotice,
   tuned,
 } from '../src/registry'
+import {
+  added,
+  endedWithAgent,
+  outputTail,
+  ended as shellEnded,
+  shellStarted,
+  withTail,
+} from '../src/shells'
 import {
   emptySnapshot,
   isComplete,
@@ -86,6 +94,7 @@ import type {
   PaneData,
   PaneView,
   Registry,
+  Shell,
   Transcript,
 } from '../types'
 
@@ -115,6 +124,10 @@ const PANE_ID = 'agents'
 const PANE_TITLE = '🤖 Flight Deck'
 // The title with the version of the mod, once `loadTitle` read the manifest.
 let paneTitle = PANE_TITLE
+// The pane takes the keyboard: a click on a pane without it only focuses. An engine with no
+// `backgroundColor` (2.1.309 has none) drops it and keeps its own look.
+const paneArgs = () =>
+  ({ id: PANE_ID, title: paneTitle, focus: true, backgroundColor: 'transparent' }) as const
 let isTitleRead = false
 // The store key of the last wrap choice: one for the plugin, not one per session.
 const WRAP_KEY = 'wrap'
@@ -128,6 +141,8 @@ const initialPane: PaneView = {
   isContext: false,
   isCache: false,
   isTools: false,
+  isShells: false,
+  shellId: null,
   openTools: [],
   openCategories: [],
   compose: null,
@@ -146,6 +161,15 @@ const initialData: PaneData = {
   tools: null,
 }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
+// The shell commands in the background of one session. They end with the session, so they
+// are not stored.
+const initialShells: { sessionId: string | null; list: Shell[] } = { sessionId: null, list: [] }
+const shellsAtom = atom({ plugin: 'flight-deck', key: 'shells' } as const, initialShells)
+// The lines of output that the background screen shows of a shell, and the bytes of the end
+// of its file that the pane reads: a progress bar rewrites one line many times.
+const TAIL_LINES = 40
+const TAIL_BYTES = '20000'
+const SHELL_POLL_MS = 1000
 // The context of the main loop: the latest breakdown that an event read, and its growth.
 const initialContext: ContextState = { sessionId: null, sample: null, base: null, turns: 0 }
 const contextAtom = atom({ plugin: 'flight-deck', key: 'context' } as const, initialContext)
@@ -560,6 +584,93 @@ async function closeTools($: Api): Promise<void> {
   })
 }
 
+// The background screen, with the focus on its back button.
+async function openShells($: Api): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isShells: true }))
+  })
+  await readTails($)
+  startShellPoll($)
+}
+
+// Back to the tree, with the focus on the button that opened the background screen.
+async function closeShells($: Api): Promise<void> {
+  await focusAfter($, 'shells', async () => {
+    await update($, pane, (c) => ({ ...c, isShells: false, shellId: null }))
+  })
+}
+
+// The screen of one shell, with the focus on its back button.
+async function openShell($: Api, id: string): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, shellId: id }))
+  })
+  await readTails($, [id])
+}
+
+// Back to the background list, with the focus on the row of the shell.
+async function closeShell($: Api, id: string): Promise<void> {
+  await focusAfter($, `bgtask:${id}`, async () => {
+    await update($, pane, (c) => ({ ...c, shellId: null }))
+  })
+}
+
+// Writes the shells only when the change gives another list: each write draws the pane.
+async function changeShells($: Api, change: (list: Shell[]) => Shell[]): Promise<void> {
+  const id = await $.session.id()
+  const cur = await read($, shellsAtom)
+  const list = cur.sessionId === id ? cur.list : []
+  if (change(list) === list && cur.sessionId === id) return
+  await update($, shellsAtom, (c) => {
+    const base = c.sessionId === id ? c.list : []
+    return { sessionId: id, list: change(base) }
+  })
+}
+
+// Reads the end of the output file of each running shell, or of the shells in `ids`. `tail`
+// reads only the end: `$.fs.read` refuses a file over 4 MiB, and a server's log grows.
+async function readTails($: Api, ids?: readonly string[]): Promise<void> {
+  const cur = await read($, shellsAtom)
+  const due = cur.list.filter((sh) =>
+    ids === undefined ? sh.status === 'running' : ids.includes(sh.id),
+  )
+  for (const sh of due) {
+    const res = await $.process
+      .run(['tail', '-c', TAIL_BYTES, sh.path], { timeoutMs: 2000 })
+      .catch(() => null)
+    if (res === null || res.exitCode !== 0) continue
+    const tail = outputTail(res.stdout, TAIL_LINES)
+    await changeShells($, (list) => withTail(list, sh.id, tail))
+  }
+}
+
+// A tick that reads the output of the running shells while the background screen is open.
+// It stops itself when the screen closes or no shell runs.
+let shellPoll: { cancel: () => void } | null = null
+function startShellPoll($: Api): void {
+  if (shellPoll !== null) return
+  shellPoll = $.clock.every(SHELL_POLL_MS, async () => {
+    const view = await read($, pane)
+    const cur = await read($, shellsAtom)
+    const isRunning = cur.list.some((sh) => sh.status === 'running')
+    if (!view.isOpen || view.isShells !== true || !isRunning) {
+      shellPoll?.cancel()
+      shellPoll = null
+      return
+    }
+    await readTails($)
+  })
+}
+
+// A shell that ended: its status, and the last lines that it wrote.
+async function endShell($: Api, id: string, status: 'completed' | 'failed' | 'killed') {
+  const cur = await read($, shellsAtom)
+  if (!cur.list.some((sh) => sh.id === id)) return
+  const at = await $.clock.now()
+  await changeShells($, (list) => shellEnded(list, id, status, at))
+  await readTails($, [id])
+}
+
 // Changes the pane only when the change gives another state: each write draws the pane again,
 // and a desktop drops a click on a button that a redraw replaced.
 async function patchPane($: Api, change: (c: PaneView) => PaneView): Promise<void> {
@@ -731,7 +842,7 @@ async function focusField($: Api, agentId: string): Promise<void> {
   // Limit: the surface gives the keyboard only while the prompt of the session is empty. With
   // text in the prompt the field gets no focus, and the person must click the field.
   if (!isPaneFocused || first.deny !== undefined) {
-    await $.ui.open({ id: PANE_ID, title: paneTitle, focus: true }).catch(() => undefined)
+    await $.ui.open(paneArgs()).catch(() => undefined)
   }
   // The pane holds the keyboard a short time after it asked: a live log gave a refused move
   // 11 ms after the request, and a move that landed 80 ms after it.
@@ -779,15 +890,21 @@ async function act($: Api, action: PaneAction): Promise<void> {
     const cur = await read($, pane)
     return cur.isContext === true
       ? closeContext($)
-      : cur.isCache === true
-        ? closeCache($)
-        : cur.isTools === true
-          ? closeTools($)
-          : backToTree($)
+      : cur.isShells === true && cur.shellId != null
+        ? closeShell($, cur.shellId)
+        : cur.isShells === true
+          ? closeShells($)
+          : cur.isCache === true
+            ? closeCache($)
+            : cur.isTools === true
+              ? closeTools($)
+              : backToTree($)
   }
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'cache') return openCache($)
   if (action.kind === 'tools') return openTools($)
+  if (action.kind === 'shells') return openShells($)
+  if (action.kind === 'shell') return openShell($, action.id)
   if (action.kind === 'toolRow') {
     await update($, pane, (c) => ({ ...c, openTools: toggled(c.openTools, action.name) }))
     return
@@ -844,9 +961,13 @@ async function togglePane($: Api): Promise<boolean> {
   const isWrapped = (await $.store.get(WRAP_KEY)) !== false
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
   await syncPane($)
-  // The pane takes the keyboard: a click on a pane without it only focuses.
-  await $.ui.open({ id: PANE_ID, title: paneTitle, focus: true })
+  await $.ui.open(paneArgs())
   startSpinner($)
+  // The pane can open again on the background screen: its tick stopped when the pane closed.
+  if ((await read($, pane)).isShells === true) {
+    await readTails($)
+    startShellPoll($)
+  }
   // After the pane is open: a usage call that fails leaves the pane and its state as one.
   // A summary breakdown estimates locally: it sends no request.
   await measureContext($, 'summary').catch(() => undefined)
@@ -861,7 +982,11 @@ function startSpinner($: Api): void {
   spinner = $.clock.every(SPIN_MS, async () => {
     const isOpen = (await read($, pane)).isOpen
     const reg = await read($, agents)
-    const isBusy = isOpen && Object.values(reg.entries).some((a) => a.status === 'running')
+    const shells = await read($, shellsAtom)
+    const isBusy =
+      isOpen &&
+      (Object.values(reg.entries).some((a) => a.status === 'running') ||
+        shells.list.some((sh) => sh.status === 'running'))
     if (!isBusy) {
       spinner?.cancel()
       spinner = null
@@ -1079,9 +1204,19 @@ async function settingsLayers($: Api): Promise<readonly Readonly<Record<string, 
   return lastLayers ?? Promise.all(SOURCES.map((source) => $.settings.read({ source })))
 }
 
+// A failed read of the version keeps the rule of the older engines.
+async function isEnvCapped($: Api): Promise<boolean> {
+  return capsEnv(
+    await $.session.version().then(
+      (v) => v.base,
+      () => undefined,
+    ),
+  )
+}
+
 // The window an agent's context is measured against, before the window of its
 // definition: the model's window, or the smaller auto-compact window of the variable or
-// the settings. `isEnv`: the variable sets it, and no definition lowers it.
+// the settings. `isEnv`: the variable sets it, and before 2.1.312 no definition lowers it.
 async function agentWindow($: Api, model: string): Promise<{ window: number; isEnv: boolean }> {
   const window = contextWindow(model, isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')))
   const env = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW'))
@@ -1089,7 +1224,7 @@ async function agentWindow($: Api, model: string): Promise<{ window: number; isE
   const compact = env ?? compactWindow(model, await settingsLayers($).catch(() => []))
   return {
     window: compact === undefined ? window : Math.min(window, compact),
-    isEnv: env !== undefined,
+    isEnv: env !== undefined && !(await isEnvCapped($)),
   }
 }
 
@@ -1115,8 +1250,10 @@ export const register: Register = (on, options) => {
     const settings = await $.settings.read()
     const ttls = await loadTtls($, settings, options.cacheTtl)
     if (cur.lastStepAt !== null && cur.lastStepAt + ttlMs(ttls.main) > at) startTimer($, ttls)
-    // A pane that stayed open across a hot reload keeps its spinner.
+    // A pane that stayed open across a hot reload keeps its spinner, and the background
+    // screen its tick.
     startSpinner($)
+    startShellPoll($)
     await $.command.register({
       name: 'agent-log',
       description: 'Show or hide the agents of this session',
@@ -1339,7 +1476,19 @@ export const register: Register = (on, options) => {
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res
     const id = await ensureLoaded($)
-    await stamp($)
+    const startedAt = await stamp($)
+    const started = e.tool === 'Bash' && !res.isError ? shellStarted(res.text) : null
+    if (started !== null) {
+      const { endsWithRun, ...where } = started
+      const command = 'command' in e && typeof e.command === 'string' ? e.command : ''
+      const owner = endsWithRun === true && e.agentId !== undefined ? { owner: e.agentId } : {}
+      await changeShells($, (list) =>
+        added(list, { ...where, ...owner, command, status: 'running', startedAt, tail: [] }),
+      )
+      if ((await read($, pane)).isShells === true) startShellPoll($)
+      startSpinner($)
+    }
+    if (e.tool === 'TaskStop' && !res.isError) await endShell($, taskOf(e), 'killed')
     // A failed edit changed nothing on disk.
     const diff = res.isError ? { added: 0, removed: 0 } : linesChanged(res.result)
     // A background Agent call is a subagent: `agent.spawn` counts it.
@@ -1399,8 +1548,10 @@ export const register: Register = (on, options) => {
     if (agentId === undefined) return res
     const id = await ensureLoaded($)
     // A step that came before this was measured without the window of the definition,
-    // which the variable overrides.
-    const isEnv = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) !== undefined
+    // which the variable overrides before 2.1.312.
+    const isEnv =
+      envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) !== undefined &&
+      !(await isEnvCapped($))
     // The agent's first step can arrive before this: keep what it already counted.
     const nextMeter = await update($, meter, (c) => ({
       ...c,
@@ -1472,6 +1623,7 @@ export const register: Register = (on, options) => {
       await save($, session, nextMeter)
       const end = e.reason === 'answer' ? completed : stopped
       await trackAgent($, session, (r, t) => end(r, agentId, t))
+      await changeShells($, (list) => endedWithAgent(list, agentId, at))
       await forgetStop($, agentId)
       await refreshViewed($, agentId)
       // The engine does not wait for the move of the window.
@@ -1531,6 +1683,7 @@ export const register: Register = (on, options) => {
       await trackAgent($, session, (r, t) => ended(r, notice.id, notice.status, t))
       await forgetStop($, notice.id)
       answersToShow.delete(notice.id)
+      await endShell($, notice.id, notice.status)
     }
     return res
   })
@@ -1606,8 +1759,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
-    // Only `paneData`, the view and (on the terminal) the spinner are read here: each read
-    // value redraws the pane when it changes.
+    // Only `paneData`, the view, the shells and (on the terminal) the spinner are read here:
+    // each read value redraws the pane when it changes.
     isPaneFocused = e.props.isFocused
     // A hot reload keeps the pane open and resets the title.
     await loadTitle($)
@@ -1635,11 +1788,13 @@ export const register: Register = (on, options) => {
     // After this hook returns its drawing: a scroll that waits for it goes on.
     const drawn = onPaneDrawn
     if (drawn !== null) setTimeout(drawn, 0)
+    const view = await read($, pane)
+    const shellList = await read($, shellsAtom)
     const body = (
       <AgentPane
         ui={ui}
         entries={isCurrent ? data.entries : {}}
-        view={await read($, pane)}
+        view={view}
         stats={isCurrent ? data.stats : null}
         dashboard={isCurrent ? data.dashboard : null}
         // State of an older shape (a hot reload) has no context.
@@ -1648,6 +1803,7 @@ export const register: Register = (on, options) => {
         breaks={isCurrent ? (data.breaks ?? null) : null}
         // State of an older shape (a hot reload) has no tools.
         tools={isCurrent ? (data.tools ?? null) : null}
+        shells={view.agentId === null && shellList.sessionId === id ? shellList.list : null}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -1668,6 +1824,8 @@ export const register: Register = (on, options) => {
         onContext={() => act($, { kind: 'context' })}
         onCache={() => act($, { kind: 'cache' })}
         onTools={() => act($, { kind: 'tools' })}
+        onShells={() => act($, { kind: 'shells' })}
+        onShell={(id) => act($, { kind: 'shell', id })}
         onToolRow={(name) => act($, { kind: 'toolRow', name })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}

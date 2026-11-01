@@ -95,6 +95,7 @@ Giới hạn:
 - Các con số là của vòng lặp chính. Engine không cho breakdown context của một subagent.
 - Một tool nạp theo yêu cầu thì không nằm trong window. Hàng của nó (`deferred`) không có tỉ lệ.
 - Độ dài context của một subagent dùng auto-compact window của subagent đó. Mod đọc window này từ `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, từ `autoCompactWindow` trong các file settings, từ file agent của subagent, và từ loại agent mà một plugin đăng ký trong lúc mod đang chạy. Mod không thấy window do server đặt hay file agent của plugin. Khi đó mod dùng window của model. Mod đọc một file agent một lần trong mỗi phiên. Thay đổi trong file hiện ra ở phiên sau.
+- Từ Claude Code 2.1.312, `autoCompactWindow` của một file agent hạ window của `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Trước 2.1.312, biến môi trường thắng.
 
 ## Màn hình cache
 
@@ -117,6 +118,15 @@ Một cache break là một step của vòng lặp chính đọc từ prompt cac
 - Pane hiển thị số đếm mới sau step tiếp theo của model.
 - Mod đếm số lần gọi, không đếm chi phí. Engine cho chi phí của mỗi request và mỗi model, không cho chi phí của mỗi tool call.
 - Một session từ phiên bản cũ của mod đã đếm các lần gọi, nhưng không đếm theo từng tool. Màn hình hiển thị số lần gọi mà nó không liệt kê được.
+
+## Màn hình background
+
+- Hàng `background` trên màn hình agents hiển thị số lệnh shell đang chạy nền và số lệnh đã kết thúc. Hàng này hiện sau lệnh chạy nền đầu tiên.
+- Bấm `background` để xem mỗi lệnh trên một hàng: trạng thái, lệnh, thời gian chạy, và dòng output mới nhất. Các lệnh đang chạy đứng đầu. Dòng mới nhất thay đổi mỗi giây khi lệnh còn chạy.
+- Bấm một lệnh để xem màn hình của nó, với 40 dòng output cuối. `← background` quay lại danh sách.
+- Một lệnh mà engine chuyển sang chạy nền (do timeout, hoặc do có message đến khi lệnh đang chạy) cũng hiện ra.
+- Màn hình chỉ hiện lệnh `Bash`. Task `Monitor` không hiện ra.
+- Mod đọc phần cuối của file output bằng `tail`. Escape code không hiện ra. Một dòng bị carriage return ghi đè hiện trạng thái cuối của nó.
 
 ## Câu hỏi khi không có verdict
 

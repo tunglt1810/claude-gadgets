@@ -4,6 +4,9 @@ const TEXT_IN_BUTTON = [2, 1, 295] as const
 // The first release whose Text takes `mono`. An earlier engine refuses the tree of a
 // `Client` that has it, and unmounts the `Client`.
 const MONO_TEXT = [2, 1, 299] as const
+// The first release whose agent definition lowers the window that
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW sets. An earlier engine lets the variable win.
+const CAPPED_ENV = [2, 1, 312] as const
 
 // True when `base` is the release `min` or a later one. `base` is the release of
 // `$.session.version()`; a version that is not a release has none.
@@ -22,3 +25,6 @@ export const holdsText = (base: string | undefined): boolean => isAtLeast(base, 
 
 // True when the engine of that release draws a Text in the monospaced face of the cells.
 export const holdsMono = (base: string | undefined): boolean => isAtLeast(base, MONO_TEXT)
+
+// True when the engine of that release lowers the variable's window by the agent definitions.
+export const capsEnv = (base: string | undefined): boolean => isAtLeast(base, CAPPED_ENV)

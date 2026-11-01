@@ -7,6 +7,7 @@ import type {
   Dashboard,
   PaneView,
   Registry,
+  Shell,
   Snapshot,
   ToolNode,
   ToolsView,
@@ -31,6 +32,7 @@ import { statSegments } from './layout'
 import { mdParts, tableLines } from './mdTable'
 import { PALETTE } from './palette'
 import { agentTitle, modelLabel, workedMs } from './registry'
+import { shellsHead, shownOrder } from './shells'
 import { inputCode, toolSummary } from './summary'
 import { agentTable, recency, runsLabel } from './table'
 import { toolsHead, treeLines } from './tools'
@@ -52,6 +54,8 @@ type Props = {
   breaks: BreaksView | null
   // The calls of each tool; null on a transcript screen.
   tools: ToolsView | null
+  // The shell commands in the background, the newest first; null on a transcript screen.
+  shells: Shell[] | null
   // The dashboard's costs and the tokens of each context as they are on screen, by name, where
   // the pane is drawn on each frame (the terminal). Absent on a desktop: a cell runs to its
   // new number by itself.
@@ -79,6 +83,8 @@ type Props = {
   onContext: () => void
   onCache: () => void
   onTools: () => void
+  onShells: () => void
+  onShell: (id: string) => void
   onToolRow: (name: string) => void
   onRecount: () => void
   onCategory: (name: string) => void
@@ -150,6 +156,16 @@ const CALLS_PCT_WIDTH = 8
 // below the name of the row, and the cells of one level (a connector and its space).
 const TREE_INDENT = 2
 const TREE_LEVEL = 3
+// The button of the background screen, and the mark of an ended shell by its status.
+const SHELLS = 'background'
+const BACK_SHELLS = '← background'
+// The most cells of a command on the background list: the newest line takes the rest.
+const MAX_SHELL_COMMAND = 32
+const SHELL_MARK = {
+  completed: { text: '✓', color: PALETTE.green },
+  failed: { text: '✗', color: PALETTE.red },
+  killed: { text: '✗', color: PALETTE.red },
+} as const
 const REWRITTEN_WIDTH = 9
 const LOST_WIDTH = 8
 // The columns of the context screen: a count of tokens fits `123.4k`, a share its header
@@ -205,6 +221,7 @@ export const AgentPane = ({
   context,
   breaks,
   tools,
+  shells,
   shownUsd,
   spin,
   holdsText,
@@ -221,6 +238,8 @@ export const AgentPane = ({
   onContext,
   onCache,
   onTools,
+  onShells,
+  onShell,
   onToolRow,
   onRecount,
   onCategory,
@@ -524,6 +543,26 @@ export const AgentPane = ({
             {cell('tools:head', toolsHead(tools))}
           </Box>
           {rule('tools:rowrule')}
+        </Box>
+      )
+
+    // The shell commands in the background: the button of the background screen, then how
+    // many run and how many ended. It is built as the cache row is.
+    const shellsRow = () =>
+      shells === null || shells.length === 0 ? null : (
+        <Box key="shellsblock" flexDirection="column">
+          <Box
+            key="shells:row"
+            flexDirection="row"
+            alignItems="center"
+            gap={1}
+            overflow="hidden"
+            {...oneRowOnly}
+          >
+            <Button key="shells" label={SHELLS} onPress={onShells} />
+            {cell('shells:head', shellsHead(shells))}
+          </Box>
+          {rule('shells:rowrule')}
         </Box>
       )
 
@@ -863,7 +902,118 @@ export const AgentPane = ({
         </Box>
       )
     }
+    const shellMark = (sh: Shell): Cell =>
+      sh.status === 'running'
+        ? { text: '', spin: true, color: PALETTE.green, width: MARK_WIDTH }
+        : { ...SHELL_MARK[sh.status], width: MARK_WIDTH }
+    const shellTime = (sh: Shell): Cell =>
+      sh.status === 'running' || sh.endedAt === undefined
+        ? { text: CLOCK, since: sh.startedAt, dim: true, width: TIME_WIDTH }
+        : {
+            text: `${CLOCK}${formatDuration(sh.endedAt - sh.startedAt)}`,
+            dim: true,
+            width: TIME_WIDTH,
+          }
+    // The background screen: a row a shell, the running ones first, with its newest line. A
+    // press on the command opens the screen of the shell.
+    const shellsScreen = () => {
+      const list = shownOrder(shells ?? [])
+      const titleWidth = Math.max(1, columns - (BACK.length + BUTTON_CHROME + 1))
+      const commandWidth = Math.min(
+        MAX_SHELL_COMMAND,
+        Math.max(MIN_MODEL, Math.floor(columns * 0.4)),
+      )
+      const lineWidth = Math.max(
+        1,
+        columns - (MARK_WIDTH + 1) - (commandWidth + 1) - (TIME_WIDTH + 1),
+      )
+      return (
+        <Box flexDirection="column">
+          <Box key="shells:toolbar" flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
+            <Button key="back" label={BACK} onPress={onBack} />
+            {rest('shells:title', SHELLS, titleWidth, { bold: true })}
+          </Box>
+          {list.length === 0 ? (
+            <Text key="shells:none" dimColor>
+              No background command yet.
+            </Text>
+          ) : (
+            list.map((sh) => {
+              const label = cut(sh.command, commandWidth)
+              const button = (
+                <Button
+                  key={`bgtask:${sh.id}`}
+                  plain
+                  label={label}
+                  onPress={() => onShell(sh.id)}
+                />
+              )
+              return (
+                <Box key={`shell:row:${sh.id}`} flexDirection="row" gap={1} {...oneRowOnly}>
+                  {cell(`shell:mark:${sh.id}`, shellMark(sh))}
+                  <Box
+                    key={`shell:cmdbox:${sh.id}`}
+                    width={commandWidth}
+                    flexShrink={0}
+                    overflow="hidden"
+                  >
+                    {isClient ? (
+                      button
+                    ) : (
+                      <Box width={label.length} flexShrink={0}>
+                        {button}
+                      </Box>
+                    )}
+                  </Box>
+                  {cell(`shell:time:${sh.id}`, shellTime(sh))}
+                  {rest(`shell:last:${sh.id}`, sh.tail.at(-1) ?? '', lineWidth, { dim: true })}
+                </Box>
+              )
+            })
+          )}
+        </Box>
+      )
+    }
+    // The screen of one shell: its command, its state, and the last lines of its output.
+    const shellScreen = (sh: Shell) => {
+      const titleWidth = Math.max(1, columns - (BACK_SHELLS.length + BUTTON_CHROME + 1))
+      return (
+        <Box flexDirection="column">
+          <Box key="shell:toolbar" flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
+            <Button key="back" label={BACK_SHELLS} onPress={onBack} />
+            {rest('shell:title', sh.command, titleWidth, { bold: true })}
+          </Box>
+          <Box key="shell:state" flexDirection="row" gap={1}>
+            {cell('shell:mark', shellMark(sh))}
+            {cell('shell:status', {
+              text: sh.status,
+              ...(sh.status === 'running'
+                ? { color: PALETTE.green }
+                : sh.status === 'completed'
+                  ? { dim: true }
+                  : { color: PALETTE.red }),
+            })}
+            {cell('shell:time', shellTime(sh))}
+          </Box>
+          {sh.tail.length === 0 ? (
+            <Text key="shell:empty" dimColor>
+              No output yet.
+            </Text>
+          ) : (
+            sh.tail.map((line, i) => (
+              <Text key={`shell:line:${i}`} dimColor wrap="truncate">
+                {line}
+              </Text>
+            ))
+          )}
+        </Box>
+      )
+    }
     // State of an older shape (a hot reload) has no flag.
+    if (view.isShells === true) {
+      const open = (shells ?? []).find((sh) => sh.id === view.shellId)
+      return open === undefined ? shellsScreen() : shellScreen(open)
+    }
     if (view.isContext === true) return contextScreen()
     if (view.isCache === true) return cacheScreen()
     if (view.isTools === true) return toolsScreen()
@@ -882,6 +1032,7 @@ export const AgentPane = ({
           {contextBlock()}
           {cacheRow()}
           {toolsRow()}
+          {shellsRow()}
           <Text dimColor>No agents yet.</Text>
         </Box>
       )
@@ -897,6 +1048,7 @@ export const AgentPane = ({
         {contextBlock()}
         {cacheRow()}
         {toolsRow()}
+        {shellsRow()}
         <Box key="head" flexDirection="row" gap={1}>
           {/* Built as a row is, a mark and a box of the name's width: a desktop sizes a box
               and a cell in different units, so only the same parts line up. */}

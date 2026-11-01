@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { holdsMono, holdsText } from './engine'
+import { capsEnv, holdsMono, holdsText } from './engine'
 
 test('holdsText: a Button holds a Text from Claude Code 2.1.295', () => {
   expect(holdsText('2.1.295')).toBe(true)
@@ -28,4 +28,12 @@ test('holdsMono: a Text draws in the monospaced face from Claude Code 2.1.299', 
   expect(holdsMono('2.1.298')).toBe(false)
   expect(holdsMono('2.1.295')).toBe(false)
   expect(holdsMono(undefined)).toBe(false)
+})
+
+test('capsEnv: an agent definition lowers the variable from Claude Code 2.1.312', () => {
+  expect(capsEnv('2.1.312')).toBe(true)
+  expect(capsEnv('2.1.316')).toBe(true)
+  expect(capsEnv('2.1.311')).toBe(false)
+  expect(capsEnv('2.1.309')).toBe(false)
+  expect(capsEnv(undefined)).toBe(false)
 })

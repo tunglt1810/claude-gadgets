@@ -215,6 +215,10 @@ export type PaneView = {
   isCache: boolean
   // The tools screen is in place of the tree.
   isTools: boolean
+  // The background screen is in place of the tree.
+  isShells: boolean
+  // The shell whose screen is open on the background screen.
+  shellId: string | null
   // The rows of the tools screen that show their children, by name.
   openTools: string[]
   openCategories: string[]
@@ -233,6 +237,8 @@ export type PaneAction =
   | { kind: 'context' }
   | { kind: 'cache' }
   | { kind: 'tools' }
+  | { kind: 'shells' }
+  | { kind: 'shell'; id: string }
   | { kind: 'toolRow'; name: string }
   | { kind: 'recount' }
   | { kind: 'category'; name: string }
@@ -288,6 +294,19 @@ export type PaneData = {
   breaks: BreaksView | null
   // The calls of each tool, on the tree screen; null on a transcript screen.
   tools: ToolsView | null
+}
+
+// A shell command that runs in the background, and the last lines of its output file.
+export type Shell = {
+  id: string
+  command: string
+  path: string
+  status: 'running' | 'completed' | 'failed' | 'killed'
+  startedAt: number
+  endedAt?: number
+  // The agent whose final response stops the shell: the engine sends no notice of that end.
+  owner?: string
+  tail: string[]
 }
 
 // One item below a category of the context: an MCP server (`count` is its loaded tools), a
@@ -364,6 +383,7 @@ declare module 'claude-code' {
       paneScroll: { offset: number; seen: number } | null
       spin: number
       ttls: { main: '5m' | '1h'; agent: '5m' | '1h' } | null
+      shells: { sessionId: string | null; list: Shell[] }
     }
   }
 }
