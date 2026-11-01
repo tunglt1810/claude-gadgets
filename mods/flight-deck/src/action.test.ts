@@ -60,3 +60,8 @@ test('focusAction reads the button that allows the messages of the pane', () => 
 test('the cache button has the cache action', () => {
   expect(focusAction('cache', null)).toEqual({ kind: 'cache' })
 })
+
+test('the background buttons have their actions', () => {
+  expect(focusAction('shells', null)).toEqual({ kind: 'shells' })
+  expect(focusAction('bgtask:b1', null)).toEqual({ kind: 'shell', id: 'b1' })
+})

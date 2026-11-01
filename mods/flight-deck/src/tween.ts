@@ -4,7 +4,6 @@ export type { Counts, NamedShown, Shown, Tween }
 
 export const TWEEN_MS = 400
 
-// The displayed value at `now`: cubic ease-out from `from` to `to`.
 export const valueAt = (t: Tween, now: number): number => {
   const p = (now - t.startedAt) / TWEEN_MS
   if (p >= 1) return t.to
@@ -43,8 +42,6 @@ export const retargetShown = (c: Shown, sessionId: string, target: Counts, now: 
     ? { sessionId, tweens: mapKeys((k) => retarget(c.tweens[k], target[k], now)) }
     : snapShown(sessionId, target)
 
-// Token and line counts are integers on every frame; cost keeps its fraction (the band
-// rounds it to the cent).
 export const shownAt = (c: Shown, now: number): Counts =>
   mapKeys((k) => {
     const v = valueAt(c.tweens[k], now)
@@ -54,8 +51,6 @@ export const shownAt = (c: Shown, now: number): Counts =>
 export const isSettled = (c: Shown, now: number): boolean =>
   KEYS.every((k) => valueAt(c.tweens[k], now) === c.tweens[k].to)
 
-// The same for values with a name each (the costs of the dashboard): a changed value runs,
-// and a new name or another session shows its value at once.
 export const retargetNamed = (
   c: NamedShown,
   sessionId: string,

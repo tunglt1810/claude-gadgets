@@ -961,12 +961,13 @@ const SURFACES = ['terminal', 'desktop'] as const
 
 // The pane's answers beneath the plugin; `opens` and `closes` record what the plugin asked.
 const paneEngine = (on: Parameters<typeof mock.store>[0], messages: () => unknown = () => ROWS) => {
-  const calls = { opens: 0, closes: 0, isOpenFocused: false, title: '' }
+  const calls = { opens: 0, closes: 0, isOpenFocused: false, title: '', background: '' }
   on('session.messages', () => ({ value: messages() }) as never)
   on('ui.open', (_$, e) => {
     calls.opens++
     calls.isOpenFocused = e.focus === true
     calls.title = String(e.title)
+    calls.background = String(e.backgroundColor)
     return { value: { isPlaced: true } } as never
   })
   on('ui.close', () => {
@@ -2343,7 +2344,35 @@ test('a spawn whose agent files cannot be read is still recorded', async ($, on)
   expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('reviewer · a1')
 })
 
-test('the auto-compact variable wins over the agent definition', async ($, on) => {
+test('from 2.1.312, the agent definition lowers the auto-compact variable', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, {
+    HOME: '/home',
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '300k',
+  })
+  engineBase = '2.1.312'
+  agentFiles = { '/home/.claude/agents/r.md': agentMd('reviewer', 150_000) }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/150k 0%')
+})
+
+test('from 2.1.312, the agent definition does not raise the auto-compact variable', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, undefined, undefined, undefined, {
+    HOME: '/home',
+    CLAUDE_CODE_AUTO_COMPACT_WINDOW: '300k',
+  })
+  engineBase = '2.1.312'
+  agentFiles = { '/home/.claude/agents/r.md': agentMd('reviewer', 500_000) }
+  paneEngine(on)
+  on('turn.step', stepHook(USAGE) as never)
+  expect(await agentScreen($, [{ type: 'reviewer' }], 'a1')).toContain('ctx 100/300k 0%')
+})
+
+test('before 2.1.312, the auto-compact variable wins over the agent definition', async ($, on) => {
   mock.clock(on, { now: 1000 })
   mock.store(on, {})
   engine(on, undefined, undefined, undefined, undefined, {
@@ -4183,5 +4212,171 @@ test('on a desktop the question dialog is drawn as it is', async ($, on) => {
   const ui = await mountQuestion($, 'desktop')
   expect(await ui.find({ key: 'agents' })).toBeUndefined()
   expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+  await ui.unmount()
+})
+
+const BG_PATH = '/t/tasks/b1.output'
+const bgResult = (e?: unknown) =>
+  (e as { command?: string })?.command === 'npm run dev'
+    ? {
+        result: {} as never,
+        text: `Command running in background with ID: b1. Output is being written to: ${BG_PATH}. You will be notified when it completes.`,
+      }
+    : { result: {} as never, text: 'ok' }
+
+for (const surface of SURFACES) {
+  test(`the background screen follows the output of a background command (${surface})`, async ($, on) => {
+    const clock = mock.clock(on, { now: 1000 })
+    mock.store(on, {})
+    engine(on, undefined, bgResult)
+    paneEngine(on)
+    let log = 'compiling\n\u001b[32mready on 3000\u001b[0m\n'
+    const reads: string[][] = []
+    on('process.run', (_$, e) => {
+      reads.push([...e.argv])
+      return { value: { exitCode: 0, stdout: log, stderr: '' } } as never
+    })
+    await $.command.run({ command: 'agent-log' } as never)
+    await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true } as never)
+    const ui = await mountPane($, surface)
+    expect(await paneText(ui)).toContain('1 running')
+    await ui.press({ key: 'shells' })
+    // The list shows one row a shell: its newest line, not the lines before it.
+    let text = await paneText(ui)
+    expect(text).toContain('npm run dev')
+    expect(text).toContain('ready on 3000')
+    expect(text).not.toContain('compiling')
+    expect(reads[0]).toEqual(['tail', '-c', '20000', BG_PATH])
+
+    log += 'GET / 200\n'
+    await clock.advance(1000)
+    expect(await paneText(ui)).toContain('GET / 200')
+
+    // The screen of the shell shows the lines before the newest.
+    await ui.press({ key: 'bgtask:b1' })
+    text = await paneText(ui)
+    expect(text).toContain('compiling')
+    expect(text).toContain('← background')
+    expect(text).toContain('running')
+
+    log += 'bye\n'
+    await notify($, 'b1', 'completed')
+    text = await paneText(ui)
+    expect(text).toContain('bye')
+    expect(text).toContain('completed')
+    await ui.press({ key: 'back' })
+    expect(await paneText(ui)).toContain('✓')
+    await ui.press({ key: 'back' })
+    expect(await paneText(ui)).toContain('1 ended')
+    await ui.unmount()
+  })
+}
+
+test('a shell that TaskStop ends shows as ended', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, bgResult)
+  paneEngine(on)
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true } as never)
+  await $.tool.call({ tool: 'TaskStop', task_id: 'b1' } as never)
+  const ui = await mountPane($, 'terminal')
+  expect(await paneText(ui)).toContain('1 ended')
+  await ui.press({ key: 'shells' })
+  expect(await paneText(ui)).toContain('✗')
+  await ui.press({ key: 'bgtask:b1' })
+  expect(await paneText(ui)).toContain('killed')
+  await ui.unmount()
+})
+
+test('a session with no background command has no background row', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  paneEngine(on)
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  const ui = await mountPane($, 'terminal')
+  expect(await ui.find({ key: 'shells' })).toBeFalsy()
+  await ui.unmount()
+})
+
+test('from 2.1.312, the pane asks for no background of its own: the main view shows through', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on)
+  const calls = paneEngine(on)
+  await $.command.run({ command: 'agent-log' } as never)
+  expect(calls.background).toBe('transparent')
+})
+
+test('the background screen follows the output again after the pane opens again', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, bgResult)
+  paneEngine(on)
+  let log = 'one\n'
+  on('process.run', () => ({ value: { exitCode: 0, stdout: log, stderr: '' } }) as never)
+  await $.command.run({ command: 'agent-log' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', run_in_background: true } as never)
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'shells' })
+  await $.command.run({ command: 'agent-log' } as never)
+  await clock.advance(1000)
+  await $.command.run({ command: 'agent-log' } as never)
+  log += 'two\n'
+  await clock.advance(1000)
+  expect(await paneText(ui)).toContain('two')
+  await ui.unmount()
+})
+
+test('a shell that ends with the final response of its agent ends when the agent answers', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, (e) =>
+    (e as { command?: string })?.command === 'npm test'
+      ? {
+          result: {} as never,
+          text: `Command running in background with ID: b3. Output is being written to: /t/b3.output. If it exits while you are still working you will be notified, but it is terminated when you give your final response and no notification can follow that.`,
+        }
+      : { result: {} as never, text: 'ok' },
+  )
+  paneEngine(on)
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
+  await spawn($)
+  await $.tool.call({
+    tool: 'Bash',
+    command: 'npm test',
+    run_in_background: true,
+    agentId: 'a1',
+  } as never)
+  const ui = await mountPane($, 'terminal')
+  expect(await paneText(ui)).toContain('1 running')
+  await completeAgent($, 'a1')
+  expect(await paneText(ui)).toContain('1 ended')
+  await ui.unmount()
+})
+
+test('the background list shows the running shells first', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  engine(on, undefined, (e) => {
+    const c = (e as { command?: string })?.command ?? ''
+    const id = { 'sleep 1': 'x1', 'sleep 2': 'x2' }[c]
+    return id === undefined
+      ? { result: {} as never, text: 'ok' }
+      : {
+          result: {} as never,
+          text: `Command running in background with ID: ${id}. Output is being written to: /t/${id}.output.`,
+        }
+  })
+  paneEngine(on)
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '', stderr: '' } }) as never)
+  await $.tool.call({ tool: 'Bash', command: 'sleep 1', run_in_background: true } as never)
+  await $.tool.call({ tool: 'Bash', command: 'sleep 2', run_in_background: true } as never)
+  await notify($, 'x2', 'completed')
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'shells' })
+  const keys = (await ui.findAll({ type: 'Button' })).map((b) => String(b.key))
+  expect(keys.filter((k) => k.startsWith('bgtask:'))).toEqual(['bgtask:x1', 'bgtask:x2'])
   await ui.unmount()
 })

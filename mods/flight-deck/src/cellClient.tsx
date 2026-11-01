@@ -4,9 +4,6 @@ import { cellText } from './cell'
 import { SPIN_MS } from './spinner'
 import { retarget, type Tween, valueAt } from './tween'
 
-// `value` is the tween of a cell that counts: a cost, or the tokens of a context length.
-// `hasTick` and `hasFrame` name the timers that run; `isLive` is true while the cell turns or
-// counts a time.
 type State = {
   tick: number
   now: number
@@ -41,7 +38,6 @@ const CellClient: ClientModule<Cell, State> = (c, surface) => {
     s = { ...s, hasTick: true }
   }
   if (target !== undefined && s.hasFrame !== true) {
-    // A counting cell draws each frame while its number runs, and nothing when it is there.
     surface.every(FRAME_MS, () => {
       const cur = surface.state
       if (cur?.value === undefined || valueAt(cur.value, cur.now) === cur.value.to) return
@@ -51,7 +47,6 @@ const CellClient: ClientModule<Cell, State> = (c, surface) => {
     s = { ...s, hasFrame: true, value: { from: target, to: target, startedAt: 0 } }
   }
   if (isLive !== (s.isLive === true)) s = { ...s, isLive }
-  // A new number in the props: run to it from the number on screen.
   if (target !== undefined && s.value !== undefined && s.value.to !== target) {
     const at = Date.now()
     s = { ...s, now: at, value: retarget(s.value, target, at) }

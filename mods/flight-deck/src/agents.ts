@@ -12,8 +12,6 @@ export const emptyAgent = (): AgentUsage => ({
   lastStepAt: null,
 })
 
-// The per-agent table with one agent changed; an agent not seen before starts empty.
-// The main loop (no id) has no entry: its numbers are the session's.
 export const bumpAgent = (
   byAgent: Record<string, AgentUsage>,
   id: string | undefined,

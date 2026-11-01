@@ -1,4 +1,3 @@
-// The contract is self-contained (no imports); src/ imports these types from '../types'.
 export type Totals = { input: number; output: number; cacheRead: number; cacheWrite: number }
 
 // One subagent's own share of the session's numbers, keyed by its agent id. `parentId` is
@@ -103,7 +102,6 @@ export type BreakEntry = {
   lostUsd: number | null
 }
 
-// What the pane draws of the cache breaks of a session.
 export type BreaksView = { count: number; lostUsd: number; entries: BreakEntry[] }
 
 // What the tools screen draws: every call of the session, the calls that no row holds (a
@@ -117,7 +115,6 @@ export type ToolsView = {
   rows: ToolNode[]
 }
 
-// A row of the tools screen, or a line of its tree: its calls and what they did.
 export type ToolNode = { name: string; calls: number; children: ToolNode[] }
 
 // What the band draws from: the snapshot plus runtime-only turn bookkeeping.
@@ -129,10 +126,8 @@ export type Meter = Snapshot & {
   working: string[]
 }
 
-// One animated number: it moves from `from` to `to`, starting at `startedAt`.
 export type Tween = { from: number; to: number; startedAt: number }
 
-// The numbers the band animates when they change.
 export type Counts = {
   in: number
   out: number
@@ -177,7 +172,6 @@ export type Registry = Record<string, AgentEntry>
 // The registry of one session; another session's entries are never drawn.
 export type Agents = { sessionId: string | null; entries: Registry }
 
-// One row of the transcript screen.
 export type TranscriptItem =
   | { kind: 'prompt'; text: string }
   | { kind: 'text'; text: string }
@@ -211,11 +205,10 @@ export type PaneView = {
   collapsedAgents: string[]
   transcript: Transcript | null
   isContext: boolean
-  // The cache screen is in place of the tree.
   isCache: boolean
-  // The tools screen is in place of the tree.
   isTools: boolean
-  // The rows of the tools screen that show their children, by name.
+  isShells: boolean
+  shellId: string | null
   openTools: string[]
   openCategories: string[]
   compose: string | null
@@ -224,7 +217,6 @@ export type PaneView = {
   sent: number
 }
 
-// What a pane button does.
 export type PaneAction =
   | { kind: 'open'; agentId: string }
   | { kind: 'expand'; agentId: string }
@@ -233,6 +225,8 @@ export type PaneAction =
   | { kind: 'context' }
   | { kind: 'cache' }
   | { kind: 'tools' }
+  | { kind: 'shells' }
+  | { kind: 'shell'; id: string }
   | { kind: 'toolRow'; name: string }
   | { kind: 'recount' }
   | { kind: 'category'; name: string }
@@ -273,21 +267,28 @@ export type ModelRow = {
   main?: true
 }
 
-// The numbers above the agents table: the engine's session cost and a row per model.
 export type Dashboard = { costUsd: number; rows: ModelRow[] }
 
-// What the pane draws: the agents of the screen and the numbers of the viewed agent.
 export type PaneData = {
   sessionId: string | null
   entries: Registry
   stats: Snapshot | null
   dashboard: Dashboard | null
-  // The context of the main loop, on the tree screen; null with no sample.
   context: ContextView | null
-  // The cache breaks of the main loop, on the tree screen; null on a transcript screen.
   breaks: BreaksView | null
-  // The calls of each tool, on the tree screen; null on a transcript screen.
   tools: ToolsView | null
+}
+
+export type Shell = {
+  id: string
+  command: string
+  path: string
+  status: 'running' | 'completed' | 'failed' | 'killed'
+  startedAt: number
+  endedAt?: number
+  // The agent whose final response stops the shell: the engine sends no notice of that end.
+  owner?: string
+  tail: string[]
 }
 
 // One item below a category of the context: an MCP server (`count` is its loaded tools), a
@@ -298,7 +299,6 @@ export type ContextGroup = { name: string; tokens: number; count?: number }
 // keeps, the free room, or tools that load on demand and are not in the window.
 export type ContextKind = 'used' | 'buffer' | 'free' | 'deferred'
 
-// One row of the breakdown, with its items; a row with no list has none.
 export type ContextRow = { name: string; tokens: number; kind: ContextKind; items: ContextGroup[] }
 
 // What the mod keeps of one `$.session.usage({ breakdown })` reply. `window` is the window
@@ -364,6 +364,7 @@ declare module 'claude-code' {
       paneScroll: { offset: number; seen: number } | null
       spin: number
       ttls: { main: '5m' | '1h'; agent: '5m' | '1h' } | null
+      shells: { sessionId: string | null; list: Shell[] }
     }
   }
 }

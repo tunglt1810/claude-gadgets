@@ -6,7 +6,6 @@ import { type BandInput, bandSegments } from './layout'
 // in the monospaced face, whose advance is the cell that `columns` counts.
 export type BandProps = Omit<BandInput, 'now' | 'shown'> & { mono?: true }
 
-// `hasTick` names the timer that runs; `isLive` is true while a time in the band changes.
 type State = { tick: number; hasTick?: true; isLive?: boolean }
 
 // The text of the band on a desktop. The engine holds the handle of a button for one drawing
@@ -18,7 +17,6 @@ const BandClient: ClientModule<BandProps, State> = (p, surface) => {
   const { Text } = surface.elements
   const now = Date.now()
   const rem = remainingMs(p.snap.lastStepAt, now, ttlMs(p.ttl))
-  // The countdown of the cache runs, or a turn works.
   const isLive = p.busySince !== null || (rem !== null && rem > 0)
   const held = surface.state ?? { tick: 0 }
   let s = held

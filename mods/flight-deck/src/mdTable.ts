@@ -2,8 +2,6 @@ import { cellWidth, wrapRows } from './wrap'
 
 export type Align = 'left' | 'center' | 'right'
 
-// A part of a markdown text: a table, with its cells as plain text, or the markdown between
-// two tables.
 export type MdPart =
   | { kind: 'md'; text: string }
   | { kind: 'table'; head: string[]; align: Align[]; rows: string[][] }
@@ -15,7 +13,6 @@ const FENCE = /^\s*(`{3,}|~{3,})(.*)$/
 // The line that starts another block, which ends a table: a heading, a quote or a fence.
 const BLOCK = /^\s*(#{1,6}\s|>|`{3,}|~{3,})/
 
-// The start of the run of exactly `count` backticks at or after `from`, or -1.
 const closing = (text: string, from: number, count: number): number => {
   for (let i = from; i < text.length; i++) {
     if (text[i] !== '`') continue
@@ -27,7 +24,6 @@ const closing = (text: string, from: number, count: number): number => {
   return -1
 }
 
-// Markdown outside a code span as plain text: the marks of bold go, and a link is its label.
 const plain = (text: string): string =>
   text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*/g, '')
 
@@ -51,7 +47,6 @@ const cells = (line: string): string[] => {
       while (src[i + count] === '`') count++
       const end = closing(src, i + count, count)
       flush()
-      // Backticks with no closing run are text.
       cell += end === -1 ? src.slice(i, i + count) : src.slice(i + count, end)
       i = end === -1 ? i + count : end + count
     } else if (src[i] === '|') {
@@ -96,7 +91,6 @@ export const mdParts = (text: string): MdPart[] => {
     }
     const rule = lines[i + 1]
     const head = cells(line)
-    // A table has a bar in its head, and a rule with as many cells as the head.
     if (
       fence !== null ||
       !line.includes('|') ||
@@ -126,7 +120,6 @@ export const mdParts = (text: string): MdPart[] => {
 
 const longestWord = (text: string) => Math.max(0, ...text.split(' ').map(cellWidth))
 
-// The cells that a column keeps for a long word when the table has less room for it.
 const MIN_COLUMN = 6
 
 const pad = (text: string, width: number, align: Align = 'left'): string => {
@@ -168,7 +161,6 @@ export const tableLines = (
   const widths = [...least]
   if (sum(full) <= room) widths.splice(0, widths.length, ...full)
   else {
-    // The room that is left goes to the columns by the width that each still needs.
     const spare = room - sum(least)
     const need = sum(full) - sum(least)
     for (let c = 0; c < widths.length; c++)

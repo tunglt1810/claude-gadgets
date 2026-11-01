@@ -93,6 +93,7 @@ Limits:
 - The numbers are for the main loop. The engine gives no breakdown of the context of a subagent.
 - A tool that loads on demand is not in the window. Its row (`deferred`) has no share.
 - The context length of a subagent uses the auto-compact window of the subagent. The mod reads that window from `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, from `autoCompactWindow` in the settings files, from the agent file of the subagent, and from the agent type that a plugin registers while the mod is loaded. A window that the server sets or the agent file of a plugin is not visible to the mod: then the mod uses the window of the model. The mod reads an agent file one time in each session: a change to the file shows in the next session.
+- From Claude Code 2.1.312, the `autoCompactWindow` of an agent file lowers the window of `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Before 2.1.312, the variable wins.
 
 ## Cache screen
 
@@ -115,6 +116,15 @@ A cache break is a step of the main loop that reads much less from the prompt ca
 - The pane shows a new count after the next step of the model.
 - The mod counts calls, not cost. The engine gives a cost for each request and each model, not for each tool call.
 - A session from an earlier version of the mod counted its calls, but not for each tool. The screen shows how many calls it cannot list.
+
+## Background screen
+
+- The `background` row on the agents screen shows how many shell commands run in the background and how many ended. The row shows after the first such command.
+- Press `background` to see a row for each command: its state, the command, its time, and its newest line of output. The running commands are first. The newest lines change each second while a command runs.
+- Press a command to see its screen, with the last 40 lines of its output. `← background` goes back to the list.
+- A command that the engine moves to the background (a timeout, or a message that arrived while it ran) shows too.
+- The screen shows `Bash` commands only. A `Monitor` task does not show.
+- The mod reads the end of the output file of the command with `tail`. Escape codes do not show. A line that a carriage return rewrote shows its last state.
 
 ## No-verdict question
 

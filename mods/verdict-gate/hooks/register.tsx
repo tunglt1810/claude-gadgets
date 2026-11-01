@@ -27,7 +27,6 @@ const MAX_ASKED = 256
 // time, so a rule from one answer settles the next.
 let turn: Promise<void> = Promise.resolve()
 
-// What the pane shows: the input of the call that the open question asks about.
 let shown: { tool: string; input: string } | undefined
 
 const json = (input: unknown): string => JSON.stringify(input) ?? ''
@@ -48,7 +47,6 @@ async function sessionRules($: EngineInterface) {
   return rules
 }
 
-// Opens the pane with the input of a call, on a desktop only. True when the pane is drawn.
 async function openPane($: EngineInterface, tool: string, detail: string): Promise<boolean> {
   if (!(await $.session.surfaces()).includes('desktop')) return false
   shown = { tool, input: paneInput(detail) }

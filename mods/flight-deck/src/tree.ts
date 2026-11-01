@@ -2,8 +2,6 @@ import type { AgentEntry, Registry } from '../types'
 
 export type TreeRow = { agent: AgentEntry; depth: number }
 
-// The registry as the pane lists it: roots first, each child below its parent, the newest
-// first at each depth. An agent whose parent is not known (or is part of a cycle) is a root.
 export const treeRows = (r: Registry): TreeRow[] => {
   const all = Object.values(r).sort((a, b) => b.startedAt - a.startedAt)
   const rows: TreeRow[] = []

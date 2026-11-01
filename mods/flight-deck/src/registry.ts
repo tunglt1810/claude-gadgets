@@ -7,7 +7,6 @@ type Info = Pick<
   'parentId' | 'type' | 'description' | 'name' | 'teammateId' | 'compactCeiling'
 >
 
-// What `$.agent.list()` gives for one agent, reduced to the fields the registry uses.
 export type Listed = {
   id: string
   status: string
@@ -28,7 +27,6 @@ const blank = (id: string, at: number): AgentEntry => ({
   endedAt: null,
 })
 
-// Only fields that are present in `info` and absent in the entry are taken.
 const fill = (a: AgentEntry, info: Partial<Info>): AgentEntry => ({
   ...a,
   ...(a.parentId === undefined && info.parentId !== undefined ? { parentId: info.parentId } : {}),
@@ -80,11 +78,9 @@ export const ran = (r: Registry, id: string, at: number): Registry => {
   return { ...r, [id]: { ...a, status: 'running', runs } }
 }
 
-// An agent as the pane and the band name it: its type, then what it does.
 export const agentTitle = (a: AgentEntry): string =>
   [a.type ?? 'agent', a.description ?? a.name ?? a.id].join(' · ')
 
-// How long an agent worked: from its spawn to `now` while it runs, to its end once it ended.
 export const workedMs = (a: AgentEntry, now: number): number =>
   Math.max(0, (a.status === 'running' ? now : (a.endedAt ?? now)) - a.startedAt)
 
@@ -116,7 +112,6 @@ export const tuned = (
   }
 }
 
-// The model id and the effort of an agent's latest step: `claude-sonnet-5-5 high`.
 export const modelLabel = (a: AgentEntry | undefined): string | undefined =>
   a?.model === undefined ? undefined : [a.model, a.effort].filter((x) => x !== undefined).join(' ')
 
@@ -143,7 +138,6 @@ export const ended = (r: Registry, id: string, status: TaskStatus, at: number): 
 
 const TASK_STATUS = new Set<string>(['completed', 'failed', 'killed'])
 
-// The task id and the end status in the text of a task notification.
 export const taskNotice = (text: string): { id: string; status: TaskStatus } | null => {
   const id = /<task-id>([^<]+)<\/task-id>/.exec(text)?.[1]
   const status = /<status>([^<]+)<\/status>/.exec(text)?.[1]

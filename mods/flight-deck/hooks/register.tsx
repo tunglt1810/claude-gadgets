@@ -18,7 +18,7 @@ import {
 import { ttlMs } from '../src/countdown'
 import { usdTargets } from '../src/dashboard'
 import { linesChanged } from '../src/diff'
-import { holdsMono, holdsText } from '../src/engine'
+import { capsEnv, holdsMono, holdsText } from '../src/engine'
 import { PALETTE } from '../src/palette'
 import { AgentPane } from '../src/pane'
 import { paneData } from '../src/paneData'
@@ -40,6 +40,14 @@ import {
   taskNotice,
   tuned,
 } from '../src/registry'
+import {
+  added,
+  endedWithAgent,
+  outputTail,
+  ended as shellEnded,
+  shellStarted,
+  withTail,
+} from '../src/shells'
 import {
   emptySnapshot,
   isComplete,
@@ -86,6 +94,7 @@ import type {
   PaneData,
   PaneView,
   Registry,
+  Shell,
   Transcript,
 } from '../types'
 
@@ -113,8 +122,11 @@ const PANE_ID = 'agents'
 // The one drawn text with an emoji: the title row has no columns, so a double-width
 // character moves nothing.
 const PANE_TITLE = '🤖 Flight Deck'
-// The title with the version of the mod, once `loadTitle` read the manifest.
 let paneTitle = PANE_TITLE
+// The pane takes the keyboard: a click on a pane without it only focuses. An engine with no
+// `backgroundColor` (2.1.309 has none) drops it and keeps its own look.
+const paneArgs = () =>
+  ({ id: PANE_ID, title: paneTitle, focus: true, backgroundColor: 'transparent' }) as const
 let isTitleRead = false
 // The store key of the last wrap choice: one for the plugin, not one per session.
 const WRAP_KEY = 'wrap'
@@ -128,6 +140,8 @@ const initialPane: PaneView = {
   isContext: false,
   isCache: false,
   isTools: false,
+  isShells: false,
+  shellId: null,
   openTools: [],
   openCategories: [],
   compose: null,
@@ -146,11 +160,17 @@ const initialData: PaneData = {
   tools: null,
 }
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
-// The context of the main loop: the latest breakdown that an event read, and its growth.
+// The shell commands in the background of one session. They end with the session, so they
+// are not stored.
+const initialShells: { sessionId: string | null; list: Shell[] } = { sessionId: null, list: [] }
+const shellsAtom = atom({ plugin: 'flight-deck', key: 'shells' } as const, initialShells)
+// The lines of output that the background screen shows of a shell, and the bytes of the end
+// of its file that the pane reads: a progress bar rewrites one line many times.
+const TAIL_LINES = 40
+const TAIL_BYTES = '20000'
+const SHELL_POLL_MS = 1000
 const initialContext: ContextState = { sessionId: null, sample: null, base: null, turns: 0 }
 const contextAtom = atom({ plugin: 'flight-deck', key: 'context' } as const, initialContext)
-// The dashboard's costs and the context lengths as the terminal draws them: a changed number
-// runs to its new value.
 const initialPaneShown: NamedShown = { sessionId: null, tweens: {} }
 const paneShown = atom({ plugin: 'flight-deck', key: 'paneShown' } as const, initialPaneShown)
 const spin = atom({ plugin: 'flight-deck', key: 'spin' } as const, 0)
@@ -170,9 +190,7 @@ let drawnOffset = 0
 // engine gives an offset in rows, so a bar there moves with the text between two rows: only
 // the terminal has the bar, and only its scroll waits.
 let isPaneOnTerminal = false
-// Ends the wait of a scroll for the pane's next drawing.
 let onPaneDrawn: (() => void) | null = null
-// The longest that a scroll waits for that drawing.
 const SCROLL_WAIT_MS = 40
 // Null until an event read the settings: the mod option stands in for them.
 const ttlsAtom = atom({ plugin: 'flight-deck', key: 'ttls' } as const, null as Ttls | null)
@@ -297,8 +315,6 @@ async function syncPane($: Api): Promise<void> {
   )
   const cur = await read($, shownData)
   if (JSON.stringify(cur) !== JSON.stringify(next)) await update($, shownData, () => next)
-  // The numbers that run to a new value: the costs of the dashboard and the tokens of each
-  // context on the screen.
   const target = {
     ...(next.dashboard === null ? {} : usdTargets(next.dashboard)),
     ...contextTargets(next.entries),
@@ -312,12 +328,10 @@ async function syncPane($: Api): Promise<void> {
 
 // Counts the context samples that were asked for: a reply knows from it if it is the newest.
 let contextSeq = 0
-// The count of the newest sample that is kept.
 let sampleSeq = 0
 // The main steps at the start of the latest turn, with its session: a turn with no step grows
 // no context.
 let turnSteps = { id: '', steps: 0 }
-// The turns with a step whose end gave no sample: the next sample of a turn end counts them.
 let missedTurns = 0
 
 // What the mod knows of the next request of the main loop, for the cause of a cache break.
@@ -333,10 +347,8 @@ type Seen = {
   compaction: Compaction | null
 }
 let seen: Seen = { sessionId: null, sections: null, context: null, compaction: null }
-// Whether each tool is deferred, by the `tool.describe` results of this process.
 const deferral = new Map<string, boolean>()
 
-// What the hooks saw for the current session: the values of another session are dropped.
 async function seenOf($: Api): Promise<Seen> {
   const id = await $.session.id()
   if (seen.sessionId !== id)
@@ -344,9 +356,6 @@ async function seenOf($: Api): Promise<Seen> {
   return seen
 }
 
-// Keeps the breakdown of a usage reply as the context sample of the session `id`, and says
-// if it did: a reply with no breakdown or no window is no sample, and it changes nothing.
-// `isTurnEnd` counts a turn of the growth, and `missed` the turns whose end gave no sample.
 async function recordContext(
   $: Api,
   id: string,
@@ -385,7 +394,6 @@ async function measureContext($: Api, detail: 'summary' | 'full'): Promise<void>
   await syncPane($)
 }
 
-// The longest that a press waits on a full count before another count can start.
 const COUNT_WAIT_MS = 60_000
 // A full count sends many requests: a press while one is on its way starts no other.
 let isCounting = false
@@ -491,13 +499,11 @@ async function openAgent($: Api, agentId: string): Promise<void> {
   await loadTranscript($, agentId)
 }
 
-// The agent on the transcript screen had an event: read its transcript again.
 async function refreshViewed($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.isOpen && cur.agentId === agentId) await loadTranscript($, agentId)
 }
 
-// Back to the tree, with the focus on the row of the agent that was open.
 async function backToTree($: Api): Promise<void> {
   answersToShow.clear()
   const from = (await read($, pane)).agentId
@@ -525,39 +531,114 @@ async function openContext($: Api): Promise<void> {
   if ((await read($, contextAtom)).sample?.detail !== 'full') void countFull($)
 }
 
-// Back to the tree, with the focus on the button that opened the context screen.
 async function closeContext($: Api): Promise<void> {
   await focusAfter($, 'context', async () => {
     await update($, pane, (c) => ({ ...c, isContext: false }))
   })
 }
 
-// The cache screen, with the focus on its back button.
 async function openCache($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isCache: true }))
   })
 }
 
-// Back to the tree, with the focus on the button that opened the cache screen.
 async function closeCache($: Api): Promise<void> {
   await focusAfter($, 'cache', async () => {
     await update($, pane, (c) => ({ ...c, isCache: false }))
   })
 }
 
-// The tools screen, with the focus on its back button.
 async function openTools($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isTools: true }))
   })
 }
 
-// Back to the tree, with the focus on the button that opened the tools screen.
 async function closeTools($: Api): Promise<void> {
   await focusAfter($, 'tools', async () => {
     await update($, pane, (c) => ({ ...c, isTools: false }))
   })
+}
+
+async function openShells($: Api): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isShells: true }))
+  })
+  await readTails($)
+  startShellPoll($)
+}
+
+async function closeShells($: Api): Promise<void> {
+  await focusAfter($, 'shells', async () => {
+    await update($, pane, (c) => ({ ...c, isShells: false, shellId: null }))
+  })
+}
+
+async function openShell($: Api, id: string): Promise<void> {
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, shellId: id }))
+  })
+  await readTails($, [id])
+}
+
+async function closeShell($: Api, id: string): Promise<void> {
+  await focusAfter($, `bgtask:${id}`, async () => {
+    await update($, pane, (c) => ({ ...c, shellId: null }))
+  })
+}
+
+// Writes the shells only when the change gives another list: each write draws the pane.
+async function changeShells($: Api, change: (list: Shell[]) => Shell[]): Promise<void> {
+  const id = await $.session.id()
+  const cur = await read($, shellsAtom)
+  const list = cur.sessionId === id ? cur.list : []
+  if (change(list) === list && cur.sessionId === id) return
+  await update($, shellsAtom, (c) => {
+    const base = c.sessionId === id ? c.list : []
+    return { sessionId: id, list: change(base) }
+  })
+}
+
+// Reads the end of the output file of each running shell, or of the shells in `ids`. `tail`
+// reads only the end: `$.fs.read` refuses a file over 4 MiB, and a server's log grows.
+async function readTails($: Api, ids?: readonly string[]): Promise<void> {
+  const cur = await read($, shellsAtom)
+  const due = cur.list.filter((sh) =>
+    ids === undefined ? sh.status === 'running' : ids.includes(sh.id),
+  )
+  for (const sh of due) {
+    const res = await $.process
+      .run(['tail', '-c', TAIL_BYTES, sh.path], { timeoutMs: 2000 })
+      .catch(() => null)
+    if (res === null || res.exitCode !== 0) continue
+    const tail = outputTail(res.stdout, TAIL_LINES)
+    await changeShells($, (list) => withTail(list, sh.id, tail))
+  }
+}
+
+let shellPoll: { cancel: () => void } | null = null
+function startShellPoll($: Api): void {
+  if (shellPoll !== null) return
+  shellPoll = $.clock.every(SHELL_POLL_MS, async () => {
+    const view = await read($, pane)
+    const cur = await read($, shellsAtom)
+    const isRunning = cur.list.some((sh) => sh.status === 'running')
+    if (!view.isOpen || view.isShells !== true || !isRunning) {
+      shellPoll?.cancel()
+      shellPoll = null
+      return
+    }
+    await readTails($)
+  })
+}
+
+async function endShell($: Api, id: string, status: 'completed' | 'failed' | 'killed') {
+  const cur = await read($, shellsAtom)
+  if (!cur.list.some((sh) => sh.id === id)) return
+  const at = await $.clock.now()
+  await changeShells($, (list) => shellEnded(list, id, status, at))
+  await readTails($, [id])
 }
 
 // Changes the pane only when the change gives another state: each write draws the pane again,
@@ -568,14 +649,12 @@ async function patchPane($: Api, change: (c: PaneView) => PaneView): Promise<voi
   await update($, pane, change)
 }
 
-// The reason on the screen without the one of `agentId`: the reason of another agent stays.
 const ownErrorGone = (c: PaneView, agentId: string): PaneView['controlError'] =>
   c.controlError?.agentId === agentId ? null : c.controlError
 
 // The text of each message field as the person typed it, by agent. Kept here, not in state:
 // a write to state on each key would draw the pane again.
 const drafts: Record<string, string> = {}
-// The agents that have a message on its way.
 const sending = new Set<string>()
 // The store key of the person's answer: the messages of the pane go in auto mode. It is not
 // of a session.
@@ -583,7 +662,6 @@ const ALLOW_KEY = 'allowSend'
 // The agents that a stop of the pane is on its way to: the `tool.call` hook of the mod sees
 // each stop, and it is not a tool call of the session.
 const ownStops = new Set<string>()
-// The task that a TaskStop call names.
 const taskOf = (e: object): string =>
   'task_id' in e && typeof e.task_id === 'string' ? e.task_id : ''
 
@@ -592,15 +670,12 @@ const taskOf = (e: object): string =>
 // moves the window or goes to another screen: the person then reads another place.
 const answersToShow = new Set<string>()
 
-// Moves the window of the transcript of `agentId` to its end, when that transcript is on
-// the screen.
 async function showEnd($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.isOpen && cur.agentId === agentId)
     await $.ui.scroll({ in: PANE_ID, to: 'end' }).catch(() => ({}))
 }
 
-// Draws the pane again for a change that is not in its state: the text of a field.
 async function redraw($: Api): Promise<void> {
   await update($, pane, (c) => ({ ...c, sent: (c.sent ?? 0) + 1 }))
 }
@@ -608,7 +683,6 @@ async function redraw($: Api): Promise<void> {
 // Sends the text of a message field to an agent, as the SendMessage tool does. The engine
 // starts an ended agent again. A message that is not sent stays in its field, with the reason.
 async function sendMessage($: Api, agentId: string, text: string): Promise<void> {
-  // A second Enter while the message is on its way sends nothing.
   if (text.trim() === '' || sending.has(agentId)) return
   sending.add(agentId)
   let session: string
@@ -634,12 +708,9 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
   // The session changed while the message was on its way: the pane is of another session.
   if ((await $.session.id()) !== session) return
   if (res.isDelivered) {
-    // The field and the reason of another agent stay.
     const close = () =>
       patchPane($, (c) => ({
         ...c,
-        // The field of the tree closes. The field of the transcript screen stays for the
-        // next message.
         compose: c.compose === agentId && c.agentId !== agentId ? null : c.compose,
         controlError: ownErrorGone(c, agentId),
       }))
@@ -658,7 +729,6 @@ async function sendMessage($: Api, agentId: string, text: string): Promise<void>
     return
   }
   if (isAdded) answersToShow.delete(agentId)
-  // The text comes back to the field, unless the person typed a new one.
   if (drafts[agentId] === undefined) drafts[agentId] = text
   // Auto mode did not judge the message: the pane asks the person once. With the answer
   // and still no verdict, the reason names the rule of the settings.
@@ -701,7 +771,6 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
   } finally {
     ownStops.delete(task)
   }
-  // A stop that worked takes back the reason of this agent only.
   await patchPane($, (c) => ({
     ...c,
     controlError:
@@ -713,7 +782,6 @@ async function stopAgent($: Api, agentId: string): Promise<void> {
 // this wait.
 const REFOCUS_MS = 80
 
-// The field that the later focus moves go to, or null when the person chose another place.
 let wantedFocus: string | null = null
 
 // Puts the focus in the message field of an agent, so the person can type at once. The
@@ -731,7 +799,7 @@ async function focusField($: Api, agentId: string): Promise<void> {
   // Limit: the surface gives the keyboard only while the prompt of the session is empty. With
   // text in the prompt the field gets no focus, and the person must click the field.
   if (!isPaneFocused || first.deny !== undefined) {
-    await $.ui.open({ id: PANE_ID, title: paneTitle, focus: true }).catch(() => undefined)
+    await $.ui.open(paneArgs()).catch(() => undefined)
   }
   // The pane holds the keyboard a short time after it asked: a live log gave a refused move
   // 11 ms after the request, and a move that landed 80 ms after it.
@@ -739,14 +807,11 @@ async function focusField($: Api, agentId: string): Promise<void> {
   $.clock.after(REFOCUS_MS * 4, move)
 }
 
-// A stop button that waits for its second press forgets the question when its agent ends.
 async function forgetStop($: Api, agentId: string): Promise<void> {
   if ((await read($, pane)).stopAsk !== agentId) return
   await update($, pane, (c) => (c.stopAsk === agentId ? { ...c, stopAsk: null } : c))
 }
 
-// Opens the message field of an agent with the focus in it, or closes it: below the agent's
-// row on the tree, as the last row of the header on the transcript screen.
 async function toggleCompose($: Api, agentId: string): Promise<void> {
   const cur = await read($, pane)
   if (cur.compose === agentId) {
@@ -764,11 +829,9 @@ async function toggleCompose($: Api, agentId: string): Promise<void> {
   await focusField($, agentId)
 }
 
-// What a pane button does, from its press or from the click that gave the pane the focus.
 async function act($: Api, action: PaneAction): Promise<void> {
   if (action.kind !== 'compose') wantedFocus = null
   if (action.kind === 'stop') return stopAgent($, action.agentId)
-  // Any other press takes back the question of a stop button.
   if ((await read($, pane)).stopAsk != null) await update($, pane, (c) => ({ ...c, stopAsk: null }))
   if (action.kind === 'compose') return toggleCompose($, action.agentId)
   if (action.kind === 'send') return sendMessage($, action.agentId, action.text)
@@ -779,15 +842,21 @@ async function act($: Api, action: PaneAction): Promise<void> {
     const cur = await read($, pane)
     return cur.isContext === true
       ? closeContext($)
-      : cur.isCache === true
-        ? closeCache($)
-        : cur.isTools === true
-          ? closeTools($)
-          : backToTree($)
+      : cur.isShells === true && cur.shellId != null
+        ? closeShell($, cur.shellId)
+        : cur.isShells === true
+          ? closeShells($)
+          : cur.isCache === true
+            ? closeCache($)
+            : cur.isTools === true
+              ? closeTools($)
+              : backToTree($)
   }
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'cache') return openCache($)
   if (action.kind === 'tools') return openTools($)
+  if (action.kind === 'shells') return openShells($)
+  if (action.kind === 'shell') return openShell($, action.id)
   if (action.kind === 'toolRow') {
     await update($, pane, (c) => ({ ...c, openTools: toggled(c.openTools, action.name) }))
     return
@@ -844,9 +913,13 @@ async function togglePane($: Api): Promise<boolean> {
   const isWrapped = (await $.store.get(WRAP_KEY)) !== false
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
   await syncPane($)
-  // The pane takes the keyboard: a click on a pane without it only focuses.
-  await $.ui.open({ id: PANE_ID, title: paneTitle, focus: true })
+  await $.ui.open(paneArgs())
   startSpinner($)
+  // The pane can open again on the background screen: its tick stopped when the pane closed.
+  if ((await read($, pane)).isShells === true) {
+    await readTails($)
+    startShellPoll($)
+  }
   // After the pane is open: a usage call that fails leaves the pane and its state as one.
   // A summary breakdown estimates locally: it sends no request.
   await measureContext($, 'summary').catch(() => undefined)
@@ -861,7 +934,11 @@ function startSpinner($: Api): void {
   spinner = $.clock.every(SPIN_MS, async () => {
     const isOpen = (await read($, pane)).isOpen
     const reg = await read($, agents)
-    const isBusy = isOpen && Object.values(reg.entries).some((a) => a.status === 'running')
+    const shells = await read($, shellsAtom)
+    const isBusy =
+      isOpen &&
+      (Object.values(reg.entries).some((a) => a.status === 'running') ||
+        shells.list.some((sh) => sh.status === 'running'))
     if (!isBusy) {
       spinner?.cancel()
       spinner = null
@@ -898,7 +975,6 @@ async function loadTtls($: Api, settings: Record<string, unknown>, option: unkno
   return next
 }
 
-// The open turns of the main loop: the open intervals that are not a run of an agent.
 const mainTurns = (m: Meter): number => m.active - (m.working ?? []).length
 
 // The steps whose request is out and whose usage is not counted yet. The engine's ledger can
@@ -990,10 +1066,8 @@ async function paneFault($: Api, e: RenderInput<'Pane'>, next: Caught) {
 // The settings files, lowest precedence first, as the engine folds them.
 const SOURCES = ['user', 'project', 'local', 'flag', 'policy'] as const
 
-// One entry of an agents folder: a folder to read, or the definitions of a file.
 type AgentEntryOf = { dir: string } | { defs: { name: string; window?: number }[] }
 
-// The deepest folder below an agents folder that is read.
 const MAX_AGENT_DEPTH = 8
 
 // The agent files in `dir` and the folders below it, as the engine lists them
@@ -1054,7 +1128,6 @@ async function definitionWindows($: Api): Promise<Map<string, number | undefined
 let lastLayers: readonly Readonly<Record<string, unknown>>[] | null = null
 let definitions: { session: string; windows: Promise<Map<string, number | undefined>> } | null =
   null
-// The windows of the agent types that plugins registered while this mod was loaded.
 let registered: ReadonlyMap<string, number> = new Map()
 
 // The `autoCompactWindow` of the definition of agent type `type`. The files are read one
@@ -1079,9 +1152,19 @@ async function settingsLayers($: Api): Promise<readonly Readonly<Record<string, 
   return lastLayers ?? Promise.all(SOURCES.map((source) => $.settings.read({ source })))
 }
 
+// A failed read of the version keeps the rule of the older engines.
+async function isEnvCapped($: Api): Promise<boolean> {
+  return capsEnv(
+    await $.session.version().then(
+      (v) => v.base,
+      () => undefined,
+    ),
+  )
+}
+
 // The window an agent's context is measured against, before the window of its
 // definition: the model's window, or the smaller auto-compact window of the variable or
-// the settings. `isEnv`: the variable sets it, and no definition lowers it.
+// the settings. `isEnv`: the variable sets it, and before 2.1.312 no definition lowers it.
 async function agentWindow($: Api, model: string): Promise<{ window: number; isEnv: boolean }> {
   const window = contextWindow(model, isOn(await $.env.get('CLAUDE_CODE_DISABLE_1M_CONTEXT')))
   const env = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW'))
@@ -1089,7 +1172,7 @@ async function agentWindow($: Api, model: string): Promise<{ window: number; isE
   const compact = env ?? compactWindow(model, await settingsLayers($).catch(() => []))
   return {
     window: compact === undefined ? window : Math.min(window, compact),
-    isEnv: env !== undefined,
+    isEnv: env !== undefined && !(await isEnvCapped($)),
   }
 }
 
@@ -1115,8 +1198,10 @@ export const register: Register = (on, options) => {
     const settings = await $.settings.read()
     const ttls = await loadTtls($, settings, options.cacheTtl)
     if (cur.lastStepAt !== null && cur.lastStepAt + ttlMs(ttls.main) > at) startTimer($, ttls)
-    // A pane that stayed open across a hot reload keeps its spinner.
+    // A pane that stayed open across a hot reload keeps its spinner, and the background
+    // screen its tick.
     startSpinner($)
+    startShellPoll($)
     await $.command.register({
       name: 'agent-log',
       description: 'Show or hide the agents of this session',
@@ -1254,7 +1339,6 @@ export const register: Register = (on, options) => {
           return measured?.isEnv === true ? stepped : capped(stepped, agentId)
         })
       } else {
-        // The dashboard's numbers changed.
         await syncPane($)
       }
       startTimer($, ttls)
@@ -1339,7 +1423,19 @@ export const register: Register = (on, options) => {
     // A call the user or a rule denied never ran.
     if (res.deny !== undefined) return res
     const id = await ensureLoaded($)
-    await stamp($)
+    const startedAt = await stamp($)
+    const started = e.tool === 'Bash' && !res.isError ? shellStarted(res.text) : null
+    if (started !== null) {
+      const { endsWithRun, ...where } = started
+      const command = 'command' in e && typeof e.command === 'string' ? e.command : ''
+      const owner = endsWithRun === true && e.agentId !== undefined ? { owner: e.agentId } : {}
+      await changeShells($, (list) =>
+        added(list, { ...where, ...owner, command, status: 'running', startedAt, tail: [] }),
+      )
+      if ((await read($, pane)).isShells === true) startShellPoll($)
+      startSpinner($)
+    }
+    if (e.tool === 'TaskStop' && !res.isError) await endShell($, taskOf(e), 'killed')
     // A failed edit changed nothing on disk.
     const diff = res.isError ? { added: 0, removed: 0 } : linesChanged(res.result)
     // A background Agent call is a subagent: `agent.spawn` counts it.
@@ -1377,7 +1473,6 @@ export const register: Register = (on, options) => {
     await animate($, id, nextMeter)
     await save($, id, nextMeter)
     if (loop !== undefined) {
-      // The counts of the agent changed.
       await syncPane($)
       await refreshViewed($, loop)
     }
@@ -1399,12 +1494,13 @@ export const register: Register = (on, options) => {
     if (agentId === undefined) return res
     const id = await ensureLoaded($)
     // A step that came before this was measured without the window of the definition,
-    // which the variable overrides.
-    const isEnv = envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) !== undefined
+    // which the variable overrides before 2.1.312.
+    const isEnv =
+      envWindow(await $.env.get('CLAUDE_CODE_AUTO_COMPACT_WINDOW')) !== undefined &&
+      !(await isEnvCapped($))
     // The agent's first step can arrive before this: keep what it already counted.
     const nextMeter = await update($, meter, (c) => ({
       ...c,
-      // Its first step can count it before this.
       agents: c.agents + (agentId in c.byAgent ? 0 : 1),
       byAgent: bumpAgent(c.byAgent, agentId, (a) =>
         e.parentAgentId === undefined ? a : { ...a, parentId: e.parentAgentId },
@@ -1472,6 +1568,7 @@ export const register: Register = (on, options) => {
       await save($, session, nextMeter)
       const end = e.reason === 'answer' ? completed : stopped
       await trackAgent($, session, (r, t) => end(r, agentId, t))
+      await changeShells($, (list) => endedWithAgent(list, agentId, at))
       await forgetStop($, agentId)
       await refreshViewed($, agentId)
       // The engine does not wait for the move of the window.
@@ -1531,6 +1628,7 @@ export const register: Register = (on, options) => {
       await trackAgent($, session, (r, t) => ended(r, notice.id, notice.status, t))
       await forgetStop($, notice.id)
       answersToShow.delete(notice.id)
+      await endShell($, notice.id, notice.status)
     }
     return res
   })
@@ -1606,8 +1704,8 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
-    // Only `paneData`, the view and (on the terminal) the spinner are read here: each read
-    // value redraws the pane when it changes.
+    // Only `paneData`, the view, the shells and (on the terminal) the spinner are read here:
+    // each read value redraws the pane when it changes.
     isPaneFocused = e.props.isFocused
     // A hot reload keeps the pane open and resets the title.
     await loadTitle($)
@@ -1623,7 +1721,6 @@ export const register: Register = (on, options) => {
     // side, and the title as the first row.
     const ui = $.ui.resolve(e)
     const pad = e.surface === 'terminal' ? 1 : 0
-    // The rows above the pane body on the terminal: the title and the empty row below it.
     const above = e.surface === 'terminal' ? TITLE_ROWS : 0
     // The offset of a scroll event is newer than the pane's own until the engine gives the
     // pane another offset: that one is then the newest (the window can move with no event).
@@ -1632,14 +1729,15 @@ export const register: Register = (on, options) => {
       asked !== null && asked.seen === e.props.scroll.offset ? asked.offset : e.props.scroll.offset
     drawnOffset = e.props.scroll.offset
     isPaneOnTerminal = e.surface === 'terminal'
-    // After this hook returns its drawing: a scroll that waits for it goes on.
     const drawn = onPaneDrawn
     if (drawn !== null) setTimeout(drawn, 0)
+    const view = await read($, pane)
+    const shellList = await read($, shellsAtom)
     const body = (
       <AgentPane
         ui={ui}
         entries={isCurrent ? data.entries : {}}
-        view={await read($, pane)}
+        view={view}
         stats={isCurrent ? data.stats : null}
         dashboard={isCurrent ? data.dashboard : null}
         // State of an older shape (a hot reload) has no context.
@@ -1648,6 +1746,7 @@ export const register: Register = (on, options) => {
         breaks={isCurrent ? (data.breaks ?? null) : null}
         // State of an older shape (a hot reload) has no tools.
         tools={isCurrent ? (data.tools ?? null) : null}
+        shells={view.agentId === null && shellList.sessionId === id ? shellList.list : null}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -1668,6 +1767,8 @@ export const register: Register = (on, options) => {
         onContext={() => act($, { kind: 'context' })}
         onCache={() => act($, { kind: 'cache' })}
         onTools={() => act($, { kind: 'tools' })}
+        onShells={() => act($, { kind: 'shells' })}
+        onShell={(id) => act($, { kind: 'shell', id })}
         onToolRow={(name) => act($, { kind: 'toolRow', name })}
         onRecount={() => act($, { kind: 'recount' })}
         onCategory={(name) => act($, { kind: 'category', name })}
@@ -1690,7 +1791,6 @@ export const register: Register = (on, options) => {
     return (
       <ui.Box flexDirection="column" paddingX={pad}>
         <ui.Text bold>{paneTitle}</ui.Text>
-        {/* An empty row parts the title from the body. */}
         <ui.Text> </ui.Text>
         {body}
       </ui.Box>

@@ -19,14 +19,11 @@ export const subKeysOf = (tool: string, input: unknown): string[] => {
 const byCalls = (a: ToolNode, b: ToolNode): number =>
   b.calls - a.calls || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 
-// A node per name, the most calls first, then by name.
 const leaves = (counts: Record<string, number>): ToolNode[] =>
   Object.entries(counts)
     .map(([name, calls]) => ({ name, calls, children: [] }))
     .sort(byCalls)
 
-// The nodes of names in two parts (`git status`, `server__tool`): a node per first part, with
-// a child per second part. A name with no second part is a leaf.
 const grouped = (counts: Record<string, number>, split: (name: string) => [string, string?]) => {
   const groups = new Map<string, Record<string, number>>()
   const alone: Record<string, number> = {}
@@ -50,14 +47,11 @@ const atSpace = (name: string): [string, string?] => {
   return at < 0 ? [name] : [name.slice(0, at), name.slice(at + 1)]
 }
 
-// `mcp__server__tool`: the row is `mcp__server`, the child is the tool.
 const mcpServer = (name: string): [string, string?] => {
   const at = name.indexOf('__', 'mcp__'.length)
   return at < 0 ? [name] : [name.slice(0, at), name.slice(at + 2)]
 }
 
-// What the tools screen draws of a snapshot: a row per tool, the MCP tools as a row per
-// server, the most calls first. A row's children are what its calls did.
 export const toolsView = (s: Pick<Snapshot, 'tools' | 'byTool' | 'bySub'>): ToolsView => {
   const mcp: Record<string, number> = {}
   const plain: Record<string, number> = {}
@@ -79,8 +73,6 @@ export const toolsView = (s: Pick<Snapshot, 'tools' | 'byTool' | 'bySub'>): Tool
   }
 }
 
-// The lines of a tree below its row, each with its connectors: `├─ ` and `└─ `, and `│  `
-// under a node that has a sibling below it.
 export const treeLines = (
   nodes: readonly ToolNode[],
   indent = '',
@@ -95,7 +87,6 @@ export const treeLines = (
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
 
-// The cell after the tools button, and the headline of the tools screen.
 export const toolsHead = (v: ToolsView): Cell =>
   v.total === 0
     ? { text: 'no call', dim: true }

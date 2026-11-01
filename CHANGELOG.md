@@ -7,6 +7,22 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [0.13.0] - 2026-11-01
+
+Tested on Claude Code 2.1.316.
+
+#### Added
+
+- A `background` screen lists the background shell commands, and a press on one shows the last lines of its output.
+
+#### Changed
+
+- The pane has no background of its own: the main view shows through it.
+
+#### Fixed
+
+- From Claude Code 2.1.312, a subagent's context uses the window of its agent file when that window is below `CLAUDE_CODE_AUTO_COMPACT_WINDOW`.
+
 ### [0.12.2] - 2026-10-24
 
 Tested on Claude Code 2.1.310.
