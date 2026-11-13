@@ -166,6 +166,7 @@ export const withStep = (
           ...why,
           rewritten,
           lostUsd: rewriteCost(step.model, rewritten, ttl, step.tokens),
+          model: step.model,
         }
   return {
     lastPrompt: {

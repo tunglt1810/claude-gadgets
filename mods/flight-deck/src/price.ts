@@ -40,6 +40,8 @@ import type { Ttl } from './ttl'
 // 0.1 x its input), so a long rate names only its input and its output.
 type Rate = { input: number; output: number; read?: number }
 const PRICES: Record<string, Rate & { long?: Rate & { above: number } }> = {
+  'claude-fable-5-2': { input: 8, output: 40, read: 0.2 },
+  'claude-mythos-5-2': { input: 8, output: 40, read: 0.2 },
   'claude-fable-5-1': { input: 10, output: 50, read: 0.25 },
   'claude-mythos-5-1': { input: 10, output: 50, read: 0.25 },
   'claude-fable-5': { input: 10, output: 50 },

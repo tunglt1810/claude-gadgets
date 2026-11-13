@@ -47,6 +47,8 @@ export type Snapshot = {
   // Agent call, the name of a Skill call.
   bySub: Record<string, Record<string, number>>
   mainModel?: string
+  // The engine's `startedAt` of the session: a fork of it (a rewind) keeps this start.
+  startedAt?: number
   // The last main step with a usage: its prompt, and what the mod knows of the request.
   lastPrompt?: LastPrompt
   // The cache breaks of the main loop, the oldest first: the newest 50.
@@ -100,6 +102,8 @@ export type BreakEntry = {
   detail: string
   rewritten: number
   lostUsd: number | null
+  // The model of the step that wrote the cache again. An entry of an older version has none.
+  model?: string
 }
 
 export type BreaksView = { count: number; lostUsd: number; entries: BreakEntry[] }
