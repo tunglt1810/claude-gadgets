@@ -142,6 +142,7 @@ const parseBreaks = (raw: unknown): BreakEntry[] =>
             detail: b.detail,
             rewritten: b.rewritten,
             lostUsd: isCount(b.lostUsd) ? b.lostUsd : null,
+            ...(typeof b.model === 'string' ? { model: b.model } : {}),
           },
         ]
       : [],
@@ -197,6 +198,7 @@ export const parseSnapshot = (raw: unknown): Snapshot => {
       ? { deferred: r.deferred.filter((x): x is string => typeof x === 'string') }
       : {}),
     ...(typeof r.mainModel === 'string' ? { mainModel: r.mainModel } : {}),
+    ...(isCount(r.startedAt) ? { startedAt: r.startedAt } : {}),
   }
 }
 

@@ -22,6 +22,13 @@ test('costOf prices output, cache reads and 5-minute cache writes', () => {
   expect(usd(costOf('claude-haiku-4-5', { ...t, output: 0, cacheWrite: 0 }))).toBe(0.1)
 })
 
+test('costOf prices Fable 5.2 at its own rate, not at the rate of Fable 5', () => {
+  const t = { input: 1e6, output: 1e6, cacheRead: 1e6, cacheWrite: 0 }
+  // $8 in, $40 out, $0.20 read.
+  expect(usd(costOf('claude-fable-5-2', t))).toBe(48.2)
+  expect(usd(costOf('claude-mythos-5-2', t))).toBe(48.2)
+})
+
 test('costOf has no price for an unknown model', () => {
   expect(costOf('gpt-x', MTOK)).toBeNull()
 })

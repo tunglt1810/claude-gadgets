@@ -5,6 +5,14 @@ test('formatTokens', () => {
   expect([999, 1200, 12400, 1500000].map(formatTokens)).toEqual(['999', '1.2k', '12.4k', '1.5M'])
 })
 
+test('formatTokens counts billions in B', () => {
+  expect([333_600_092, 1_234_567_890, 12_000_000_000].map(formatTokens)).toEqual([
+    '333.6M',
+    '1.2B',
+    '12.0B',
+  ])
+})
+
 test('formatCountdown', () => {
   expect(formatCountdown(222000)).toBe('3:42')
   expect(formatCountdown(5000)).toBe('0:05')

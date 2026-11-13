@@ -201,6 +201,8 @@ test('withStep keeps the prompt of the step and adds an entry for a break', () =
     cause: 'model',
     detail: 'opus-5-5 → sonnet-5-5',
     rewritten: 101_500,
+    // The model whose price gives the cost: it can be priced again.
+    model: 'claude-sonnet-5-5',
   })
   // 101,500 tokens at Sonnet 5.5: a 1-hour write $4, a read $0.10.
   expect(usd(broken.breaks[0]?.lostUsd)).toBe(0.39585)

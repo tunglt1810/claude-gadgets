@@ -149,14 +149,19 @@ test('parseSnapshot keeps the cache break fields, and a record without them has 
   const s = parseSnapshot({
     tools: 3,
     lastPrompt: last,
-    breaks: [entry, { at: 'bad' }, { ...entry, cause: 'nonsense' }, { ...entry, lostUsd: 0.5 }],
+    breaks: [
+      entry,
+      { at: 'bad' },
+      { ...entry, cause: 'nonsense' },
+      { ...entry, lostUsd: 0.5, model: 'claude-opus-5-5' },
+    ],
     breakCount: 7,
     lostUsd: 1.25,
     deferred: ['WebFetch', 3],
   })
   expect(s.lastPrompt).toEqual(last)
-  // An entry of a bad shape is left out.
-  expect(s.breaks).toEqual([entry, { ...entry, lostUsd: 0.5 }])
+  // An entry of a bad shape is left out. An entry of an older version has no model.
+  expect(s.breaks).toEqual([entry, { ...entry, lostUsd: 0.5, model: 'claude-opus-5-5' }])
   expect(s.breakCount).toBe(7)
   expect(s.lostUsd).toBe(1.25)
   expect(s.deferred).toEqual(['WebFetch'])

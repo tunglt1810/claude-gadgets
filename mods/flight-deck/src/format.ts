@@ -1,9 +1,11 @@
 export const formatTokens = (n: number): string =>
-  n >= 1_000_000
-    ? `${(n / 1_000_000).toFixed(1)}M`
-    : n >= 1000
-      ? `${(n / 1000).toFixed(1)}k`
-      : String(n)
+  n >= 1_000_000_000
+    ? `${(n / 1_000_000_000).toFixed(1)}B`
+    : n >= 1_000_000
+      ? `${(n / 1_000_000).toFixed(1)}M`
+      : n >= 1000
+        ? `${(n / 1000).toFixed(1)}k`
+        : String(n)
 
 export const formatCountdown = (ms: number | null): string => {
   if (ms === null) return '--'

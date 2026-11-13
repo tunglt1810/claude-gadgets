@@ -4,7 +4,7 @@ Mods (hot-reloadable function-hook plugins) for Claude Code. One self-contained 
 
 ## Compatibility
 
-- Built and tested against **Claude Code 2.1.316** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.316.`
+- Built and tested against **Claude Code 2.1.323** (`claude --version`); the typings in use start with `// Written by Claude Code 2.1.323.`
 - Bun 1.4.2 (not pinned in the repo).
 - The plugin API may change between Claude Code releases without notice. After an update: let the engine rewrite `mods/<name>/.claude-plugin/types/` (load the mod once), run `bun run check`, then update the version on this line.
 - Claude Desktop runs its own Claude Code (`~/Library/Application Support/Claude/claude-code/<version>/`), which is older than the CLI for some days after a release. An engine refuses the whole tree of a pane that has one element or prop it does not know, and the pane is then empty.
@@ -50,6 +50,7 @@ Load a mod: `claude --plugin-dir mods/<name>` (hot reloads on save). Desktop: `C
 - Tests import `test`, `expect`, `mock` from `claude-code/testing`; the test `$` has only event nouns (no `$.state`, `$.store`). Observe state through `$.ui.mount(...)` and persistence through a session-id round trip.
 - Test hooks sit beneath the plugin and must answer the events used (`session.id` returns `{ value }`; `turn.step` is an async generator echoing `turnId`/`index`). Read a step's stream to the end before awaiting `.result`.
 - Loop UI tests over `['terminal', 'desktop']`.
+- From 2.1.323, a test hook answers an event that names this plugin (`ui.focus`) with `on(event, { plugin: '*' }, ...)`, and the runner before it ignores that form: register both forms.
 - From 2.1.307, a test's `$.tool.call` runs `classic.PreToolUse` and `tool.check` before the test's `tool.call` hook, which then stands for the tool alone. `classic.PermissionRequest` settles an `ask`; with no answer the call is denied. `$.ui.ask` is a call of `AskUserQuestion` and passes the same check.
 
 ## Typings

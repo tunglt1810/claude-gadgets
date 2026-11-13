@@ -132,9 +132,18 @@ const engine = (
     if (isVersionBroken) throw new Error('boom')
     return { value: { version: engineBase, base: engineBase } } as never
   })
+  // Each session id has its own start, as sessions that are not forks do.
+  const starts: string[] = []
+  const startOf = (sid: string) => {
+    if (!starts.includes(sid)) starts.push(sid)
+    return starts.indexOf(sid)
+  }
   on(
     'session.usage',
-    () => ({ value: { startedAt: 0, context: {}, rateLimits: [], ...usage() } }) as never,
+    () =>
+      ({
+        value: { startedAt: startOf(id()), context: {}, rateLimits: [], ...usage() },
+      }) as never,
   )
   on('session.id', () => ({ value: id() }))
   on('fs.read', (_$, e) =>
@@ -289,6 +298,35 @@ test('data is stored per session id and reloaded when the id comes back', async 
   const back = await settled($, clock)
   expect(back).toContain('↑ in 100')
   expect(back).toContain('⌘ calls 1')
+})
+
+test('a fork of the session (a rewind) keeps the counts of the session it came from', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.store(on, {})
+  let id = 'S1'
+  // A fork keeps the start of its first launch.
+  engine(
+    on,
+    () => id,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => ({ startedAt: 7 }),
+  )
+  on('turn.step', stepHook(USAGE))
+
+  await runStep($, STEP)
+  id = 'S2'
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  const forked = await settled($, clock)
+  expect(forked).toContain('↑ in 100')
+  expect(forked).toContain('⌘ calls 1')
+
+  // The fork has its own record from then on: the session it came from does not change.
+  id = 'S1'
+  await $.tool.call({ tool: 'Bash', command: 'true' })
+  expect(await settled($, clock)).toContain('⌘ calls 1')
 })
 
 test('resume: a stored session is loaded on its first event', async ($, on) => {
@@ -1788,10 +1826,14 @@ test('a click that gives the pane the focus also presses the button', async ($, 
   paneEngine(on)
   // Landing the ring draws the pane focused before `next` resolves, as a desktop does.
   let isLanding = false
-  on('ui.focus', async () => {
+  const focus = async () => {
     if (isLanding) await (await mountPane($, 'terminal', true)).unmount()
-    return { value: {} } as never
-  })
+    return {} as never
+  }
+  // The event names this plugin: from 2.1.323 a test hook beneath it answers with
+  // `{ plugin: '*' }`, and an engine before it does not know that form. Each skips the other.
+  on('ui.focus', focus)
+  on('ui.focus', { plugin: '*' }, focus)
   await spawn($)
   await completeAgent($, 'a1')
   const ui = await mountPane($, 'desktop', false)
@@ -2524,7 +2566,9 @@ test('a click that gives the pane the focus also closes the detail row', async (
   mock.store(on, {})
   engine(on)
   paneEngine(on)
-  on('ui.focus', async () => ({ value: {} }) as never)
+  // As in the test above: one answer for each release of the test runner.
+  on('ui.focus', async () => ({}) as never)
+  on('ui.focus', { plugin: '*' }, async () => ({}) as never)
   await spawn($)
   const ui = await mountPane($, 'desktop', false)
   const click = (kind: 'person' | 'plugin') =>

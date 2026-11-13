@@ -220,10 +220,16 @@ async function ensureLoaded($: Api): Promise<string> {
   const id = await $.session.id()
   const cur = await read($, meter)
   if (cur.sessionId === id && isComplete(cur)) return id
-  const snap = parseSnapshot(await $.store.get(storeKey(id)))
+  const raw = await $.store.get(storeKey(id))
+  const startedAt = await $.session.usage().then(
+    (u) => u.startedAt,
+    () => undefined,
+  )
+  const snap = raw === undefined ? await forkedFrom($, id, startedAt) : parseSnapshot(raw)
   // A turn that is still open keeps running across the switch.
   await update($, meter, (c) => ({
     ...snap,
+    ...(startedAt === undefined ? {} : { startedAt }),
     sessionId: id,
     active: c.active,
     busySince: c.busySince,
@@ -232,6 +238,20 @@ async function ensureLoaded($: Api): Promise<string> {
   // A loaded session shows its counts at once: no count-up from zero.
   await update($, shown, () => snapShown(id, countsOf(snap)))
   return id
+}
+
+// A fork (a rewind of Claude Desktop, `--fork-session`) gets a new id with no record, but the
+// engine keeps the start of the session it came from, and its cost ledger too. The fork starts
+// from the counts of that session, so its tokens stay in step with its cost.
+async function forkedFrom($: Api, id: string, startedAt: number | undefined): Promise<Snapshot> {
+  if (startedAt === undefined) return emptySnapshot()
+  const index = await $.store.get('sessions')
+  for (const other of Array.isArray(index) ? index : []) {
+    if (typeof other !== 'string' || other === id) continue
+    const s = parseSnapshot(await $.store.get(storeKey(other)))
+    if (s.startedAt === startedAt) return s
+  }
+  return emptySnapshot()
 }
 
 const MAX_SESSIONS = 50
@@ -269,6 +289,7 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
     ...(s.lostUsd === undefined ? {} : { lostUsd: s.lostUsd }),
     ...(s.deferred === undefined ? {} : { deferred: s.deferred }),
     ...(s.mainModel === undefined ? {} : { mainModel: s.mainModel }),
+    ...(s.startedAt === undefined ? {} : { startedAt: s.startedAt }),
   })
 }
 

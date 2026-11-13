@@ -7,6 +7,16 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## flight-deck
 
+### [0.13.1] - 2026-11-13
+
+Tested on Claude Code 2.1.323.
+
+#### Fixed
+
+- A forked session, such as a rewind in Claude Desktop, keeps the token counts of the session it came from.
+- Claude Fable 5.2 and Claude Mythos 5.2 are priced at their own rate, not at the rate of Fable 5.
+- A count of a billion tokens or more shows as `1.2B`.
+
 ### [0.13.0] - 2026-11-01
 
 Tested on Claude Code 2.1.316.
