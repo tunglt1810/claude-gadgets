@@ -39,10 +39,11 @@ async function backdropSvg($: Engine, surface: 'desktop' | 'mobile', props: obje
   return svg
 }
 
-test('the session starts with the glyph backdrop', async ($, on) => {
+test('the session starts with the glyph backdrop behind a thin glass', async ($, on) => {
   const { sets } = engine(on)
   await start($)
-  expect(sets).toEqual([{ backdrop: { scene: 'glyph-tide' } }])
+  // The default glass (0.6, 16) leaves the waves too faint to see.
+  expect(sets).toEqual([{ backdrop: { scene: 'glyph-tide', glass: { opacity: 0.35, blur: 8 } } }])
 })
 
 test('the backdrop draws the scene on desktop and mobile', async ($, on) => {
@@ -98,3 +99,28 @@ test('motion off draws a still scene', { options: { motion: false } }, async ($,
   const svg = await backdropSvg($, 'desktop')
   expect(String(svg?.props.source)).not.toContain('@keyframes')
 })
+
+const meanDuration = (svg: string) => {
+  const ds = [...svg.matchAll(/<path class="w"[^>]*animation-duration:([\d.]+)s/g)].map((m) =>
+    Number(m[1]),
+  )
+  return ds.reduce((a, b) => a + b, 0) / ds.length
+}
+
+test('waves per minute is 20 by default', async ($, on) => {
+  engine(on)
+  await start($)
+  const mean = meanDuration(String((await backdropSvg($, 'desktop'))?.props.source))
+  expect(Math.abs(mean - 18) / 18).toBeLessThan(0.2)
+})
+
+test(
+  'waves per minute sets the pace of the waves',
+  { options: { wavesPerMinute: 40 } },
+  async ($, on) => {
+    engine(on)
+    await start($)
+    const mean = meanDuration(String((await backdropSvg($, 'desktop'))?.props.source))
+    expect(Math.abs(mean - 9) / 9).toBeLessThan(0.2)
+  },
+)

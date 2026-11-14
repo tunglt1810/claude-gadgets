@@ -1,5 +1,5 @@
-const W = 1920
-const H = 1200
+const W = 1600
+const H = 1000
 const FONT = 13
 // The advance of a monospaced face is about 0.6 em.
 const ADVANCE = FONT * 0.6
@@ -7,15 +7,19 @@ const LINE = 18
 const COLS = Math.ceil(W / ADVANCE)
 const ROWS = Math.ceil(H / LINE)
 const GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-const WAVES = 3
+const WAVES = 6
+// How long a wave spreads, in seconds, at any pace: a pace only sets the rest between two spawns.
+const SPREAD = 6.5
+// The places that a wave moves through, one per spawn, before they repeat.
+const HOPS = 8
 // Points that a wave's outline curves through, each a little off the circle.
 const POINTS = 10
 // The rings of one ripple, from the inside out: where each crest is in the wave's radius, its
 // half width and its light. The outer ring leads and is the brightest, as on water.
 const CRESTS: [number, number, number][] = [
-  [0.5, 0.05, 0.3],
-  [0.7, 0.05, 0.6],
-  [0.9, 0.06, 1],
+  [0.5, 0.08, 0.3],
+  [0.7, 0.08, 0.6],
+  [0.9, 0.1, 1],
 ]
 
 // mulberry32: a seed gives the same field and waves on each redraw of one session.
@@ -52,28 +56,34 @@ function ripplePath(rnd: () => number): string {
   const pts: Point[] = []
   for (let k = 0; k < POINTS; k++) {
     const a = ((k + rnd() * 0.3) / POINTS) * Math.PI * 2
-    const r = 650 * (0.93 + rnd() * 0.07)
+    const r = 500 * (0.93 + rnd() * 0.07)
     pts.push([Math.cos(a) * r, Math.sin(a) * r])
   }
   return smoothClosed(pts)
 }
 
-// Dark between the crests, so each ring fades in and out softly.
+// White for the mask, its opacity the light: dark between the crests, so each ring fades in and out softly.
 function rippleGradient(): string {
-  const gray = (v: number) => {
-    const h = Math.round(v * 255)
-      .toString(16)
-      .padStart(2, '0')
-    return `#${h}${h}${h}`
-  }
-  const stops = [[0, 0]]
+  const stops: [number, number][] = [[0, 0]]
   for (const [at, half, light] of CRESTS) stops.push([at - half, 0], [at, light], [at + half, 0])
   stops.push([1, 0])
-  const marks = stops.map(([at, v]) => `<stop offset="${at}" stop-color="${gray(v ?? 0)}"/>`)
+  const marks = stops.map(
+    ([at, v]) => `<stop offset="${Number(at.toFixed(3))}" stop-color="#fff" stop-opacity="${v}"/>`,
+  )
   return `<radialGradient id="ripple">${marks.join('')}</radialGradient>`
 }
 
-export function sceneSvg({ seed, motion }: { seed: number; motion: boolean }): string {
+const percent = (n: number) => Number((n * 100).toFixed(1))
+
+export function sceneSvg({
+  seed,
+  motion,
+  wavesPerMinute,
+}: {
+  seed: number
+  motion: boolean
+  wavesPerMinute: number
+}): string {
   const rnd = random(seed)
   const rows: string[] = []
   for (let r = 0; r < ROWS; r++) {
@@ -81,43 +91,55 @@ export function sceneSvg({ seed, motion }: { seed: number; motion: boolean }): s
     for (let c = 0; c < COLS; c++) line += GLYPHS[Math.floor(rnd() * GLYPHS.length)]
     rows.push(`<text y="${(r + 1) * LINE}">${line}</text>`)
   }
+  // Each of the waves spawns once a cycle.
+  const cycle = (WAVES * 60) / wavesPerMinute
   const waves: string[] = []
+  const hops: string[] = []
   for (let i = 0; i < WAVES; i++) {
-    const dur = 9 + rnd() * 9
-    const delay = -rnd() * dur
+    const dur = fixed(cycle * (0.85 + rnd() * 0.3))
+    const delay = fixed(-rnd() * Number(dur))
+    const path = `<path class="w" d="${ripplePath(rnd)}" fill="url(#ripple)" style="animation-duration:${dur}s;animation-delay:${delay}s"/>`
+    if (!motion) {
+      waves.push(`<g transform="translate(${fixed(rnd() * W)} ${fixed(rnd() * H)})">${path}</g>`)
+      continue
+    }
+    // The hop shares the wave's delay and lasts HOPS of its cycles, so it jumps as the wave spawns.
+    const marks = Array.from(
+      { length: HOPS },
+      (_, k) =>
+        `${(k * 100) / HOPS}%{transform:translate(${Math.round(rnd() * W)}px,${Math.round(rnd() * H)}px)}`,
+    )
+    hops.push(`@keyframes hop${i}{${marks.join('')}}`)
     waves.push(
-      `<g transform="translate(${fixed(rnd() * W)} ${fixed(rnd() * H)})"><path class="w" d="${ripplePath(rnd)}" fill="url(#ripple)" style="animation-duration:${fixed(dur)}s;animation-delay:${fixed(delay)}s"/></g>`,
+      `<g class="hop" style="animation-name:hop${i};animation-duration:${fixed(Number(dur) * HOPS)}s;animation-delay:${delay}s">${path}</g>`,
     )
   }
+  const spreads = Math.min(1, SPREAD / cycle)
   const css = [
-    '.bg{fill:#eef0f3}.lo{fill:#4b5563;fill-opacity:.1}.hi{fill:#1f2937;fill-opacity:.5}',
-    '@media (prefers-color-scheme: dark){.bg{fill:#0f1520}.lo{fill:#94a3b8;fill-opacity:.1}.hi{fill:#e2e8f0;fill-opacity:.6}}',
+    '.lo{fill:#7d8aa3;fill-opacity:.12}.hi{fill:#7d8aa3;fill-opacity:1}',
     `text{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:${FONT}px;white-space:pre}`,
     // A wave's path is drawn around its own (0, 0), so it scales from its centre.
     '.w{transform-box:view-box;transform-origin:0 0;transform:scale(0);opacity:0}',
   ]
   if (motion) {
-    // While the waves move, a glyph shows only inside a wave.
     css.push(
-      // A ripple spreads fast, then slows and fades.
-      '@keyframes wave{0%{transform:scale(.05);opacity:1}100%{transform:scale(1.2);opacity:0}}',
+      // A ripple spreads fast, then slows; it stays bright for half its spread, then fades and rests.
+      `@keyframes wave{0%{transform:scale(.05);opacity:1}${percent(spreads / 2)}%{opacity:1}${percent(spreads)}%{transform:scale(1.2);opacity:0}100%{transform:scale(1.2);opacity:0}}`,
       '.w{animation:wave cubic-bezier(.2,.6,.4,1) infinite}.lo{display:none}',
-      '@media (prefers-reduced-motion: reduce){.w{animation:none}.lo{display:inline}}',
+      `.hop{animation-timing-function:step-end;animation-iteration-count:infinite}${hops.join('')}`,
+      '@media (prefers-reduced-motion: reduce){.w,.hop{animation:none}.lo{display:inline}}',
     )
   }
   return [
-    `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice">`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">`,
     `<style>${css.join('')}</style>`,
     '<defs>',
     rippleGradient(),
-    // Keeps the waves faint behind the words in the middle and the message box at the foot.
-    '<radialGradient id="calm" cx="0.5" cy="0.6" r="0.45"><stop offset="0" stop-color="#000" stop-opacity="0.85"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>',
     `<g id="glyphs">${rows.join('')}</g>`,
-    `<mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#000"/>${waves.join('')}<rect width="${W}" height="${H}" fill="url(#calm)"/></mask>`,
+    `<mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="#000"/>${waves.join('')}</mask>`,
     '</defs>',
-    `<rect class="bg" width="${W}" height="${H}"/>`,
-    '<use href="#glyphs" xlink:href="#glyphs" class="lo"/>',
-    '<use href="#glyphs" xlink:href="#glyphs" class="hi" mask="url(#m)"/>',
+    '<use href="#glyphs" class="lo"/>',
+    '<use href="#glyphs" class="hi" mask="url(#m)"/>',
     '</svg>',
   ].join('')
 }

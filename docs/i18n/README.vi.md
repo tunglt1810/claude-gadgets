@@ -150,11 +150,12 @@ Mod không hỏi với ba trường hợp: call mà classifier đánh giá là k
 
 `glyph-tide` vẽ trên Claude Desktop và trên app mobile. Terminal không hiện nền. Nạp mod bằng `claude --plugin-dir mods/glyph-tide`.
 
-Nền là một lưới chữ cái và chữ số ngẫu nhiên, dùng font monospace. Lưới này không hiện ra. Các gợn sóng bắt đầu tại các điểm ngẫu nhiên rồi lan ra như vòng sóng trên mặt nước. Mỗi gợn có vài vòng mép mờ, vòng ngoài sáng nhất. Gợn lan nhanh lúc đầu, rồi chậm lại và tan đi. Một ký tự chỉ hiện khi có sóng đi qua. Mỗi session có một lưới mới và các làn sóng mới. Sóng mờ ở giữa và ở chân màn hình, phía sau chữ và ô nhập. Nền có một bản sáng và một bản tối.
+Nền là một lưới chữ cái và chữ số ngẫu nhiên, dùng font monospace. Lưới này không hiện ra. Các gợn sóng bắt đầu tại các điểm ngẫu nhiên rồi lan ra như vòng sóng trên mặt nước. Mỗi gợn có vài vòng mép mờ, vòng ngoài sáng nhất. Gợn lan nhanh lúc đầu, rồi chậm lại và tan đi. Một ký tự chỉ hiện khi có sóng đi qua. Mỗi lần nảy, sóng bắt đầu ở một chỗ mới. Mỗi session có một lưới mới và các làn sóng mới. Nền không có màu nền riêng: màu của cửa sổ hiện qua. Các ký tự có một màu xám xanh, đọc được ở chế độ sáng và ở chế độ tối. Các panel của desktop phía trên nền dùng lớp kính mỏng hơn mặc định, nên sóng hiện qua được.
 
 | Tuỳ chọn | Mặc định | Kết quả |
 | --- | --- | --- |
 | `Waves` | bật | Tắt: cả lưới hiện mờ và đứng yên. Khi hệ thống giảm chuyển động, lưới cũng đứng yên. |
+| `Waves per minute` | 20 | Số lần sóng nảy mỗi phút, từ 4 đến 60. Ở mọi giá trị, sóng lan với cùng một tốc độ. |
 | `Hide after the first prompt` | tắt | Bật: nền biến mất khi session nhận prompt đầu tiên. Một session resume đã có message thì bắt đầu không có nền. |
 
 Cú click không tạo ra sóng: Claude Desktop không gửi cú click nào tới nền.

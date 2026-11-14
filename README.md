@@ -148,11 +148,12 @@ A call that the classifier judged unsafe, a call that you rejected and a tool th
 
 `glyph-tide` draws on Claude Desktop and on the mobile app. A terminal shows no backdrop. Load it with `claude --plugin-dir mods/glyph-tide`.
 
-The backdrop is a field of random letters and digits in a monospaced face, which does not show. Ripples start at random points and spread out like rings on water: a few soft rings, the outer one brightest, fast at first, then slow, then gone. A glyph shows only while a wave crosses it. Each session gets a new field and new waves. The waves stay faint in the middle and at the foot, behind the words and the message box. The backdrop has a light version and a dark version.
+The backdrop is a field of random letters and digits in a monospaced face, which does not show. Ripples start at random points and spread out like rings on water: a few soft rings, the outer one brightest, fast at first, then slow, then gone. A glyph shows only while a wave crosses it. Each wave starts at a new place each time. Each session gets a new field and new waves. The backdrop has no ground of its own: the window's colour shows through, and the glyphs have one grey-blue ink that reads in the light mode and in the dark mode. The desktop panels over the backdrop use a thinner glass than the default, so the waves show through them.
 
 | Option | Default | Result |
 | --- | --- | --- |
 | `Waves` | on | Off: the whole field shows faintly and stays still. When the system reduces motion, the field stays still too. |
+| `Waves per minute` | 20 | How often a wave starts, from 4 to 60. A wave spreads at the same speed at any value. |
 | `Hide after the first prompt` | off | On: the backdrop goes when the session gets its first prompt. A resumed session that has messages starts with no backdrop. |
 
 A click does not start a wave: Claude Desktop sends no click to the backdrop.
