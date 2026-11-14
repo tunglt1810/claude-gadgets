@@ -1,5 +1,9 @@
 import type { Caught, EngineInterface, Register, RenderInput } from 'claude-code'
 import { atom, read, update } from 'claude-code'
+
+// The engine runs hooks with the timer globals, but its typings declare none.
+declare function setTimeout(fn: (...args: never[]) => void, ms?: number): unknown
+
 import { focusAction, toggled } from '../src/action'
 import { agentView, bumpAgent } from '../src/agents'
 import { Band } from '../src/band'

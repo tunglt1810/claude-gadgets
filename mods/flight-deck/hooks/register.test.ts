@@ -2,6 +2,9 @@ import { type Engine, expect, mock, test } from 'claude-code/testing'
 import { cellText } from '../src/cell'
 import type { Cell } from '../types'
 
+// The engine runs hooks with the timer globals, but its typings declare none.
+declare function setTimeout(fn: (...args: never[]) => void, ms?: number): unknown
+
 const USAGE = {
   input_tokens: 10,
   output_tokens: 5,

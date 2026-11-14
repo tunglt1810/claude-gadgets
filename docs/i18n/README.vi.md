@@ -204,6 +204,9 @@ docs/i18n/    các bản dịch của README
 - Transcript của agent
 ![Transcript của agent trên Claude Desktop](../../previews/preview-desktop-agent-transcript.png)
 
+- Backdrop glyph tide
+![Backdrop glyph tide trên Claude Desktop](../../previews/preview-desktop-glyph-tide.gif)
+
 ## Giấy phép
 
 [MIT](../../LICENSE)

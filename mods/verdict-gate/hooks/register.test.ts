@@ -57,7 +57,11 @@ const engine = (
   on('classic.PreToolUse', (_$, e) =>
     e.tool === 'AskUserQuestion'
       ? ({} as never)
-      : ({ updatedInput: { command: seen.rewrite(String(e.command), ++seen.checks) } } as never),
+      : ({
+          updatedInput: {
+            command: seen.rewrite(String('command' in e ? e.command : undefined), ++seen.checks),
+          },
+        } as never),
   )
   // The question of the plugin is the dialog itself: no verdict holds it back.
   on('tool.check', (_$, e) => ({

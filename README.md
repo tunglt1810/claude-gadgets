@@ -198,6 +198,9 @@ docs/i18n/    translations of this README
 - Agent transcript view
 ![Claude Desktop flight deck - agent transcript preview](previews/preview-desktop-agent-transcript.png)
 
+- Glyph tide backdrop
+![Claude Desktop glyph tide backdrop](previews/preview-desktop-glyph-tide.gif)
+
 ## License
 
 [MIT](LICENSE)
