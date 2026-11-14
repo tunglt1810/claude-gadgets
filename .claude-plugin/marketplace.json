@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
   "name": "claude-gadgets",
-  "description": "Mods for Claude Code: a session flight deck and a gate for tool calls that auto mode denied without a verdict",
+  "description": "Mods for Claude Code: a session flight deck and a gate for tool calls that auto mode denied without a verdict, and a backdrop of code glyphs",
   "owner": {
     "name": "bez"
   },
@@ -25,6 +25,16 @@
       "source": "./mods/verdict-gate",
       "category": "security",
       "homepage": "https://github.com/tunglt1810/claude-gadgets/tree/main/mods/verdict-gate"
+    },
+    {
+      "name": "glyph-tide",
+      "description": "Code glyphs that water ripples reveal behind the desktop and mobile conversation",
+      "author": {
+        "name": "bez"
+      },
+      "source": "./mods/glyph-tide",
+      "category": "themes",
+      "homepage": "https://github.com/tunglt1810/claude-gadgets/tree/main/mods/glyph-tide"
     }
   ]
 }

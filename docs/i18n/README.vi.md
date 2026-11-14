@@ -12,6 +12,7 @@ Các mod (plugin nạp lại nóng được) cho Claude Code. Mỗi mod là mộ
 | --- | --- |
 | `flight-deck` | Một dải phía trên ô nhập. Dải hiển thị token vào, token ra, tỉ lệ cache hit, số lần gọi tool, số subagent và số tác vụ nền đã khởi chạy, thời gian model làm việc, chi phí của session, số dòng mà các tool sửa file đã thay đổi và đồng hồ đếm ngược của prompt cache. Các tổng số gồm cả mọi subagent. Khi transcript của một subagent đang ở trên màn hình, dải hiển thị số liệu của subagent đó và của các agent bên dưới nó. Dữ liệu được giữ lại khi resume. |
 | `verdict-gate` | Dành cho auto mode. Khi safety classifier không đưa ra verdict cho một tool call, một hộp thoại hỏi bạn. Bạn chọn chạy call đó một lần, chạy mọi call cùng loại trong session, hoặc từ chối. Một call mà classifier đánh giá là không an toàn vẫn bị từ chối. |
+| `glyph-tide` | Dành cho Claude Desktop và app mobile. Các gợn sóng như vòng sóng trên mặt nước bắt đầu tại các điểm ngẫu nhiên phía sau cuộc trò chuyện. Sóng làm hiện các ký tự code mà nó đi qua. |
 
 ## Bộ công cụ
 
@@ -31,9 +32,10 @@ Gõ một dòng cho mỗi mod tại ô prompt của Claude Code trong terminal:
 ```text
 /plugin install flight-deck --marketplace tunglt1810/claude-gadgets
 /plugin install verdict-gate --marketplace tunglt1810/claude-gadgets
+/plugin install glyph-tide --marketplace tunglt1810/claude-gadgets
 ```
 
-1. Trả lời `y` cho câu hỏi `Add marketplace?`. Dòng đầu tiên hỏi câu này, dòng thứ hai thì không.
+1. Trả lời `y` cho câu hỏi `Add marketplace?`. Dòng đầu tiên hỏi câu này, các dòng sau thì không.
 2. Chọn một scope rồi nhấn Enter. Scope user cài mod cho mọi project.
 3. Chạy `/reload-plugins`. Nếu một mod không hiện ra, hãy khởi động lại Claude Code.
 
@@ -143,6 +145,20 @@ Khi safety classifier không đưa ra verdict cho một tool call, engine từ c
 Một rule là tên một tool (`Read`), hoặc một lệnh Bash kèm subcommand (`Bash(git push:*)`). Lệnh ghép, lệnh không có subcommand và lệnh đứng sau một wrapper như `sudo` hay `bash` không có rule. Rule nằm trong bộ nhớ cho tới khi session hoặc mod nạp lại.
 
 Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input quá dài để hiện thì có một toast và không có câu hỏi. Giới hạn là 20.000 ký tự trong pane. Trong câu hỏi trên terminal, giới hạn là 2.000 ký tự, vì hộp thoại này không cuộn được.
+
+## Nền ký tự code
+
+`glyph-tide` vẽ trên Claude Desktop và trên app mobile. Terminal không hiện nền. Nạp mod bằng `claude --plugin-dir mods/glyph-tide`.
+
+Nền là một lưới chữ cái và chữ số ngẫu nhiên, dùng font monospace. Lưới này không hiện ra. Các gợn sóng bắt đầu tại các điểm ngẫu nhiên rồi lan ra như vòng sóng trên mặt nước. Mỗi gợn có vài vòng mép mờ, vòng ngoài sáng nhất. Gợn lan nhanh lúc đầu, rồi chậm lại và tan đi. Một ký tự chỉ hiện khi có sóng đi qua. Mỗi lần nảy, sóng bắt đầu ở một chỗ mới. Mỗi session có một lưới mới và các làn sóng mới. Nền không có màu nền riêng: màu của cửa sổ hiện qua. Các ký tự có một màu xám xanh, đọc được ở chế độ sáng và ở chế độ tối. Các panel của desktop phía trên nền dùng lớp kính mỏng hơn mặc định, nên sóng hiện qua được.
+
+| Tuỳ chọn | Mặc định | Kết quả |
+| --- | --- | --- |
+| `Waves` | bật | Tắt: cả lưới hiện mờ và đứng yên. Khi hệ thống giảm chuyển động, lưới cũng đứng yên. |
+| `Waves per minute` | 20 | Số lần sóng nảy mỗi phút, từ 4 đến 60. Ở mọi giá trị, sóng lan với cùng một tốc độ. |
+| `Hide after the first prompt` | tắt | Bật: nền biến mất khi session nhận prompt đầu tiên. Một session resume đã có message thì bắt đầu không có nền. |
+
+Cú click không tạo ra sóng: Claude Desktop không gửi cú click nào tới nền.
 
 ## Thêm một mod
 

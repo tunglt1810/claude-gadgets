@@ -1,0 +1,34 @@
+{
+  "name": "glyph-tide",
+  "version": "0.2.0",
+  "description": "Code glyphs that water ripples reveal behind the desktop and mobile conversation",
+  "userConfig": {
+    "motion": {
+      "type": "boolean",
+      "title": "Waves",
+      "description": "Animate the waves. Off, the glyphs stay still. A system that reduces motion stills them too",
+      "default": true
+    },
+    "wavesPerMinute": {
+      "type": "number",
+      "title": "Waves per minute",
+      "description": "How often a wave starts. A wave spreads at the same speed at any value",
+      "default": 20,
+      "min": 4,
+      "max": 60
+    },
+    "hideAfterPrompt": {
+      "type": "boolean",
+      "title": "Hide after the first prompt",
+      "description": "Remove the backdrop when the session gets its first prompt",
+      "default": false
+    }
+  },
+  "author": {
+    "name": "bez"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/tunglt1810/claude-gadgets/tree/main/mods/glyph-tide",
+  "repository": "https://github.com/tunglt1810/claude-gadgets",
+  "keywords": ["mod", "theme", "backdrop", "animation"]
+}

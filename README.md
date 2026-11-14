@@ -10,6 +10,7 @@ Mods (hot-reloadable plugins) for Claude Code. Each mod is a self-contained plug
 | --- | --- |
 | `flight-deck` | Band above the prompt: input/output/cache-hit tokens, tool calls, started subagents and background tasks, model working time, session cost, lines changed by file tools and a styled prompt-cache countdown. The totals include each subagent. When the transcript of a subagent is on the screen, the band shows the numbers of that subagent and of the agents below it. Data survives resume. |
 | `verdict-gate` | Auto mode: when the safety classifier gives no verdict for a tool call, a dialog asks you to run the call once, to run each such call for the session, or to refuse it. A call that the classifier judged unsafe stays denied. |
+| `glyph-tide` | Claude Desktop and the mobile app: ripples like rings on water start at random points behind the conversation and show the code glyphs that they cross. |
 
 ## Toolchain
 
@@ -29,9 +30,10 @@ Type one line for each mod at the prompt of Claude Code in a terminal:
 ```text
 /plugin install flight-deck --marketplace tunglt1810/claude-gadgets
 /plugin install verdict-gate --marketplace tunglt1810/claude-gadgets
+/plugin install glyph-tide --marketplace tunglt1810/claude-gadgets
 ```
 
-1. Answer `y` to the question `Add marketplace?`. The first line asks it, and the second line does not.
+1. Answer `y` to the question `Add marketplace?`. The first line asks it, and the next lines do not.
 2. Select a scope and press Enter. The user scope installs the mod for each project.
 3. Run `/reload-plugins`. If a mod does not show, start Claude Code again.
 
@@ -141,6 +143,20 @@ When the safety classifier gives no verdict for a tool call, the engine denies t
 A rule is a tool name (`Read`), or a Bash command with its subcommand (`Bash(git push:*)`). A compound command, a command with no subcommand and a command behind a wrapper such as `sudo` or `bash` get no rule. A rule lives in memory until the session or the mod reloads.
 
 A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input that is too long to show gets a toast and no question: the limit is 20,000 characters in the pane, and 2,000 characters in the question of a terminal, which does not scroll.
+
+## Glyph backdrop
+
+`glyph-tide` draws on Claude Desktop and on the mobile app. A terminal shows no backdrop. Load it with `claude --plugin-dir mods/glyph-tide`.
+
+The backdrop is a field of random letters and digits in a monospaced face, which does not show. Ripples start at random points and spread out like rings on water: a few soft rings, the outer one brightest, fast at first, then slow, then gone. A glyph shows only while a wave crosses it. Each wave starts at a new place each time. Each session gets a new field and new waves. The backdrop has no ground of its own: the window's colour shows through, and the glyphs have one grey-blue ink that reads in the light mode and in the dark mode. The desktop panels over the backdrop use a thinner glass than the default, so the waves show through them.
+
+| Option | Default | Result |
+| --- | --- | --- |
+| `Waves` | on | Off: the whole field shows faintly and stays still. When the system reduces motion, the field stays still too. |
+| `Waves per minute` | 20 | How often a wave starts, from 4 to 60. A wave spreads at the same speed at any value. |
+| `Hide after the first prompt` | off | On: the backdrop goes when the session gets its first prompt. A resumed session that has messages starts with no backdrop. |
+
+A click does not start a wave: Claude Desktop sends no click to the backdrop.
 
 ## Adding a mod
 

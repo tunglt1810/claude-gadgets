@@ -5,6 +5,32 @@ All notable changes to the mods in this repository are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## glyph-tide
+
+### [0.2.0] - 2026-11-14
+
+Tested on Claude Code 2.1.325.
+
+#### Added
+
+- A `Waves per minute` option sets how often a wave starts.
+
+#### Changed
+
+- The backdrop has no ground: the window's colour shows through, and the glyphs have one ink for the light and the dark mode.
+- The waves show clearly on Claude Desktop: the panels over the backdrop use a thinner glass.
+- Six waves, each starting at a new place each time, stay bright for longer and have wider rings.
+
+#### Removed
+
+- The light and the dark version of the backdrop.
+
+### [0.1.0] - 2026-11-14
+
+#### Added
+
+- A backdrop of code glyphs that water ripples reveal, on Claude Desktop and the mobile app.
+
 ## flight-deck
 
 ### [0.13.1] - 2026-11-13
