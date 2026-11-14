@@ -1,0 +1,26 @@
+{
+  "name": "glyph-tide",
+  "version": "0.1.0",
+  "description": "A field of glowing code glyphs behind the desktop and mobile conversation, crossed by random waves of light",
+  "userConfig": {
+    "motion": {
+      "type": "boolean",
+      "title": "Waves",
+      "description": "Animate the waves. Off, the glyphs stay still. A system that reduces motion stills them too",
+      "default": true
+    },
+    "hideAfterPrompt": {
+      "type": "boolean",
+      "title": "Hide after the first prompt",
+      "description": "Remove the backdrop when the session gets its first prompt",
+      "default": false
+    }
+  },
+  "author": {
+    "name": "bez"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/tunglt1810/claude-gadgets/tree/main/mods/glyph-tide",
+  "repository": "https://github.com/tunglt1810/claude-gadgets",
+  "keywords": ["mod", "theme", "backdrop", "animation"]
+}

@@ -10,9 +10,9 @@
   "scripts": {
     "lint": "biome check .",
     "fix": "biome check --write .",
-    "typecheck": "tsc -p mods/flight-deck --noEmit && tsc -p mods/verdict-gate --noEmit",
-    "validate": "claude plugin validate --strict .claude-plugin/marketplace.json && claude plugin validate mods/flight-deck && claude plugin validate mods/verdict-gate",
-    "test": "claude plugin test mods/flight-deck && claude plugin test mods/verdict-gate",
+    "typecheck": "tsc -p mods/flight-deck --noEmit && tsc -p mods/verdict-gate --noEmit && tsc -p mods/glyph-tide --noEmit",
+    "validate": "claude plugin validate --strict .claude-plugin/marketplace.json && claude plugin validate mods/flight-deck && claude plugin validate mods/verdict-gate && claude plugin validate mods/glyph-tide",
+    "test": "claude plugin test mods/flight-deck && claude plugin test mods/verdict-gate && claude plugin test mods/glyph-tide",
     "check": "bun run lint && bun run typecheck && bun run validate && bun run test"
   }
 }
