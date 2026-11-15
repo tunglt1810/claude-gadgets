@@ -112,3 +112,50 @@ test('each wave moves to a new place as it spawns', async () => {
 test('still waves have no hop', async () => {
   expect(sceneSvg({ seed: 13, motion: false, wavesPerMinute: 20 })).not.toContain('hop')
 })
+
+// Points along a path's cubic segments, so a dip between two anchors counts too.
+function outline(d: string): [number, number][] {
+  const n = (d.match(/-?[\d.]+/g) ?? []).map(Number)
+  const pts: [number, number][] = []
+  let [x, y] = [n[0] as number, n[1] as number]
+  for (let i = 2; i + 5 < n.length; i += 6) {
+    const [a, b, c, e, f, g] = n.slice(i, i + 6) as number[]
+    for (let t = 0; t < 1; t += 0.02) {
+      const u = 1 - t
+      pts.push([
+        u ** 3 * x +
+          3 * u * u * t * (a as number) +
+          3 * u * t * t * (c as number) +
+          t ** 3 * (f as number),
+        u ** 3 * y +
+          3 * u * u * t * (b as number) +
+          3 * u * t * t * (e as number) +
+          t ** 3 * (g as number),
+      ])
+    }
+    ;[x, y] = [f as number, g as number]
+  }
+  return pts
+}
+
+test('the outline of a wave never cuts its light, so the outer ring fades out softly', async () => {
+  for (const seed of [14, 15, 16, 17, 18]) {
+    const svg = sceneSvg({ seed, motion: true, wavesPerMinute: 20 })
+    const stops = [...svg.matchAll(/offset="([\d.]+)"[^>]*stop-opacity="([\d.]+)"/g)].map((m) => [
+      Number(m[1]),
+      Number(m[2]),
+    ])
+    const lit = Math.max(...stops.filter((s) => (s[1] as number) > 0).map((s) => s[0] as number))
+    // The last lit stop falls back to dark before the outline.
+    const end = stops.find((s) => (s[0] as number) > lit)?.[0] as number
+    for (const [, d] of svg.matchAll(/<path class="w" d="([^"]+)"/g)) {
+      const pts = outline(d as string)
+      const xs = pts.map((p) => p[0])
+      const ys = pts.map((p) => p[1])
+      const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+      const [cx, cy, rx, ry] = [(x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2]
+      const reach = Math.min(...pts.map(([px, py]) => Math.hypot((px - cx) / rx, (py - cy) / ry)))
+      expect(end).toBeLessThanOrEqual(reach)
+    }
+  }
+})

@@ -16,11 +16,14 @@ const HOPS = 8
 const POINTS = 10
 // The rings of one ripple, from the inside out: where each crest is in the wave's radius, its
 // half width and its light. The outer ring leads and is the brightest, as on water.
+// The outline dips to 0.9 of the gradient's radius, so all light must end inside that.
 const CRESTS: [number, number, number][] = [
-  [0.5, 0.08, 0.3],
-  [0.7, 0.08, 0.6],
-  [0.9, 0.1, 1],
+  [0.4, 0.064, 0.3],
+  [0.56, 0.064, 0.6],
+  [0.72, 0.07, 1],
 ]
+// Past the outer crest the light falls to this share of it, then fades out over this width.
+const HALO = { light: 0.3, width: 0.08 }
 
 // mulberry32: a seed gives the same field and waves on each redraw of one session.
 function random(seed: number): () => number {
@@ -56,7 +59,7 @@ function ripplePath(rnd: () => number): string {
   const pts: Point[] = []
   for (let k = 0; k < POINTS; k++) {
     const a = ((k + rnd() * 0.3) / POINTS) * Math.PI * 2
-    const r = 500 * (0.93 + rnd() * 0.07)
+    const r = 620 * (0.93 + rnd() * 0.07)
     pts.push([Math.cos(a) * r, Math.sin(a) * r])
   }
   return smoothClosed(pts)
@@ -66,6 +69,8 @@ function ripplePath(rnd: () => number): string {
 function rippleGradient(): string {
   const stops: [number, number][] = [[0, 0]]
   for (const [at, half, light] of CRESTS) stops.push([at - half, 0], [at, light], [at + half, 0])
+  const [at, half, light] = CRESTS[CRESTS.length - 1] as [number, number, number]
+  stops.splice(-1, 1, [at + half, light * HALO.light], [at + half + HALO.width, 0])
   stops.push([1, 0])
   const marks = stops.map(
     ([at, v]) => `<stop offset="${Number(at.toFixed(3))}" stop-color="#fff" stop-opacity="${v}"/>`,

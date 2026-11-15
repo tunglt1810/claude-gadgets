@@ -7,6 +7,14 @@ and each mod follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## glyph-tide
 
+### [0.2.1] - 2026-11-16
+
+Tested on Claude Code 2.1.325.
+
+#### Fixed
+
+- The outer ring of a wave fades out softly through a faint halo, with no hard edge.
+
 ### [0.2.0] - 2026-11-14
 
 Tested on Claude Code 2.1.325.
