@@ -1,4 +1,5 @@
 import type { Task, TaskGroup, TaskStatus } from '../types'
+import { cut } from './clip'
 
 export type ToolUseLike = {
   tool: string
@@ -28,6 +29,10 @@ const byId = (a: Task, b: Task) => Number(a.id) - Number(b.id) || a.id.localeCom
 export const tasksKey = (sessionId: string): string => `tasks:${sessionId}`
 
 export const firstLine = (text: string): string => (text.trim().split('\n')[0] ?? '').trim()
+
+// The title of a group is kept in the store: a short one holds less of what the person pasted.
+export const MAX_PROMPT = 80
+export const promptTitle = (text: string): string => cut(firstLine(text), MAX_PROMPT)
 
 const isDone = (g: TaskGroup) => g.tasks.every((t) => t.status === 'completed')
 
@@ -126,7 +131,7 @@ export const replay = (messages: SessionMessageLike[]): TaskGroup[] => {
   let groups: TaskGroup[] = []
   let prompt = ''
   for (const m of messages) {
-    if (m.role === 'user' && m.text.trim() !== '') prompt = firstLine(m.text)
+    if (m.role === 'user' && m.text.trim() !== '') prompt = promptTitle(m.text)
     for (const use of m.toolUses) {
       if (use.isError === true) continue
       groups = applyCall(

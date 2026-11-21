@@ -61,7 +61,7 @@ import {
   touchSessions,
 } from '../src/snapshot'
 import { SPIN_MS } from '../src/spinner'
-import { applyCall, firstLine, parseHistory, replay, tasksKey } from '../src/tasks'
+import { applyCall, parseHistory, promptTitle, replay, tasksKey } from '../src/tasks'
 import { subKeysOf } from '../src/tools'
 import { transcriptItems } from '../src/transcript'
 import { cacheTtls, isOn, isOverLimit, type Ttl } from '../src/ttl'
@@ -1028,9 +1028,11 @@ async function ensureTasks($: Api): Promise<void> {
     const rows = await $.session.messages().catch(() => ({ deny: 'failed' }))
     loaded = { sessionId: id, groups: Array.isArray(rows) ? replay(rows) : [], prompt: '' }
   } else {
-    const r = raw as { groups?: unknown; prompt?: unknown }
-    const prompt = typeof r.prompt === 'string' ? r.prompt : ''
-    loaded = { sessionId: id, groups: parseHistory(r.groups), prompt }
+    loaded = {
+      sessionId: id,
+      groups: parseHistory((raw as { groups?: unknown }).groups),
+      prompt: '',
+    }
   }
   await update($, tasks, (c) => (c.sessionId === id ? c : loaded))
 }
@@ -1040,8 +1042,10 @@ async function changeTasks($: Api, change: (c: TaskHistory) => TaskHistory): Pro
   await ensureTasks($)
   const before = await read($, tasks)
   const after = await update($, tasks, change)
-  if (after.sessionId === null || JSON.stringify(after) === JSON.stringify(before)) return
-  await $.store.set(tasksKey(after.sessionId), { groups: after.groups, prompt: after.prompt })
+  // The store holds the prompt of a group only: a prompt with no task is not written.
+  if (after.sessionId === null || after.groups.length === 0) return
+  if (JSON.stringify(after.groups) === JSON.stringify(before.groups)) return
+  await $.store.set(tasksKey(after.sessionId), { groups: after.groups })
 }
 
 async function stamp($: Api): Promise<number> {
@@ -1730,7 +1734,7 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const res = await next(e)
     if (e.origin.kind === 'composer') {
-      const prompt = firstLine(e.text)
+      const prompt = promptTitle(e.text)
       await changeTasks($, (c) => ({ ...c, prompt }))
     }
     const notice = e.origin.kind === 'task-notification' ? taskNotice(e.text) : null

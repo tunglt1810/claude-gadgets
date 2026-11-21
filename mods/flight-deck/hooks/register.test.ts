@@ -1315,7 +1315,7 @@ test('the registry is kept per session id and comes back with the id', async ($,
 test('an event of another agent does not replace the open transcript', async ($, on) => {
   mock.clock(on, { now: 1000 })
   // A stored task history: the pane then reads no messages of the main loop.
-  mock.store(on, { 'tasks:S1': { groups: [], prompt: '' } })
+  mock.store(on, { 'tasks:S1': { groups: [] } })
   engine(on)
   let reads = 0
   paneEngine(on, () => {
@@ -4468,7 +4468,6 @@ const updateTask = ($: Engine, taskId: string, status: string) =>
   $.tool.call({ tool: 'TaskUpdate', taskId, status } as never)
 type StoredTasks = {
   groups: { prompt: string; tasks: { id: string; subject: string; startedAt: number | null }[] }[]
-  prompt: string
 }
 const stored = (m: Record<string, unknown>, id: string) => m[`tasks:${id}`] as StoredTasks
 
@@ -4731,4 +4730,19 @@ test('the duration of a running task counts up', async ($, on) => {
   expect(await cellOf(term, 'task:dur:0:1')).not.toBe(before)
   await term.press({ key: 'back' })
   await term.unmount()
+})
+
+test('a typed prompt is stored only with a task, and cut', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on)
+
+  await typed($, `${'y'.repeat(300)}\nsecond line`)
+  expect(m['tasks:S1']).toBeUndefined()
+  await createTask($, 'A')
+
+  const raw = JSON.stringify(m['tasks:S1'])
+  expect(raw).not.toContain('second line')
+  expect(raw).not.toContain('y'.repeat(81))
+  expect(stored(m, 'S1').groups[0]?.prompt.length).toBe(80)
 })

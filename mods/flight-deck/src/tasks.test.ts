@@ -6,7 +6,9 @@ import {
   groupTimes,
   isOpen,
   isStopped,
+  MAX_PROMPT,
   parseHistory,
+  promptTitle,
   replay,
   tasksKey,
 } from './tasks'
@@ -182,4 +184,11 @@ test('parseHistory, tasksKey, firstLine', () => {
   expect(parseHistory([{ prompt: 1 }])).toEqual([])
   expect(tasksKey('S1')).toBe('tasks:S1')
   expect(firstLine('  a b\nc')).toBe('a b')
+})
+
+test('promptTitle keeps the first line, cut to MAX_PROMPT characters', () => {
+  expect(promptTitle('  fix nav\nsecret')).toBe('fix nav')
+  const long = promptTitle('x'.repeat(300))
+  expect(long.length).toBe(MAX_PROMPT)
+  expect(long.endsWith('…')).toBe(true)
 })
