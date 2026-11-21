@@ -35,7 +35,7 @@
 **Files:**
 - Create: `src/tasks.ts`
 - Test: `src/tasks.test.ts`
-- Modify: `types/index.d.ts` (add `Task`, `TaskStatus`)
+- Change: `types/index.d.ts` (add `Task`, `TaskStatus`)
 
 **Interfaces:**
 - Produces:
@@ -57,7 +57,7 @@
   - `TaskUpdate` for an unknown ID, or with `success: false`, returns the same list.
   - `TaskList` result `{ tasks: [{ id, subject, status, blockedBy }] }` replaces the list.
   - A result of an unknown shape (`null`, `'x'`, `{ task: {} }`) returns the same list (`toBe`).
-  - `replay`: a `TaskCreate` use with no `result` and `text: 'Task #4 created successfully: Foo'` adds `{ id: '4', subject: 'Foo' }`. A use with `isError: true` is skipped.
+  - `replay`: a `TaskCreate` use with no `result` and `text: 'Task #4 created successfully: Foo'` adds `{ id: '4', subject: 'Foo' }`. `replay` skips a use with `isError: true`.
   - `taskBand`: `[completed, in_progress 'B', pending 'C']` gives `{ glyph: '◐', done: 1, total: 3, subject: 'B' }`. With no `in_progress` task: `glyph: '○'` and the first pending subject. All completed, or empty: `null`.
   - `taskLabel({ glyph: '◐', done: 2, total: 3, subject: 'Patch the Go toolchain' }, 40)` is `'◐ 2/3 Patch the Go toolchain'`. At a room of 6 + 12, the subject is cut with `…` to 12 columns. Below that room, the label is `'◐ 2/3'`.
 
@@ -72,7 +72,7 @@
 ### Task 2: Capture, store and replay
 
 **Files:**
-- Modify: `hooks/register.tsx` (the `tasks` atom, the `tool.call` hook at line 1444, a new `ensureTasks`, the prune at line 266)
+- Change: `hooks/register.tsx` (the `tasks` atom, the `tool.call` hook at line 1444, a new `ensureTasks`, the prune at line 266)
 - Test: `hooks/register.test.ts`
 
 **Interfaces:**
@@ -91,7 +91,7 @@
 
 - [ ] **Step 2: Run** `bun test mods/flight-deck/hooks`. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** In the `tool.call` hook, after the `res.deny` check: if `e.tool` is `TaskCreate`, `TaskUpdate` or `TaskList` and `!res.isError`, call `ensureTasks`. Then `update($, tasks, c => ({ ...c, list: applyCall(c.list, e.tool, e as never, res.result) }))`. Then write `tasksKey(id)` only when the JSON of the list changed. Delete `tasksKey(old)` beside `agentsKey(old)` in the prune.
+- [ ] **Step 3: Implement.** In the `tool.call` hook, after the `res.deny` check: if `e.tool` is `TaskCreate`, `TaskUpdate` or `TaskList` and `!res.isError`, call `ensureTasks`. Then `update($, tasks, c => ({ ...c, list: applyCall(c.list, e.tool, e as never, res.result) }))`. Then write `tasksKey(id)` only when the JSON of the list changed. Remove `tasksKey(old)` beside `agentsKey(old)` in the prune.
 
 - [ ] **Step 4: Run** `bun run check`. Expected: PASS.
 
@@ -102,10 +102,10 @@
 ### Task 3: Tasks screen in the pane
 
 **Files:**
-- Modify: `src/pane.tsx` (new `tasks` prop, `tasksRow` on the dashboard after `toolsRow`, `tasksScreen`, branch beside `view.isTools`)
-- Modify: `src/action.ts` (`'tasks'` in the key list at line 10)
-- Modify: `types/index.d.ts` (`PaneView.isTasks?: boolean`, `PaneAction` `{ kind: 'tasks' }`)
-- Modify: `hooks/register.tsx` (`isTasks: false` in `initialPane`, `openTasks`/`closeTasks` as `openTools`/`closeTools`, the `back` chain at line 868, `action.kind === 'tasks'`, the `tasks` atom passed to `AgentPane` after `ensureTasks`)
+- Change: `src/pane.tsx` (new `tasks` prop, `tasksRow` on the dashboard after `toolsRow`, `tasksScreen`, branch beside `view.isTools`)
+- Change: `src/action.ts` (`'tasks'` in the key list at line 10)
+- Change: `types/index.d.ts` (`PaneView.isTasks?: boolean`, `PaneAction` `{ kind: 'tasks' }`)
+- Change: `hooks/register.tsx` (`isTasks: false` in `initialPane`, `openTasks`/`closeTasks` as `openTools`/`closeTools`, the `back` chain at line 868, `action.kind === 'tasks'`, the `tasks` atom passed to `AgentPane` after `ensureTasks`)
 - Test: `src/action.test.ts`, `hooks/register.test.ts`
 
 **Interfaces:**
@@ -130,9 +130,9 @@
 ### Task 4: Task segment in the terminal band
 
 **Files:**
-- Modify: `src/band.tsx` (props `task?: ReturnType<typeof taskBand>`, `onTask?: () => void`. Terminal branch only.)
-- Modify: `src/layout.ts` (export the existing `width` and `BUTTON_CHROME`)
-- Modify: `hooks/register.tsx` (pass `task` and `onTask` in both `Band` renders, lines 1850-1900. `onTask` opens the pane if it is closed, then calls `openTasks`.)
+- Change: `src/band.tsx` (props `task?: ReturnType<typeof taskBand>`, `onTask?: () => void`. Terminal branch only.)
+- Change: `src/layout.ts` (export the existing `width` and `BUTTON_CHROME`)
+- Change: `hooks/register.tsx` (pass `task` and `onTask` in both `Band` renders, lines 1850-1900. `onTask` opens the pane if it is not open, then calls `openTasks`.)
 - Test: `hooks/register.test.ts`
 
 **Interfaces:**
@@ -149,7 +149,7 @@
 
 - [ ] **Step 2: Run** `bun test mods/flight-deck/hooks`. Expected: FAIL on the new tests.
 
-- [ ] **Step 3: Implement.** In the terminal branch, compute `reserve = '◐ 9/9 '.length + MIN_SUBJECT + BUTTON_CHROME + 1` when `task` is set. Call `bandSegments` with `columns - reserve`. Then `room = columns - width(segments) - BUTTON_CHROME - 1`. The label is `taskLabel(task, room)`. Draw the Button in a box as wide as the label, inside a box with `flexShrink={1}` and `overflow="hidden"` (CLAUDE.md, UI). The existing row stays after it.
+- [ ] **Step 3: Implement.** In the terminal branch, compute `reserve = '◐ 9/9 '.length + MIN_SUBJECT + BUTTON_CHROME + 1` when `task` has a value. Call `bandSegments` with `columns - reserve`. Then `room = columns - width(segments) - BUTTON_CHROME - 1`. The label is `taskLabel(task, room)`. Draw the Button in a box as wide as the label, inside a box with `flexShrink={1}` and `overflow="hidden"` (CLAUDE.md, UI). The existing row stays after it.
 
 - [ ] **Step 4: Run** `bun run check`. Expected: PASS.
 
@@ -158,13 +158,13 @@
 ### Task 5: Docs, version, desktop check
 
 **Files:**
-- Modify: `README.md` of the mod ("Data that the mod reads", "Hooks", store), root `README.md`, each `docs/i18n/README.<lang>.md`
-- Modify: `.claude-plugin/plugin.json` (`0.14.0`), `CHANGELOG.md` (flight-deck `[0.14.0] - <date>`, "Tested on Claude Code 2.1.325.", `#### Added`, the one sentence)
-- Modify: `docs/specs/2026-11-21-flight-deck-task-list-design.md` (record the result of the subagent ID check)
+- Change: `README.md` of the mod ("Data that the mod reads", "Hooks", store), root `README.md`, each `docs/i18n/README.<lang>.md`
+- Change: `.claude-plugin/plugin.json` (`0.14.0`), `CHANGELOG.md` (flight-deck `[0.14.0] - <date>`, "Tested on Claude Code 2.1.325.", `#### Added`, the one sentence)
+- Change: `docs/specs/2026-11-21-flight-deck-task-list-design.md` (record the result of the subagent ID check)
 
 - [ ] **Step 1:** Update the mod README. The `tool.call` hook reads the input and the result of `TaskCreate`, `TaskUpdate` and `TaskList`. The mod reads the session messages to rebuild the list. The store keeps the ID, the subject and the status of each task. Mirror the change in the root README and each translation. Run `python3 /Users/bez/.claude/skills/asd-ste100/scripts/ste-lint.py` on each English file. Expected: 0 hard violations.
 - [ ] **Step 2:** Bump the version and add the changelog entry.
 - [ ] **Step 3:** Run the desktop engine test from CLAUDE.md: `"<desktop folder>/<hash>/claude.app/Contents/MacOS/claude" plugin test mods/flight-deck`. Expected: only the tests of the new-engine branches fail.
 - [ ] **Step 4:** Run `bun run check`. Expected: PASS.
 - [ ] **Step 5: Commit** `flight-deck: the band shows the current task, and the pane has a tasks screen (0.14.0)`.
-- [ ] **Step 6:** After the merge, move each lasting decision into the spec, then delete this plan.
+- [ ] **Step 6:** After the merge, move each lasting decision into the spec, then remove this plan.
