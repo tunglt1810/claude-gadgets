@@ -283,6 +283,24 @@ export type PaneData = {
   tools: ToolsView | null
 }
 
+export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+
+// One task of the model's task list, as `TaskCreate` and `TaskUpdate` gave it. The times are
+// the clock of the hook that saw the change; a task rebuilt from the messages has none.
+export type Task = {
+  id: string
+  subject: string
+  description: string
+  status: TaskStatus
+  startedAt: number | null
+  endedAt: number | null
+}
+
+// One task list of the session: the engine clears a list when all its tasks are completed,
+// and the next `TaskCreate` starts a new group. `prompt` is the first line of the user prompt
+// before it.
+export type TaskGroup = { prompt: string; createdAt: number | null; tasks: Task[] }
+
 export type Shell = {
   id: string
   command: string
