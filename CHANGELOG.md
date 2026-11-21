@@ -41,6 +41,14 @@ Tested on Claude Code 2.1.325.
 
 ## flight-deck
 
+### [0.14.0] - 2026-11-22
+
+Tested on Claude Code 2.1.330.
+
+#### Added
+
+- The pane has a tasks screen that keeps each task list of the session, with its times.
+
 ### [0.13.1] - 2026-11-13
 
 Tested on Claude Code 2.1.323.

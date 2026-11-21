@@ -88,7 +88,7 @@ A call from a subagent (the event has `e.agentId`) changes the same history. Tra
 
 ### The user prompt
 
-The `prompt.submit` hook keeps the first line of the last prompt that the user typed. It ignores a prompt from another origin, for example a task notification. The store keeps the value per session ID, with the history.
+The `prompt.submit` hook keeps the first line of the last prompt that the user typed, cut to 80 characters. It ignores a prompt from another origin, for example a task notification. The mod keeps this value in memory only. The store gets a prompt only as the title of a group that has tasks. A prompt can hold a pasted secret: a short title keeps less of it.
 
 ### Storage
 
@@ -131,7 +131,7 @@ The tasks that the model made before the mod loaded are not in the store. On a m
 
 ### Docs and version
 
-- README of the mod, "Data that the mod reads": the inputs and results of the three task tools. It also reads the first line of the user prompt. "Hooks": the `tool.call` and `prompt.submit` hooks read these. The store keeps these values of each task: subject, description, status, times. It also keeps the first line of a prompt.
+- README of the mod, "Data that the mod reads": the inputs and results of the three task tools. It also reads the first line of the user prompt. "Hooks": the `tool.call` and `prompt.submit` hooks read these. The store keeps these values of each task: subject, description, status, times. It also keeps the title of each group: the first line of a prompt, cut to 80 characters.
 - The root `README.md` and each `docs/i18n/README.<lang>.md`, in the same commit.
 - Version 0.14.0. Changelog: "The pane has a tasks screen that keeps each task list of the session, with its times."
 - `CLAUDE.md`: the tested version, after the check on 2.1.330.
