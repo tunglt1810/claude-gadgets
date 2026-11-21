@@ -61,6 +61,7 @@ import {
   touchSessions,
 } from '../src/snapshot'
 import { SPIN_MS } from '../src/spinner'
+import { applyCall, firstLine, parseHistory, replay, tasksKey } from '../src/tasks'
 import { subKeysOf } from '../src/tools'
 import { transcriptItems } from '../src/transcript'
 import { cacheTtls, isOn, isOverLimit, type Ttl } from '../src/ttl'
@@ -99,6 +100,7 @@ import type {
   PaneView,
   Registry,
   Shell,
+  TaskHistory,
   Transcript,
 } from '../types'
 
@@ -166,6 +168,11 @@ const initialData: PaneData = {
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
 // The shell commands in the background of one session. They end with the session, so they
 // are not stored.
+// The task lists of one session, oldest first, and the first line of the last prompt that the
+// user typed: a new list takes it as its title.
+const initialTasks: TaskHistory = { sessionId: null, groups: [], prompt: '' }
+const tasks = atom({ plugin: 'flight-deck', key: 'tasks' } as const, initialTasks)
+const TASK_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TaskList'])
 const initialShells: { sessionId: string | null; list: Shell[] } = { sessionId: null, list: [] }
 const shellsAtom = atom({ plugin: 'flight-deck', key: 'shells' } as const, initialShells)
 // The lines of output that the background screen shows of a shell, and the bytes of the end
@@ -268,6 +275,7 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
   for (const old of drop) {
     await $.store.delete(storeKey(old))
     await $.store.delete(agentsKey(old))
+    await $.store.delete(tasksKey(old))
   }
   await $.store.set(storeKey(id), {
     totals: s.totals,
@@ -973,6 +981,33 @@ function startSpinner($: Api): void {
   })
 }
 
+// The tasks that the model made before this load are not in the store: the messages of the
+// session give them, with no times.
+async function ensureTasks($: Api): Promise<void> {
+  const id = await $.session.id()
+  if ((await read($, tasks)).sessionId === id) return
+  const raw = await $.store.get(tasksKey(id))
+  let loaded: TaskHistory
+  if (raw === undefined) {
+    const rows = await $.session.messages().catch(() => ({ deny: 'failed' }))
+    loaded = { sessionId: id, groups: Array.isArray(rows) ? replay(rows) : [], prompt: '' }
+  } else {
+    const r = raw as { groups?: unknown; prompt?: unknown }
+    const prompt = typeof r.prompt === 'string' ? r.prompt : ''
+    loaded = { sessionId: id, groups: parseHistory(r.groups), prompt }
+  }
+  await update($, tasks, (c) => (c.sessionId === id ? c : loaded))
+}
+
+// A write redraws the pane: the store and the atom change only with the JSON.
+async function changeTasks($: Api, change: (c: TaskHistory) => TaskHistory): Promise<void> {
+  await ensureTasks($)
+  const before = await read($, tasks)
+  const after = await update($, tasks, change)
+  if (after.sessionId === null || JSON.stringify(after) === JSON.stringify(before)) return
+  await $.store.set(tasksKey(after.sessionId), { groups: after.groups, prompt: after.prompt })
+}
+
 async function stamp($: Api): Promise<number> {
   const at = await $.clock.now()
   await update($, nowAtom, () => at)
@@ -1461,6 +1496,18 @@ export const register: Register = (on, options) => {
       startSpinner($)
     }
     if (e.tool === 'TaskStop' && !res.isError) await endShell($, taskOf(e), 'killed')
+    if (TASK_TOOLS.has(e.tool) && !res.isError) {
+      const call = {
+        tool: e.tool,
+        input: e as unknown as Record<string, unknown>,
+        result: res.result,
+        text: res.text,
+      }
+      await changeTasks($, (c) => ({
+        ...c,
+        groups: applyCall(c.groups, call, startedAt, c.prompt),
+      }))
+    }
     // A failed edit changed nothing on disk.
     const diff = res.isError ? { added: 0, removed: 0 } : linesChanged(res.result)
     // A background Agent call is a subagent: `agent.spawn` counts it.
@@ -1644,6 +1691,10 @@ export const register: Register = (on, options) => {
   // A background task's notification names how an agent ended: killed, failed or completed.
   on('prompt.submit', async ($, e, next) => {
     const res = await next(e)
+    if (e.origin.kind === 'composer') {
+      const prompt = firstLine(e.text)
+      await changeTasks($, (c) => ({ ...c, prompt }))
+    }
     const notice = e.origin.kind === 'task-notification' ? taskNotice(e.text) : null
     if (notice !== null) {
       const session = await ensureLoaded($)

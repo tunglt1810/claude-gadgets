@@ -301,6 +301,8 @@ export type Task = {
 // before it.
 export type TaskGroup = { prompt: string; createdAt: number | null; tasks: Task[] }
 
+export type TaskHistory = { sessionId: string | null; groups: TaskGroup[]; prompt: string }
+
 export type Shell = {
   id: string
   command: string
@@ -387,6 +389,7 @@ declare module 'claude-code' {
       spin: number
       ttls: { main: '5m' | '1h'; agent: '5m' | '1h' } | null
       shells: { sessionId: string | null; list: Shell[] }
+      tasks: TaskHistory
     }
   }
 }

@@ -4427,3 +4427,159 @@ test('the background list shows the running shells first', async ($, on) => {
   expect(keys.filter((k) => k.startsWith('bgtask:'))).toEqual(['bgtask:x1', 'bgtask:x2'])
   await ui.unmount()
 })
+
+// The task tools as the engine answers them: an ID for each create, a record for each update.
+let taskSeq = 0
+const taskResult = (raw?: unknown) => {
+  const e = raw as { tool: string; subject?: string; taskId?: string }
+  if (e.tool === 'TaskCreate')
+    return { result: { task: { id: String(++taskSeq), subject: e.subject } }, text: '' }
+  if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId }, text: '' }
+  return { result: {}, text: 'ok' }
+}
+// A store that the test reads: `mock.store` keeps its own copy.
+const memStore = (on: Parameters<typeof mock.store>[0]) => {
+  const m: Record<string, unknown> = {}
+  on('store.get', (_$, e) => ({ value: m[e.key] }) as never)
+  on('store.set', (_$, e) => {
+    m[e.key] = JSON.parse(JSON.stringify(e.value))
+    return { value: undefined } as never
+  })
+  on('store.delete', (_$, e) => {
+    delete m[e.key]
+    return { value: undefined } as never
+  })
+  on('store.keys', () => ({ value: Object.keys(m) }) as never)
+  return m
+}
+let history: unknown[] = []
+const taskEngine = (on: Parameters<typeof mock.store>[0], id: () => string = () => 'S1') => {
+  taskSeq = 0
+  history = []
+  engine(on, id, taskResult)
+  on('session.messages', () => ({ value: history }) as never)
+}
+const typed = ($: Engine, text: string) =>
+  $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } } as never)
+const createTask = ($: Engine, subject: string, description = '', agentId?: string) =>
+  $.tool.call({ tool: 'TaskCreate', subject, description, agentId } as never)
+const updateTask = ($: Engine, taskId: string, status: string) =>
+  $.tool.call({ tool: 'TaskUpdate', taskId, status } as never)
+type StoredTasks = {
+  groups: { prompt: string; tasks: { id: string; subject: string; startedAt: number | null }[] }[]
+  prompt: string
+}
+const stored = (m: Record<string, unknown>, id: string) => m[`tasks:${id}`] as StoredTasks
+
+test('the task calls of one batch go into one group under the typed prompt', async ($, on) => {
+  mock.clock(on, { now: 7000 })
+  const m = memStore(on)
+  taskEngine(on)
+
+  await typed($, 'fix nav\nmore')
+  await Promise.all([createTask($, 'A'), createTask($, 'B'), createTask($, 'C')])
+  await updateTask($, '2', 'in_progress')
+
+  const s = stored(m, 'S1')
+  expect(s.groups.length).toBe(1)
+  expect(s.groups[0]?.prompt).toBe('fix nav')
+  expect(s.groups[0]?.tasks.map((t) => t.id)).toEqual(['1', '2', '3'])
+  expect(s.groups[0]?.tasks[1]?.startedAt).toBe(7000)
+})
+
+test('a prompt from a task notification is not the prompt of a group', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on)
+
+  await typed($, 'mine')
+  await notify($, 'a1', 'completed')
+  await createTask($, 'A')
+
+  expect(stored(m, 'S1').groups[0]?.prompt).toBe('mine')
+})
+
+test('a task call of a subagent changes the same history', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on)
+
+  await createTask($, 'A')
+  await createTask($, 'B', '', 'a1')
+
+  expect(stored(m, 'S1').groups[0]?.tasks.map((t) => t.subject)).toEqual(['A', 'B'])
+})
+
+test('a denied task call adds nothing', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on)
+  on('tool.check', (_$, e) =>
+    (e.input as { subject?: string }).subject === 'B'
+      ? ({ decision: 'deny', reason: 'no' } as never)
+      : ({ decision: 'allow' } as never),
+  )
+
+  await createTask($, 'A')
+  await createTask($, 'B')
+
+  expect(stored(m, 'S1').groups[0]?.tasks.map((t) => t.subject)).toEqual(['A'])
+})
+
+test('the task history is kept per session id', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  let id = 'S1'
+  taskEngine(on, () => id)
+
+  await createTask($, 'A')
+  id = 'S2'
+  await createTask($, 'B')
+
+  expect(stored(m, 'S2').groups.map((g) => g.tasks.length)).toEqual([1])
+  expect(stored(m, 'S1').groups[0]?.tasks[0]?.subject).toBe('A')
+})
+
+test('a session with no stored history replays its messages', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on, () => 'S3')
+  history = [
+    { role: 'user', text: 'x', toolUses: [] },
+    {
+      role: 'assistant',
+      text: '',
+      toolUses: [
+        {
+          tool_use_id: 't0',
+          tool: 'TaskCreate',
+          input: { subject: 'X' },
+          text: 'Task #1 created successfully: X',
+        },
+      ],
+    },
+  ]
+  taskSeq = 1
+
+  await createTask($, 'Y')
+
+  const s = stored(m, 'S3')
+  expect(s.groups.length).toBe(1)
+  expect(s.groups[0]?.tasks.map((t) => t.subject)).toEqual(['X', 'Y'])
+})
+
+test('the prune of an old session removes its task history', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  let id = 'S0'
+  taskEngine(on, () => id)
+
+  await createTask($, 'A')
+  expect(m['tasks:S0']).toBeDefined()
+  for (let i = 1; i <= 50; i++) {
+    id = `S${i}`
+    await $.tool.call({ tool: 'Bash', command: 'true' })
+  }
+
+  expect(m['tasks:S0']).toBeUndefined()
+})
