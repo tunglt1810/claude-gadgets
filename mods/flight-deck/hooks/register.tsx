@@ -61,6 +61,7 @@ import {
   touchSessions,
 } from '../src/snapshot'
 import { SPIN_MS } from '../src/spinner'
+import { applyCall, parseHistory, promptTitle, replay, tasksKey } from '../src/tasks'
 import { subKeysOf } from '../src/tools'
 import { transcriptItems } from '../src/transcript'
 import { cacheTtls, isOn, isOverLimit, type Ttl } from '../src/ttl'
@@ -99,6 +100,7 @@ import type {
   PaneView,
   Registry,
   Shell,
+  TaskHistory,
   Transcript,
 } from '../types'
 
@@ -145,6 +147,8 @@ const initialPane: PaneView = {
   isCache: false,
   isTools: false,
   isShells: false,
+  isTasks: false,
+  openGroups: [],
   shellId: null,
   openTools: [],
   openCategories: [],
@@ -166,6 +170,11 @@ const initialData: PaneData = {
 const shownData = atom({ plugin: 'flight-deck', key: 'paneData' } as const, initialData)
 // The shell commands in the background of one session. They end with the session, so they
 // are not stored.
+// The task lists of one session, oldest first, and the first line of the last prompt that the
+// user typed: a new list takes it as its title.
+const initialTasks: TaskHistory = { sessionId: null, groups: [], prompt: '' }
+const tasks = atom({ plugin: 'flight-deck', key: 'tasks' } as const, initialTasks)
+const TASK_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TaskList'])
 const initialShells: { sessionId: string | null; list: Shell[] } = { sessionId: null, list: [] }
 const shellsAtom = atom({ plugin: 'flight-deck', key: 'shells' } as const, initialShells)
 // The lines of output that the background screen shows of a shell, and the bytes of the end
@@ -268,6 +277,7 @@ async function save($: Api, id: string, s: Snapshot): Promise<void> {
   for (const old of drop) {
     await $.store.delete(storeKey(old))
     await $.store.delete(agentsKey(old))
+    await $.store.delete(tasksKey(old))
   }
   await $.store.set(storeKey(id), {
     totals: s.totals,
@@ -586,6 +596,20 @@ async function closeTools($: Api): Promise<void> {
   })
 }
 
+async function openTasks($: Api): Promise<void> {
+  await ensureTasks($)
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isTasks: true }))
+  })
+  startSpinner($)
+}
+
+async function closeTasks($: Api): Promise<void> {
+  await focusAfter($, 'tasks', async () => {
+    await update($, pane, (c) => ({ ...c, isTasks: false }))
+  })
+}
+
 async function openShells($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isShells: true }))
@@ -875,11 +899,25 @@ async function act($: Api, action: PaneAction): Promise<void> {
             ? closeCache($)
             : cur.isTools === true
               ? closeTools($)
-              : backToTree($)
+              : cur.isTasks === true
+                ? closeTasks($)
+                : backToTree($)
   }
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'cache') return openCache($)
   if (action.kind === 'tools') return openTools($)
+  if (action.kind === 'tasks') return openTasks($)
+  if (action.kind === 'group') {
+    const index = action.index
+    // State of an older shape (a hot reload) has no list.
+    await update($, pane, (c) => ({
+      ...c,
+      openGroups: (c.openGroups ?? []).includes(index)
+        ? (c.openGroups ?? []).filter((i) => i !== index)
+        : [...(c.openGroups ?? []), index],
+    }))
+    return
+  }
   if (action.kind === 'shells') return openShells($)
   if (action.kind === 'shell') return openShell($, action.id)
   if (action.kind === 'toolRow') {
@@ -934,6 +972,7 @@ async function togglePane($: Api): Promise<boolean> {
     return false
   }
   await loadAgents($, await $.session.id())
+  await ensureTasks($)
   await loadTitle($)
   const isWrapped = (await $.store.get(WRAP_KEY)) !== false
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
@@ -960,10 +999,15 @@ function startSpinner($: Api): void {
     const isOpen = (await read($, pane)).isOpen
     const reg = await read($, agents)
     const shells = await read($, shellsAtom)
+    const view = await read($, pane)
+    const history = await read($, tasks)
     const isBusy =
       isOpen &&
       (Object.values(reg.entries).some((a) => a.status === 'running') ||
-        shells.list.some((sh) => sh.status === 'running'))
+        shells.list.some((sh) => sh.status === 'running') ||
+        // The tasks screen counts the time of a running task.
+        (view.isTasks === true &&
+          history.groups.at(-1)?.tasks.some((t) => t.status === 'in_progress') === true))
     if (!isBusy) {
       spinner?.cancel()
       spinner = null
@@ -971,6 +1015,37 @@ function startSpinner($: Api): void {
     }
     await update($, spin, (n) => (Number.isInteger(n) ? n + 1 : 0) % 1000)
   })
+}
+
+// The tasks that the model made before this load are not in the store: the messages of the
+// session give them, with no times.
+async function ensureTasks($: Api): Promise<void> {
+  const id = await $.session.id()
+  if ((await read($, tasks)).sessionId === id) return
+  const raw = await $.store.get(tasksKey(id))
+  let loaded: TaskHistory
+  if (raw === undefined) {
+    const rows = await $.session.messages().catch(() => ({ deny: 'failed' }))
+    loaded = { sessionId: id, groups: Array.isArray(rows) ? replay(rows) : [], prompt: '' }
+  } else {
+    loaded = {
+      sessionId: id,
+      groups: parseHistory((raw as { groups?: unknown }).groups),
+      prompt: '',
+    }
+  }
+  await update($, tasks, (c) => (c.sessionId === id ? c : loaded))
+}
+
+// A write redraws the pane: the store and the atom change only with the JSON.
+async function changeTasks($: Api, change: (c: TaskHistory) => TaskHistory): Promise<void> {
+  await ensureTasks($)
+  const before = await read($, tasks)
+  const after = await update($, tasks, change)
+  // The store holds the prompt of a group only: a prompt with no task is not written.
+  if (after.sessionId === null || after.groups.length === 0) return
+  if (JSON.stringify(after.groups) === JSON.stringify(before.groups)) return
+  await $.store.set(tasksKey(after.sessionId), { groups: after.groups })
 }
 
 async function stamp($: Api): Promise<number> {
@@ -1461,6 +1536,20 @@ export const register: Register = (on, options) => {
       startSpinner($)
     }
     if (e.tool === 'TaskStop' && !res.isError) await endShell($, taskOf(e), 'killed')
+    if (TASK_TOOLS.has(e.tool) && !res.isError) {
+      const call = {
+        tool: e.tool,
+        input: e as unknown as Record<string, unknown>,
+        result: res.result,
+        text: res.text,
+      }
+      await changeTasks($, (c) => ({
+        ...c,
+        groups: applyCall(c.groups, call, startedAt, c.prompt),
+      }))
+      // A task that starts while the tasks screen is open counts its time.
+      startSpinner($)
+    }
     // A failed edit changed nothing on disk.
     const diff = res.isError ? { added: 0, removed: 0 } : linesChanged(res.result)
     // A background Agent call is a subagent: `agent.spawn` counts it.
@@ -1644,6 +1733,10 @@ export const register: Register = (on, options) => {
   // A background task's notification names how an agent ended: killed, failed or completed.
   on('prompt.submit', async ($, e, next) => {
     const res = await next(e)
+    if (e.origin.kind === 'composer') {
+      const prompt = promptTitle(e.text)
+      await changeTasks($, (c) => ({ ...c, prompt }))
+    }
     const notice = e.origin.kind === 'task-notification' ? taskNotice(e.text) : null
     if (notice !== null) {
       const session = await ensureLoaded($)
@@ -1758,6 +1851,7 @@ export const register: Register = (on, options) => {
     if (drawn !== null) setTimeout(drawn, 0)
     const view = await read($, pane)
     const shellList = await read($, shellsAtom)
+    const taskList = await read($, tasks)
     const body = (
       <AgentPane
         ui={ui}
@@ -1772,6 +1866,7 @@ export const register: Register = (on, options) => {
         // State of an older shape (a hot reload) has no tools.
         tools={isCurrent ? (data.tools ?? null) : null}
         shells={view.agentId === null && shellList.sessionId === id ? shellList.list : null}
+        tasks={taskList.sessionId === id ? taskList.groups : []}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -1792,6 +1887,8 @@ export const register: Register = (on, options) => {
         onContext={() => act($, { kind: 'context' })}
         onCache={() => act($, { kind: 'cache' })}
         onTools={() => act($, { kind: 'tools' })}
+        onTasks={() => act($, { kind: 'tasks' })}
+        onGroup={(index) => act($, { kind: 'group', index })}
         onShells={() => act($, { kind: 'shells' })}
         onShell={(id) => act($, { kind: 'shell', id })}
         onToolRow={(name) => act($, { kind: 'toolRow', name })}

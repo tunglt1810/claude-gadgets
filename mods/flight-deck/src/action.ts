@@ -13,7 +13,8 @@ export const focusAction = (raw: string, transcript: Transcript | null): PaneAct
     element === 'context' ||
     element === 'recount' ||
     element === 'cache' ||
-    element === 'tools'
+    element === 'tools' ||
+    element === 'tasks'
   )
     return { kind: element }
   if (element === 'shells') return { kind: 'shells' }
@@ -31,6 +32,7 @@ export const focusAction = (raw: string, transcript: Transcript | null): PaneAct
   if (kind === 'trow') return { kind: 'toolRow', name: id }
   if (kind === 'tool') return { kind: 'tool', toolUseId: id }
   if (kind === 'bgtask') return { kind: 'shell', id }
+  if (kind === 'group' && /^\d+$/.test(id)) return { kind: 'group', index: Number(id) }
   if (kind !== 'child' || transcript === null || !('items' in transcript)) return null
   const item = transcript.items.find((it) => it.kind === 'tool' && it.id === id)
   const agentId = item?.kind === 'tool' ? item.agentId : undefined

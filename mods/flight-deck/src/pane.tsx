@@ -9,6 +9,8 @@ import type {
   Registry,
   Shell,
   Snapshot,
+  Task,
+  TaskGroup,
   ToolNode,
   ToolsView,
   TranscriptItem,
@@ -35,6 +37,7 @@ import { agentTitle, modelLabel, workedMs } from './registry'
 import { shellsHead, shownOrder } from './shells'
 import { inputCode, toolSummary } from './summary'
 import { agentTable, recency, runsLabel } from './table'
+import { groupTimes, isOpen } from './tasks'
 import { toolsHead, treeLines } from './tools'
 import { lastItems } from './transcript'
 import { treeRows } from './tree'
@@ -50,6 +53,8 @@ type Props = {
   breaks: BreaksView | null
   tools: ToolsView | null
   shells: Shell[] | null
+  // The task lists of the session, oldest first.
+  tasks: TaskGroup[]
   // The dashboard's costs and the tokens of each context as they are on screen, by name, where
   // the pane is drawn on each frame (the terminal). Absent on a desktop: a cell runs to its
   // new number by itself.
@@ -73,6 +78,8 @@ type Props = {
   onContext: () => void
   onCache: () => void
   onTools: () => void
+  onTasks: () => void
+  onGroup: (index: number) => void
   onShells: () => void
   onShell: (id: string) => void
   onToolRow: (name: string) => void
@@ -135,7 +142,28 @@ const CALLS_PCT_WIDTH = 8
 // below the name of the row, and the cells of one level (a connector and its space).
 const TREE_INDENT = 2
 const TREE_LEVEL = 3
+// The button of the tasks screen. A task's mark: a running task has the tone of a running
+// agent, the others are dim. A time that the mod did not see (a replayed task) is a dash.
+const TASKS = 'tasks'
+const TASK_MARK = {
+  completed: { text: '✓', dim: true },
+  in_progress: { text: '◐', color: PALETTE.green },
+  pending: { text: '○', dim: true },
+} as const
+const NO_TIME = '—'
 const SHELLS = 'background'
+
+const doneOf = (g: TaskGroup) =>
+  `${g.tasks.filter((t) => t.status === 'completed').length}/${g.tasks.length}`
+
+// When a group started, and when it ended with its length: `14:02` or `13:10–13:48  38:00`.
+const groupTimesText = (g: TaskGroup) => {
+  const { from, to } = groupTimes(g)
+  if (from === null) return NO_TIME
+  return to === null
+    ? clockText(from)
+    : `${clockText(from)}–${clockText(to)}  ${formatDuration(to - from)}`
+}
 const BACK_SHELLS = '← background'
 const MAX_SHELL_COMMAND = 32
 const SHELL_MARK = {
@@ -206,6 +234,7 @@ export const AgentPane = ({
   columns,
   scrollTop,
   scrollFrom,
+  tasks,
   onOpen,
   onExpand,
   onBack,
@@ -214,6 +243,8 @@ export const AgentPane = ({
   onContext,
   onCache,
   onTools,
+  onTasks,
+  onGroup,
   onShells,
   onShell,
   onToolRow,
@@ -491,6 +522,26 @@ export const AgentPane = ({
           {rule('cache:rowrule')}
         </Box>
       )
+
+    const tasksRow = () => {
+      const last = tasks.at(-1)
+      return last === undefined ? null : (
+        <Box key="tasksblock" flexDirection="column">
+          <Box
+            key="tasks:row"
+            flexDirection="row"
+            alignItems="center"
+            gap={1}
+            overflow="hidden"
+            {...oneRowOnly}
+          >
+            <Button key="tasks" label={TASKS} onPress={onTasks} />
+            {cell('tasks:head', { text: doneOf(last), dim: true })}
+          </Box>
+          {rule('tasks:rowrule')}
+        </Box>
+      )
+    }
 
     const toolsRow = () =>
       tools === null ? null : (
@@ -960,6 +1011,82 @@ export const AgentPane = ({
         </Box>
       )
     }
+    const tasksScreen = () => {
+      const titleWidth = Math.max(1, columns - (BACK.length + BUTTON_CHROME + 1))
+      const subjectWidth = Math.max(MIN_MODEL, columns - (CLOCK_WIDTH + 1) - (TIME_WIDTH + 1))
+      // State of an older shape (a hot reload) has no list.
+      const toggledGroups = view.openGroups ?? []
+      const groupRow = (g: TaskGroup, i: number, isGroupOpen: boolean) => {
+        const label = cut(
+          `${isGroupOpen ? '▾' : '▸'} ${doneOf(g)}  ${groupTimesText(g)}  ${g.prompt}`,
+          columns,
+        )
+        return restBox(
+          `groupbox:${i}`,
+          columns,
+          label,
+          <Button key={`group:${i}`} plain label={label} onPress={() => onGroup(i)} />,
+        )
+      }
+      const taskRow = (gi: number, t: Task) => {
+        const key = `${gi}:${t.id}`
+        const mark = TASK_MARK[t.status]
+        const isPending = t.status === 'pending'
+        const start = isPending ? '' : t.startedAt === null ? NO_TIME : clockText(t.startedAt)
+        const duration: Cell = isPending
+          ? { text: '' }
+          : t.startedAt === null
+            ? { text: NO_TIME }
+            : t.status === 'in_progress'
+              ? { text: '', since: t.startedAt }
+              : { text: formatDuration((t.endedAt ?? t.startedAt) - t.startedAt) }
+        const { text: glyph, ...tone } = mark
+        return (
+          <Box key={`task:${key}`} flexDirection="column">
+            <Box key={`task:row:${key}`} flexDirection="row" gap={1}>
+              {rest(`task:name:${key}`, `${glyph} ${t.subject}`, subjectWidth, tone)}
+              {cell(`task:start:${key}`, { text: start, dim: true, width: CLOCK_WIDTH })}
+              {cell(`task:dur:${key}`, {
+                ...duration,
+                dim: true,
+                width: TIME_WIDTH,
+                align: 'right',
+              })}
+            </Box>
+            {t.description !== '' && (
+              <Text key={`task:desc:${key}`} dimColor wrap="wrap">
+                {`  ${t.description}`}
+              </Text>
+            )}
+          </Box>
+        )
+      }
+      return (
+        <Box flexDirection="column">
+          <Box key="tasks:toolbar" flexDirection="row" alignItems="center" gap={1} {...oneRowOnly}>
+            <Button key="back" label={BACK} onPress={onBack} />
+            {rest('tasks:title', 'Tasks', titleWidth, { bold: true })}
+          </Box>
+          {tasks.length === 0 ? (
+            <Text key="tasks:none" dimColor>
+              No task yet.
+            </Text>
+          ) : (
+            [...tasks.keys()].reverse().map((i) => {
+              const g = tasks[i] as TaskGroup
+              const isGroupOpen = isOpen(tasks, i, toggledGroups)
+              return (
+                <Box key={`grp:${i}`} flexDirection="column">
+                  {groupRow(g, i, isGroupOpen)}
+                  {isGroupOpen && g.tasks.map((t) => taskRow(i, t))}
+                </Box>
+              )
+            })
+          )}
+        </Box>
+      )
+    }
+    if (view.isTasks === true) return tasksScreen()
     // State of an older shape (a hot reload) has no flag.
     if (view.isShells === true) {
       const open = (shells ?? []).find((sh) => sh.id === view.shellId)
@@ -982,6 +1109,7 @@ export const AgentPane = ({
           {contextBlock()}
           {cacheRow()}
           {toolsRow()}
+          {tasksRow()}
           {shellsRow()}
           <Text dimColor>No agents yet.</Text>
         </Box>
@@ -997,6 +1125,7 @@ export const AgentPane = ({
         {contextBlock()}
         {cacheRow()}
         {toolsRow()}
+        {tasksRow()}
         {shellsRow()}
         <Box key="head" flexDirection="row" gap={1}>
           {/* Built as a row is, a mark and a box of the name's width: a desktop sizes a box

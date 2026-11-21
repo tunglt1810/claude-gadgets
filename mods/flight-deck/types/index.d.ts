@@ -212,6 +212,10 @@ export type PaneView = {
   isCache: boolean
   isTools: boolean
   isShells: boolean
+  // State of an older shape (a hot reload) has neither of these two.
+  isTasks?: boolean
+  // The indexes of the task groups that the person opened or closed.
+  openGroups?: number[]
   shellId: string | null
   openTools: string[]
   openCategories: string[]
@@ -229,6 +233,8 @@ export type PaneAction =
   | { kind: 'context' }
   | { kind: 'cache' }
   | { kind: 'tools' }
+  | { kind: 'tasks' }
+  | { kind: 'group'; index: number }
   | { kind: 'shells' }
   | { kind: 'shell'; id: string }
   | { kind: 'toolRow'; name: string }
@@ -282,6 +288,26 @@ export type PaneData = {
   breaks: BreaksView | null
   tools: ToolsView | null
 }
+
+export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+
+// One task of the model's task list, as `TaskCreate` and `TaskUpdate` gave it. The times are
+// the clock of the hook that saw the change; a task rebuilt from the messages has none.
+export type Task = {
+  id: string
+  subject: string
+  description: string
+  status: TaskStatus
+  startedAt: number | null
+  endedAt: number | null
+}
+
+// One task list of the session: the engine clears a list when all its tasks are completed,
+// and the next `TaskCreate` starts a new group. `prompt` is the first line of the user prompt
+// before it.
+export type TaskGroup = { prompt: string; createdAt: number | null; tasks: Task[] }
+
+export type TaskHistory = { sessionId: string | null; groups: TaskGroup[]; prompt: string }
 
 export type Shell = {
   id: string
@@ -369,6 +395,7 @@ declare module 'claude-code' {
       spin: number
       ttls: { main: '5m' | '1h'; agent: '5m' | '1h' } | null
       shells: { sessionId: string | null; list: Shell[] }
+      tasks: TaskHistory
     }
   }
 }

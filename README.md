@@ -119,6 +119,17 @@ A cache break is a step of the main loop that reads much less from the prompt ca
 - The mod counts calls, not cost. The engine gives a cost for each request and each model, not for each tool call.
 - A session from an earlier version of the mod counted its calls, but not for each tool. The screen shows how many calls it cannot list.
 
+## Tasks screen
+
+The model makes a task list with `TaskCreate` and `TaskUpdate`. Claude Code shows the current list above the prompt (`ctrl+t` hides or shows it), and clears it when the model completes all its tasks. The tasks screen keeps each list of the session.
+
+- The `tasks` row on the agents screen shows the completed and the total tasks of the current list.
+- Press `tasks` to see each list, the newest first. The title of a list is the first line of the prompt that you typed before it, cut to 80 characters.
+- Each task shows its subject, its description, its start time and its duration. The duration of a running task increases each second.
+- The current list is open. A stopped list is one row with its count, its times and its title. Press the row to open or close it.
+- `/clear` starts a new session with no lists. A resumed session keeps its lists.
+- The mod does not see the time of a task that the model made before the mod loaded. The screen shows `—` for it.
+
 ## Background screen
 
 - The `background` row on the agents screen shows how many shell commands run in the background and how many ended. The row shows after the first such command.

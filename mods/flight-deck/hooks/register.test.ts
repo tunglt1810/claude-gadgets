@@ -1314,7 +1314,8 @@ test('the registry is kept per session id and comes back with the id', async ($,
 
 test('an event of another agent does not replace the open transcript', async ($, on) => {
   mock.clock(on, { now: 1000 })
-  mock.store(on, {})
+  // A stored task history: the pane then reads no messages of the main loop.
+  mock.store(on, { 'tasks:S1': { groups: [] } })
   engine(on)
   let reads = 0
   paneEngine(on, () => {
@@ -4426,4 +4427,322 @@ test('the background list shows the running shells first', async ($, on) => {
   const keys = (await ui.findAll({ type: 'Button' })).map((b) => String(b.key))
   expect(keys.filter((k) => k.startsWith('bgtask:'))).toEqual(['bgtask:x1', 'bgtask:x2'])
   await ui.unmount()
+})
+
+// The task tools as the engine answers them: an ID for each create, a record for each update.
+let taskSeq = 0
+const taskResult = (raw?: unknown) => {
+  const e = raw as { tool: string; subject?: string; taskId?: string }
+  if (e.tool === 'TaskCreate')
+    return { result: { task: { id: String(++taskSeq), subject: e.subject } }, text: '' }
+  if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId }, text: '' }
+  return { result: {}, text: 'ok' }
+}
+// A store that the test reads: `mock.store` keeps its own copy.
+const memStore = (on: Parameters<typeof mock.store>[0]) => {
+  const m: Record<string, unknown> = {}
+  on('store.get', (_$, e) => ({ value: m[e.key] }) as never)
+  on('store.set', (_$, e) => {
+    m[e.key] = JSON.parse(JSON.stringify(e.value))
+    return { value: undefined } as never
+  })
+  on('store.delete', (_$, e) => {
+    delete m[e.key]
+    return { value: undefined } as never
+  })
+  on('store.keys', () => ({ value: Object.keys(m) }) as never)
+  return m
+}
+let history: unknown[] = []
+const taskEngine = (on: Parameters<typeof mock.store>[0], id: () => string = () => 'S1') => {
+  taskSeq = 0
+  history = []
+  engine(on, id, taskResult)
+  on('session.messages', () => ({ value: history }) as never)
+}
+const typed = ($: Engine, text: string) =>
+  $.prompt.submit({ text, wait: false, origin: { kind: 'composer' } } as never)
+const createTask = ($: Engine, subject: string, description = '', agentId?: string) =>
+  $.tool.call({ tool: 'TaskCreate', subject, description, agentId } as never)
+const updateTask = ($: Engine, taskId: string, status: string) =>
+  $.tool.call({ tool: 'TaskUpdate', taskId, status } as never)
+type StoredTasks = {
+  groups: { prompt: string; tasks: { id: string; subject: string; startedAt: number | null }[] }[]
+}
+const stored = (m: Record<string, unknown>, id: string) => m[`tasks:${id}`] as StoredTasks
+
+test('the task calls of one batch go into one group under the typed prompt', async ($, on) => {
+  mock.clock(on, { now: 7000 })
+  const m = memStore(on)
+  taskEngine(on)
+
+  await typed($, 'fix nav\nmore')
+  await Promise.all([createTask($, 'A'), createTask($, 'B'), createTask($, 'C')])
+  await updateTask($, '2', 'in_progress')
+
+  const s = stored(m, 'S1')
+  expect(s.groups.length).toBe(1)
+  expect(s.groups[0]?.prompt).toBe('fix nav')
+  expect(s.groups[0]?.tasks.map((t) => t.id)).toEqual(['1', '2', '3'])
+  expect(s.groups[0]?.tasks[1]?.startedAt).toBe(7000)
+})
+
+test('a prompt from a task notification is not the prompt of a group', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on)
+
+  await typed($, 'mine')
+  await notify($, 'a1', 'completed')
+  await createTask($, 'A')
+
+  expect(stored(m, 'S1').groups[0]?.prompt).toBe('mine')
+})
+
+test('a task call of a subagent changes the same history', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on)
+
+  await createTask($, 'A')
+  await createTask($, 'B', '', 'a1')
+
+  expect(stored(m, 'S1').groups[0]?.tasks.map((t) => t.subject)).toEqual(['A', 'B'])
+})
+
+test('a denied task call adds nothing', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on)
+  on('tool.check', (_$, e) =>
+    (e.input as { subject?: string }).subject === 'B'
+      ? ({ decision: 'deny', reason: 'no' } as never)
+      : ({ decision: 'allow' } as never),
+  )
+
+  await createTask($, 'A')
+  await createTask($, 'B')
+
+  expect(stored(m, 'S1').groups[0]?.tasks.map((t) => t.subject)).toEqual(['A'])
+})
+
+test('the task history is kept per session id', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  let id = 'S1'
+  taskEngine(on, () => id)
+
+  await createTask($, 'A')
+  id = 'S2'
+  await createTask($, 'B')
+
+  expect(stored(m, 'S2').groups.map((g) => g.tasks.length)).toEqual([1])
+  expect(stored(m, 'S1').groups[0]?.tasks[0]?.subject).toBe('A')
+})
+
+test('a session with no stored history replays its messages', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on, () => 'S3')
+  history = [
+    { role: 'user', text: 'x', toolUses: [] },
+    {
+      role: 'assistant',
+      text: '',
+      toolUses: [
+        {
+          tool_use_id: 't0',
+          tool: 'TaskCreate',
+          input: { subject: 'X' },
+          text: 'Task #1 created successfully: X',
+        },
+      ],
+    },
+  ]
+  taskSeq = 1
+
+  await createTask($, 'Y')
+
+  const s = stored(m, 'S3')
+  expect(s.groups.length).toBe(1)
+  expect(s.groups[0]?.tasks.map((t) => t.subject)).toEqual(['X', 'Y'])
+})
+
+test('the prune of an old session removes its task history', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  let id = 'S0'
+  taskEngine(on, () => id)
+
+  await createTask($, 'A')
+  expect(m['tasks:S0']).toBeDefined()
+  for (let i = 1; i <= 50; i++) {
+    id = `S${i}`
+    await $.tool.call({ tool: 'Bash', command: 'true' })
+  }
+
+  expect(m['tasks:S0']).toBeUndefined()
+})
+
+const taskPane = (on: Parameters<typeof mock.store>[0]) => {
+  taskSeq = 0
+  history = []
+  engine(on, () => 'S1', taskResult)
+  paneEngine(on, () => history)
+}
+
+test('the tasks row opens the tasks screen of the task history', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  taskPane(on)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await ui.find({ key: 'tasks' })).toBeUndefined()
+    await ui.unmount()
+  }
+  await typed($, 'fix nav')
+  await createTask($, 'A', 'dA')
+  await createTask($, 'B')
+  await updateTask($, '1', 'in_progress')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'tasks:head')).toContain('0/2')
+    await ui.press({ key: 'tasks' })
+    const text = await paneText(ui)
+    for (const part of ['Tasks', '▾ 0/2', 'fix nav', '◐ A', 'dA', '○ B'])
+      expect(text).toContain(part)
+    await ui.press({ key: 'back' })
+    expect(await ui.find({ key: 'tasks' })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('a stopped group is closed until its row is pressed', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  taskPane(on)
+  await typed($, 'fix nav')
+  await createTask($, 'A')
+  await createTask($, 'B')
+  await updateTask($, '1', 'completed')
+  await updateTask($, '2', 'completed')
+  await typed($, 'next')
+  await createTask($, 'C')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'tasks' })
+    const text = await paneText(ui)
+    for (const part of ['▾ 0/1', 'next', '○ C', '▸ 2/2', 'fix nav']) expect(text).toContain(part)
+    expect(text).not.toContain('✓ A')
+    await ui.press({ key: 'group:0' })
+    expect(await paneText(ui)).toContain('✓ A')
+    await ui.press({ key: 'group:0' })
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a replayed task has no times and shows a dash', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  taskPane(on)
+  history = [
+    { role: 'user', text: 'old', toolUses: [] },
+    {
+      role: 'assistant',
+      text: '',
+      toolUses: [
+        {
+          tool_use_id: 't0',
+          tool: 'TaskCreate',
+          input: { subject: 'X' },
+          result: { task: { id: '1', subject: 'X' } },
+          text: '',
+        },
+        {
+          tool_use_id: 't1',
+          tool: 'TaskUpdate',
+          input: { taskId: '1', status: 'in_progress' },
+          result: { success: true, taskId: '1' },
+          text: '',
+        },
+      ],
+    },
+  ]
+  // The pane opens (the band button): the history of the session is read then.
+  const band = await $.ui.mount({
+    plugin: 'flight-deck',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
+  })
+  await band.press({ key: 'agents' })
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'tasks' })
+    const text = await paneText(ui)
+    expect(text).toContain('◐ X')
+    expect(text).toContain('—')
+    expect(text).not.toContain('NaN')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a group row with a long prompt stays one row', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  taskPane(on)
+  await typed($, 'x'.repeat(300))
+  await createTask($, 'A')
+  const ui = await mountPane($, 'terminal', true, 60)
+  await ui.press({ key: 'tasks' })
+  const row = await ui.find({ key: 'group:0' })
+  expect(String(row?.props.label).length).toBeLessThanOrEqual(58)
+  await ui.unmount()
+})
+
+test('the duration of a running task counts up', async ($, on) => {
+  const clock = mock.clock(on, { now: 5000 })
+  mock.store(on, {})
+  taskPane(on)
+  await createTask($, 'A')
+  await updateTask($, '1', 'in_progress')
+  const desk = await mountPane($, 'desktop')
+  await desk.press({ key: 'tasks' })
+  const node = await desk.find({ key: 'task:dur:0:1' })
+  expect(node?.type).toBe('Client')
+  expect((node?.props.props as Cell | undefined)?.since).toBe(5000)
+  await desk.press({ key: 'back' })
+  await desk.unmount()
+  // The pane is open (the band button): the tick runs only for an open pane.
+  const band = await $.ui.mount({
+    plugin: 'flight-deck',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
+  })
+  await band.press({ key: 'agents' })
+  const term = await mountPane($, 'terminal')
+  await term.press({ key: 'tasks' })
+  const before = await cellOf(term, 'task:dur:0:1')
+  await clock.advance(2000)
+  expect(await cellOf(term, 'task:dur:0:1')).not.toBe(before)
+  await term.press({ key: 'back' })
+  await term.unmount()
+})
+
+test('a typed prompt is stored only with a task, and cut', async ($, on) => {
+  mock.clock(on, { now: 1 })
+  const m = memStore(on)
+  taskEngine(on)
+
+  await typed($, `${'y'.repeat(300)}\nsecond line`)
+  expect(m['tasks:S1']).toBeUndefined()
+  await createTask($, 'A')
+
+  const raw = JSON.stringify(m['tasks:S1'])
+  expect(raw).not.toContain('second line')
+  expect(raw).not.toContain('y'.repeat(81))
+  expect(stored(m, 'S1').groups[0]?.prompt.length).toBe(80)
 })

@@ -121,6 +121,17 @@ Một cache break là một step của vòng lặp chính đọc từ prompt cac
 - Mod đếm số lần gọi, không đếm chi phí. Engine cho chi phí của mỗi request và mỗi model, không cho chi phí của mỗi tool call.
 - Một session từ phiên bản cũ của mod đã đếm các lần gọi, nhưng không đếm theo từng tool. Màn hình hiển thị số lần gọi mà nó không liệt kê được.
 
+## Màn hình tasks
+
+Model tạo danh sách task bằng `TaskCreate` và `TaskUpdate`. Claude Code hiển thị danh sách hiện tại phía trên prompt (`ctrl+t` để ẩn hoặc hiện), và xóa danh sách khi mọi task đã xong. Màn hình tasks giữ lại từng danh sách của session.
+
+- Hàng `tasks` trên màn hình agents hiển thị số task đã xong và tổng số task của danh sách hiện tại.
+- Bấm `tasks` để xem từng danh sách, danh sách mới nhất ở trên. Tiêu đề của một danh sách là dòng đầu của prompt mà bạn gõ trước nó, cắt còn 80 ký tự.
+- Mỗi task hiển thị subject, description, giờ bắt đầu và thời gian chạy. Thời gian của task đang chạy tăng mỗi giây.
+- Danh sách hiện tại được mở sẵn. Danh sách đã dừng là một hàng gồm số task, khoảng giờ và tiêu đề. Bấm vào hàng để mở hoặc đóng.
+- `/clear` bắt đầu một session mới, không có danh sách nào. Session được resume vẫn giữ các danh sách của nó.
+- Mod không biết giờ của task mà model tạo trước khi mod được nạp. Màn hình hiển thị `—` cho task đó.
+
 ## Màn hình background
 
 - Hàng `background` trên màn hình agents hiển thị số lệnh shell đang chạy nền và số lệnh đã kết thúc. Hàng này hiện sau lệnh chạy nền đầu tiên.

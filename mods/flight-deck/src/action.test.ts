@@ -11,6 +11,8 @@ const transcript = {
 test('focusAction reads the action of each pane button key', () => {
   expect(focusAction('back', null)).toEqual({ kind: 'back' })
   expect(focusAction('wrap', null)).toEqual({ kind: 'wrap' })
+  expect(focusAction('tasks', null)).toEqual({ kind: 'tasks' })
+  expect(focusAction('group:2', null)).toEqual({ kind: 'group', index: 2 })
   // The back button of the bar that stays in view while the transcript scrolls.
   expect(focusAction('sticky:back', null)).toEqual({ kind: 'back' })
   expect(focusAction('stickyfrom:back', null)).toEqual({ kind: 'back' })
