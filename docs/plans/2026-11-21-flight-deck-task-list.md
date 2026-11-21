@@ -1,170 +1,161 @@
-# flight-deck task list Implementation Plan
+# flight-deck task history Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Show the task list of the session in the terminal band (one segment) and in a new tasks screen of the flight-deck pane.
+**Goal:** Keep each task list of the session as a group, and show the groups in a tasks screen of the flight-deck pane.
 
-**Architecture:** A pure module `src/tasks.ts` applies `TaskCreate`, `TaskUpdate` and `TaskList` calls to a list. The hooks module applies each `tool.call` result to a `tasks` atom, stores the list per session ID, and replays the session history on a session-ID mismatch. `Band` draws a task Button at the start of the terminal row. `AgentPane` draws a `tasks` row on the dashboard and a tasks screen.
+**Architecture:** A pure module `src/tasks.ts` applies the `TaskCreate`, `TaskUpdate` and `TaskList` calls to a `TaskGroup[]` history. The hooks module applies each `tool.call` result to a `tasks` atom and keeps the last user prompt. It stores the history per session ID. On a session-ID mismatch with no stored history, it replays the session messages. `AgentPane` draws a `tasks` row on the dashboard and a tasks screen.
 
-**Tech Stack:** TypeScript, Bun, Claude Code plugin API 2.1.325 (`claude-code/testing`).
+**Tech Stack:** TypeScript, Bun, Claude Code plugin API (`claude-code/testing`).
 
 **Spec:** `docs/specs/2026-11-21-flight-deck-task-list-design.md`
 
 ## Global Constraints
 
-- Every path is under `mods/flight-deck/` unless it starts with `docs/`, `CHANGELOG.md` or `README.md`.
+- Every path is under `mods/flight-deck/` unless it starts with `docs/`, `CHANGELOG.md`, `CLAUDE.md` or `README.md`.
 - `bun run check` is green at the end of each task.
 - TDD: write the failing test first and watch it fail.
-- Drawn text: single-width glyphs only. `✓` completed, `◐` in progress, `○` pending.
-- The band stays one row. The task segment is not drawn on the desktop.
-- Version `0.14.0`. Changelog: "The band shows the current task, and the pane has a tasks screen."
+- Drawn text: single-width glyphs only. `✓` completed, `◐` in progress, `○` pending, `▾` open group, `▸` closed group, `—` no time.
+- No band change.
+- Version `0.14.0`. Changelog: "The pane has a tasks screen that keeps each task list of the session, with its times."
 - Read each field of a task result with a type check. An unknown shape changes nothing.
 
 ## Review Focus
 
-1. Several `TaskCreate` calls in one batch: each task keeps the ID from its own result (Task 1 `applyCall`, Task 2 parallel-call test).
-2. A `TaskUpdate` for an unknown ID, or a result with `success: false`: the list does not change (Task 1).
-3. `/clear` or resume to a session with no stored list: the replay of the history gives the list. With no history, the list is empty (Task 2).
-4. A narrow terminal: the row never wraps, and `◐ 2/3` is the last part that stays (Task 4).
-5. A desktop pane: the tasks screen draws, and the band has no task Button (Task 3, Task 4 loop over `['terminal', 'desktop']`).
+1. Several `TaskCreate` calls in one batch: each task keeps the ID from its own result, and all go into one group (Task 1, Task 2).
+2. A `TaskCreate` after all tasks of the current group are `completed`: a new group starts, and the old group keeps its tasks (Task 1).
+3. A replayed task has no times, and the screen shows `—`, not `NaN` or `0s` (Task 1, Task 3).
+4. A long prompt or subject in a group row: the row stays one row (Task 3).
+5. The desktop pane does not redraw each second while a task runs (Task 3: a desktop test counts the pane draws).
 
 ---
 
-### Task 1: Task list model
+### Task 1: History model
 
 **Files:**
-- Create: `src/tasks.ts`
-- Test: `src/tasks.test.ts`
-- Change: `types/index.d.ts` (add `Task`, `TaskStatus`)
+- Create: `src/tasks.ts`, `src/tasks.test.ts`
+- Change: `types/index.d.ts` (add `TaskStatus`, `Task`, `TaskGroup` as in the spec, section Model)
 
 **Interfaces:**
 - Produces:
-  - `type TaskStatus = 'pending' | 'in_progress' | 'completed'`
-  - `type Task = { id: string; subject: string; status: TaskStatus }`
-  - `applyCall(list: Task[], tool: string, input: Record<string, unknown>, result: unknown): Task[]`. Returns `list` unchanged for any other tool or an unknown shape.
-  - `replay(messages: { toolUses: { tool: string; input: Record<string, unknown>; result?: unknown; text?: string; isError?: boolean }[] }[]): Task[]`
-  - `parseTasks(raw: unknown): Task[]` (store value to list, `[]` on a bad shape)
+  - `applyCall(groups: TaskGroup[], call: { tool: string; input: Record<string, unknown>; result: unknown; text?: string }, now: number | null, prompt: string): TaskGroup[]`. Returns `groups` (same reference) for another tool or an unknown shape.
+  - `replay(messages: SessionMessageLike[]): TaskGroup[]`, where `SessionMessageLike = { role: 'user' | 'assistant'; text: string; toolUses: { tool: string; input: Record<string, unknown>; result?: unknown; text?: string; isError?: boolean }[] }`. `now` is `null` for each call.
+  - `parseHistory(raw: unknown): TaskGroup[]` (`[]` on a bad shape)
   - `tasksKey(sessionId: string): string`, which returns `` `tasks:${sessionId}` ``
-  - `taskBand(list: Task[]): { glyph: '◐' | '○'; done: number; total: number; subject: string } | null`
-  - `taskLabel(band: NonNullable<ReturnType<typeof taskBand>>, room: number): string`
-  - `const MIN_SUBJECT = 12`
+  - `firstLine(text: string): string`
+  - `isStopped(groups: TaskGroup[], index: number): boolean` (true when every task is `completed` or `index` is not the last group)
+  - `isOpen(groups: TaskGroup[], index: number, toggled: number[]): boolean` (the default is `!isStopped`. An index in `toggled` flips it.)
+  - `groupTimes(g: TaskGroup): { from: number | null; to: number | null }` (`from`: the first `startedAt`, else `createdAt`. `to`: the last `endedAt` when every task is `completed`, else `null`.)
 
 - [ ] **Step 1: Write the failing tests** in `src/tasks.test.ts`:
-  - `TaskCreate` with result `{ task: { id: '3', subject: 'S' } }` adds `{ id: '3', subject: 'S', status: 'pending' }`.
-  - Two creates applied out of order (IDs `'2'` then `'1'`) give a list in ID order `['1','2']` (numeric sort, so `'10'` is after `'9'`).
-  - `TaskUpdate` input `{ taskId: '1', status: 'in_progress' }`, result `{ success: true, taskId: '1' }`, changes the status. Input `subject: 'T'` changes the subject.
-  - `TaskUpdate` with `status: 'deleted'` removes the task.
-  - `TaskUpdate` for an unknown ID, or with `success: false`, returns the same list.
-  - `TaskList` result `{ tasks: [{ id, subject, status, blockedBy }] }` replaces the list.
-  - A result of an unknown shape (`null`, `'x'`, `{ task: {} }`) returns the same list (`toBe`).
-  - `replay`: a `TaskCreate` use with no `result` and `text: 'Task #4 created successfully: Foo'` adds `{ id: '4', subject: 'Foo' }`. `replay` skips a use with `isError: true`.
-  - `taskBand`: `[completed, in_progress 'B', pending 'C']` gives `{ glyph: '◐', done: 1, total: 3, subject: 'B' }`. With no `in_progress` task: `glyph: '○'` and the first pending subject. All completed, or empty: `null`.
-  - `taskLabel({ glyph: '◐', done: 2, total: 3, subject: 'Patch the Go toolchain' }, 40)` is `'◐ 2/3 Patch the Go toolchain'`. At a room of 6 + 12, the subject is cut with `…` to 12 columns. Below that room, the label is `'◐ 2/3'`.
+  - The first `TaskCreate` (result `{ task: { id: '1', subject: 'A' } }`, input `description: 'dA'`, `now: 100`, prompt `'p1'`) gives `[{ prompt: 'p1', createdAt: 100, tasks: [{ id: '1', subject: 'A', description: 'dA', status: 'pending', startedAt: null, endedAt: null }] }]`.
+  - Creates with IDs `'2'` then `'1'` give tasks in ID order. The sort is numeric: `'10'` is after `'9'`.
+  - `TaskUpdate { taskId: '1', status: 'in_progress' }` at `now: 200` sets `startedAt: 200`. A second change to `in_progress` at `300` keeps `200`. `completed` at `400` sets `endedAt: 400`.
+  - `TaskUpdate` with `subject` or `description` changes them. `status: 'deleted'` removes the task.
+  - `TaskUpdate` for an unknown ID, or with `success: false`: the same reference.
+  - A `TaskCreate` when the last group has all tasks `completed`, with prompt `'p2'`: a second group with prompt `'p2'`. The first group does not change.
+  - `TaskList` result `{ tasks: [{ id: '1', subject: 'A2', status: 'completed', blockedBy: [] }, { id: '5', subject: 'E', status: 'pending', blockedBy: [] }] }` against a group with tasks `1` and `2`: task `1` becomes `A2 completed` and keeps its description and times. Task `2` goes out of the group. Task `5` comes in.
+  - Unknown shapes (`null`, `'x'`, `{ task: {} }`): the same reference.
+  - `replay`: user message `'fix nav\nmore'`, then an assistant use `TaskCreate` with no `result` and `text: 'Task #4 created successfully: Foo'`. Result: one group with prompt `'fix nav'` and task `4` `Foo` with `startedAt: null`. `replay` skips a use with `isError: true`.
+  - `isOpen`: it gives `true` for the last group when it is not stopped, and `false` with its index in `toggled`. It gives `false` for a stopped group, and `true` with its index in `toggled`.
+  - `groupTimes`: a group with no times gives `{ from: createdAt, to: null }`.
 
 - [ ] **Step 2: Run** `bun test mods/flight-deck/src/tasks.test.ts`. Expected: FAIL, the module is missing.
 
-- [ ] **Step 3: Implement `src/tasks.ts`.** Use `cut` from `src/clip.ts` for the `…` cut.
+- [ ] **Step 3: Implement `src/tasks.ts`.**
 
 - [ ] **Step 4: Run** `bun test mods/flight-deck/src/tasks.test.ts`. Expected: PASS. Then run `bun run check`.
 
-- [ ] **Step 5: Commit** `flight-deck: a task list model`.
+- [ ] **Step 5: Commit** `flight-deck: a task history model`.
 
-### Task 2: Capture, store and replay
+### Task 2: Capture, prompt, store and replay
 
 **Files:**
-- Change: `hooks/register.tsx` (the `tasks` atom, the `tool.call` hook at line 1444, a new `ensureTasks`, the prune at line 266)
+- Change: `hooks/register.tsx` (the `tasks` atom, the `tool.call` hook at line 1444, the `prompt.submit` hook at line 1645, a new `ensureTasks`, the prune at line 266)
 - Test: `hooks/register.test.ts`
 
 **Interfaces:**
-- Consumes: `applyCall`, `replay`, `parseTasks`, `tasksKey` (Task 1).
+- Consumes: `applyCall`, `replay`, `parseHistory`, `tasksKey`, `firstLine` (Task 1).
 - Produces:
-  - `const tasks = atom({ plugin: 'flight-deck', key: 'tasks' } as const, { sessionId: null as string | null, list: [] as Task[] })`
-  - `async function ensureTasks($: Api): Promise<Task[]>`. On a session-ID mismatch with the atom, it loads `$.store.get(tasksKey(id))`. If there is no stored value, it uses `replay(await $.session.messages())`. A `{ deny }` gives `[]`.
+  - `const tasks = atom({ plugin: 'flight-deck', key: 'tasks' } as const, { sessionId: null as string | null, groups: [] as TaskGroup[], prompt: '' })`
+  - `async function ensureTasks($: Api): Promise<void>`. On a session-ID mismatch, it loads `$.store.get(tasksKey(id))` as `{ groups, prompt }`. With no stored value, it uses `replay(await $.session.messages())`. A `{ deny }` gives no groups.
 
-- [ ] **Step 1: Write the failing tests.** Extend `toolResult` in the test engine: `TaskCreate` answers `{ result: { task: { id: String(++taskSeq), subject: e.subject } }, text: '' }`, and `TaskUpdate` answers `{ result: { success: true, taskId: e.taskId }, text: '' }`. Reset `taskSeq` in `engine`. Add an `on('session.messages', ...)` answer from a per-test `history` array. This task has no UI yet: observe the list in the object that the test passes to `mock.store` (key `tasks:<id>`). If the mock copies that object, read it back with a reload under the same session ID. Tests:
-  - Three `TaskCreate` calls with `Promise.all`, then a `TaskUpdate` of `'2'` to `in_progress`: the stored list is `A pending, B in_progress, C pending`, IDs `'1','2','3'`.
-  - A call from a subagent (`agentId: 'a1'`) changes the same list.
-  - A denied call (a `tool.check` hook in the test that denies `TaskCreate`) adds nothing.
-  - Store round trip: session `S1` has tasks. Switch to `S2` (no store, empty history), then make a `TaskCreate` call: `tasks:S2` has one task, and `tasks:S1` keeps its list.
-  - Replay: a session `S3` with no store, and `history` holding a `TaskCreate` use with `text: 'Task #1 created successfully: X'`. A `TaskCreate` call in `S3` gives a stored list of two tasks: `X` and the new one.
-  - Prune: after `MAX_SESSIONS + 1` sessions, the oldest `tasks:` key is gone from the store.
+- [ ] **Step 1: Write the failing tests.** Extend `toolResult` in the test engine:
+  - `TaskCreate` answers `{ result: { task: { id: String(++taskSeq), subject: e.subject } }, text: '' }`.
+  - `TaskUpdate` answers `{ result: { success: true, taskId: e.taskId }, text: '' }`.
+
+  Reset `taskSeq` in `engine`. Add an `on('session.messages', ...)` answer from a per-test `history` array. This task has no UI: observe the history in the object that the test passes to `mock.store` (key `tasks:<id>`). If the mock copies that object, read it back with a reload under the same session ID. Tests:
+  - Submit the prompt `'fix nav\nmore'`. Then make three `TaskCreate` calls with `Promise.all`, and a `TaskUpdate` of `'2'` to `in_progress`. The stored value has one group with prompt `'fix nav'` and three tasks. The `startedAt` of task `2` is the time of the mock clock.
+  - A prompt from a task notification does not change the stored prompt.
+  - A call from a subagent (`agentId: 'a1'`) changes the same history.
+  - A call that a `tool.check` hook of the test denies adds nothing.
+  - Session `S1` has a group. Switch to `S2` (no store, empty history) and make a `TaskCreate` call. `tasks:S2` has one group, and `tasks:S1` keeps its group.
+  - Replay: session `S3` with no store, and `history` with a user message `'x'` and a `TaskCreate` use with `text: 'Task #1 created successfully: X'`. A `TaskCreate` call in `S3` adds the task to that group: the stored value has one group with two tasks.
+  - Prune: after `MAX_SESSIONS + 1` sessions, the oldest `tasks:` key is gone.
 
 - [ ] **Step 2: Run** `bun test mods/flight-deck/hooks`. Expected: FAIL.
 
-- [ ] **Step 3: Implement.** In the `tool.call` hook, after the `res.deny` check: if `e.tool` is `TaskCreate`, `TaskUpdate` or `TaskList` and `!res.isError`, call `ensureTasks`. Then `update($, tasks, c => ({ ...c, list: applyCall(c.list, e.tool, e as never, res.result) }))`. Then write `tasksKey(id)` only when the JSON of the list changed. Remove `tasksKey(old)` beside `agentsKey(old)` in the prune.
+- [ ] **Step 3: Implement.**
+  - `prompt.submit`: for a prompt that the user typed (find the `e.origin.kind` value in the typings), call `ensureTasks`, then set `prompt: firstLine(e.text)`.
+  - `tool.call`: after the `res.deny` check, for the three task tools and `!res.isError`, call `ensureTasks`. Then `update($, tasks, c => ({ ...c, groups: applyCall(c.groups, { tool: e.tool, input: e as never, result: res.result, text: res.text }, now, c.prompt) }))`, with `now` from `stamp($)`.
+  - Write `tasksKey(id)` only when the JSON changed.
+  - Remove `tasksKey(old)` beside `agentsKey(old)` in the prune.
 
 - [ ] **Step 4: Run** `bun run check`. Expected: PASS.
 
-- [ ] **Step 5: Live check.** Run `claude --plugin-dir mods/flight-deck` and ask for a 3-step task list. Record the `TaskCreate` calls of a subagent with the debug log of CLAUDE.md. If the IDs of a subagent start again at `1`, stop and report: the spec then keys tasks by agent.
+- [ ] **Step 5: Live check.** Run `claude --plugin-dir mods/flight-deck` and ask for a 3-step task list. Read the store file `~/.claude/plugins/store/flight-deck_*.json`. Record the `TaskCreate` calls of a subagent with the debug log of CLAUDE.md. If the IDs of a subagent start again at `1`, stop and report.
 
-- [ ] **Step 6: Commit** `flight-deck: capture the task list of the session`.
+- [ ] **Step 6: Commit** `flight-deck: keep the task history of the session`.
 
-### Task 3: Tasks screen in the pane
+### Task 3: Tasks screen
 
 **Files:**
-- Change: `src/pane.tsx` (new `tasks` prop, `tasksRow` on the dashboard after `toolsRow`, `tasksScreen`, branch beside `view.isTools`)
-- Change: `src/action.ts` (`'tasks'` in the key list at line 10)
-- Change: `types/index.d.ts` (`PaneView.isTasks?: boolean`, `PaneAction` `{ kind: 'tasks' }`)
-- Change: `hooks/register.tsx` (`isTasks: false` in `initialPane`, `openTasks`/`closeTasks` as `openTools`/`closeTools`, the `back` chain at line 868, `action.kind === 'tasks'`, the `tasks` atom passed to `AgentPane` after `ensureTasks`)
+- Change: `src/pane.tsx` (props `tasks: TaskGroup[]`, `onTasks`, `onGroup(index)`. `tasksRow` after `toolsRow`. `tasksScreen`. A branch beside `view.isTools`.)
+- Change: `src/action.ts` (`'tasks'` in the key list at line 10. Key `group:<index>` gives `{ kind: 'group', index }`.)
+- Change: `types/index.d.ts` (`PaneView.isTasks?: boolean`, `PaneView.openGroups?: number[]`, `PaneAction` `{ kind: 'tasks' }` and `{ kind: 'group'; index: number }`)
+- Change: `hooks/register.tsx`:
+  - `initialPane`, and `openTasks` and `closeTasks` as `openTools` and `closeTools`.
+  - The `back` chain at line 868, and the two new actions.
+  - `ensureTasks` before the pane draws.
+  - The `startSpinner` busy check at line 963: it is also true while the tasks screen is open and a task is `in_progress`.
 - Test: `src/action.test.ts`, `hooks/register.test.ts`
 
 **Interfaces:**
-- Consumes: `Task` (Task 1). `ensureTasks`, the `tasks` atom (Task 2).
-- Produces:
-  - `AgentPane` prop `tasks: Task[]` and `onTasks: () => void`
-  - `async function openTasks($: Api): Promise<void>` (focus on `'back'`) and `closeTasks` (focus on `'tasks'`)
+- Consumes: `isOpen`, `groupTimes` (Task 1). `ensureTasks`, the `tasks` atom (Task 2).
+- Produces: `async function openTasks($: Api)` (focus on `'back'`), `closeTasks` (focus on `'tasks'`), `toggleGroup($: Api, index: number)` (toggles `index` in `openGroups`).
 
 - [ ] **Step 1: Write the failing tests:**
-  - `src/action.test.ts`: `focusAction('tasks', null)` is `{ kind: 'tasks' }`.
-  - `hooks/register.test.ts`, looped over `['terminal', 'desktop']`: put two tasks in the session with `$.tool.call` (the `TaskCreate` test answer of Task 2). Open the pane, press `tasks`. `paneText` contains `Tasks 0/2`, `○ A` and `○ B`. Press `back`: the dashboard is drawn again.
-  - With no task, the dashboard has no `tasks` button.
+  - `src/action.test.ts`: `focusAction('tasks', null)` is `{ kind: 'tasks' }`. `focusAction('group:2', null)` is `{ kind: 'group', index: 2 }`.
+  - `hooks/register.test.ts`, looped over `['terminal', 'desktop']`:
+    - With no task, the dashboard has no `tasks` button.
+    - Submit `'fix nav'`, create `A` (description `dA`) and `B`, and set `A` to `in_progress`. The dashboard has a `tasks` Button and the cell `0/2`. Press `tasks`: `paneText` contains `Tasks`, `▾ 0/2`, `fix nav`, `◐ A`, `dA`, `○ B`. Press `back`: the dashboard comes back.
+    - Complete `A` and `B`, then create `C` after the prompt `'next'`. The screen shows `▾ 0/1` with `next` and `○ C`, and `▸ 2/2` with `fix nav`. It does not show `◐ A` or `✓ A`. Press the `▸` group: `✓ A` shows.
+    - A replayed task with no times shows `—`.
+    - A group row with a prompt of 300 characters at `bodyColumns: 60` is one row.
+  - Desktop only: while `A` is `in_progress`, the duration is a `Client` with `since` equal to its `startedAt`. Advance the mock clock by 3 seconds: the pane does not draw again.
+  - Terminal only: advance the mock clock by 2 seconds while `A` is `in_progress`. The duration text changes.
 
 - [ ] **Step 2: Run** `bun test mods/flight-deck`. Expected: FAIL on the new tests.
 
-- [ ] **Step 3: Implement.** Copy the shape of `cacheRow` for `tasksRow` (Button `key="tasks"`, label `tasks`, a cell with `<done>/<total>`). Copy the toolbar of `toolsScreen` for `tasksScreen` (back Button, title `Tasks <done>/<total>`, bold). Draw each row as `<glyph> <subject>` with `wrap="wrap"`: `✓` and `○` rows in `PALETTE.dim`, `◐` in `PALETTE.fg`. Check the tones against `docs/design-system.md`.
+- [ ] **Step 3: Implement.**
+  - Copy the shape of `cacheRow` for `tasksRow`: Button `key="tasks"`, label `tasks`, and a cell with the `<completed>/<total>` of the last group.
+  - Copy the toolbar of `toolsScreen` for `tasksScreen`: back Button and the title `Tasks`, bold.
+  - Groups, newest first. A group row is a Button `key="group:<index>"`, `plain`, with the label `<▾|▸> <done>/<total>  <HH:MM>[–<HH:MM>  <duration>]  <prompt>`, cut to one row. Use the one-row pattern for a Button in CLAUDE.md, UI.
+  - A task row: `<glyph> <subject>`, then a cell for the start time and a cell for the duration. Use `formatDuration`, and `—` for `null`. A running task gets a cell with `since: startedAt`. Below it, the description with `dimColor` and `wrap="wrap"`.
+  - Get the tones from `docs/design-system.md`.
 
 - [ ] **Step 4: Run** `bun run check`. Expected: PASS.
 
 - [ ] **Step 5: Commit** `flight-deck: a tasks screen in the pane`.
 
-### Task 4: Task segment in the terminal band
+### Task 4: Docs, version, desktop check
 
 **Files:**
-- Change: `src/band.tsx` (props `task?: ReturnType<typeof taskBand>`, `onTask?: () => void`. Terminal branch only.)
-- Change: `src/layout.ts` (export the existing `width` and `BUTTON_CHROME`)
-- Change: `hooks/register.tsx` (pass `task` and `onTask` in both `Band` renders, lines 1850-1900. `onTask` opens the pane if it is not open, then calls `openTasks`.)
-- Test: `hooks/register.test.ts`
+- Change: the mod `README.md`, root `README.md`, each `docs/i18n/README.<lang>.md`, `.claude-plugin/plugin.json`, `CHANGELOG.md`, `CLAUDE.md` (the tested version)
 
-**Interfaces:**
-- Consumes: `taskBand`, `taskLabel`, `MIN_SUBJECT` (Task 1). `ensureTasks`, the `tasks` atom (Task 2). `openTasks` (Task 3).
-- Produces: `async function openTasksFromBand($: Api): Promise<void>`.
-
-- [ ] **Step 1: Write the failing tests** (`bandText` at 200 columns, and at 60 columns with a new `columns` parameter):
-  - Three `TaskCreate` calls in one batch, then a `TaskUpdate` of `'2'` to `in_progress`: the label is `◐ 0/3 B`.
-  - Terminal, tasks `[completed A, in_progress B, pending C]`: the band has a Button with label `◐ 1/3 B`. It is the first Button of the row, before `▸ Flight Deck`.
-  - Terminal at 60 columns, with a long subject: the label is cut with `…`, and the row has one line. At a width where the existing parts are all dropped: the label is `◐ 1/3`.
-  - All completed: no task Button.
-  - Desktop: no task Button, and the `Client` props have no task.
-  - A press on the task Button with the pane closed: the pane opens on the tasks screen (`Tasks 1/3` in `paneText`).
-
-- [ ] **Step 2: Run** `bun test mods/flight-deck/hooks`. Expected: FAIL on the new tests.
-
-- [ ] **Step 3: Implement.** In the terminal branch, compute `reserve = '◐ 9/9 '.length + MIN_SUBJECT + BUTTON_CHROME + 1` when `task` has a value. Call `bandSegments` with `columns - reserve`. Then `room = columns - width(segments) - BUTTON_CHROME - 1`. The label is `taskLabel(task, room)`. Draw the Button in a box as wide as the label, inside a box with `flexShrink={1}` and `overflow="hidden"` (CLAUDE.md, UI). The existing row stays after it.
-
-- [ ] **Step 4: Run** `bun run check`. Expected: PASS.
-
-- [ ] **Step 5: Commit** `flight-deck: the band shows the current task`.
-
-### Task 5: Docs, version, desktop check
-
-**Files:**
-- Change: `README.md` of the mod ("Data that the mod reads", "Hooks", store), root `README.md`, each `docs/i18n/README.<lang>.md`
-- Change: `.claude-plugin/plugin.json` (`0.14.0`), `CHANGELOG.md` (flight-deck `[0.14.0] - <date>`, "Tested on Claude Code 2.1.325.", `#### Added`, the one sentence)
-- Change: `docs/specs/2026-11-21-flight-deck-task-list-design.md` (record the result of the subagent ID check)
-
-- [ ] **Step 1:** Update the mod README. The `tool.call` hook reads the input and the result of `TaskCreate`, `TaskUpdate` and `TaskList`. The mod reads the session messages to rebuild the list. The store keeps the ID, the subject and the status of each task. Mirror the change in the root README and each translation. Run `python3 /Users/bez/.claude/skills/asd-ste100/scripts/ste-lint.py` on each English file. Expected: 0 hard violations.
-- [ ] **Step 2:** Bump the version and add the changelog entry.
+- [ ] **Step 1:** Update the README of the mod as the spec says (Docs and version). Mirror the change in the root README and each translation. Run `python3 /Users/bez/.claude/skills/asd-ste100/scripts/ste-lint.py` on each English file. Expected: 0 hard violations.
+- [ ] **Step 2:** Set the version to `0.14.0`. Add the changelog entry under flight-deck: `[0.14.0] - <date>`, "Tested on Claude Code 2.1.330.", `#### Added`, and the one sentence.
 - [ ] **Step 3:** Run the desktop engine test from CLAUDE.md: `"<desktop folder>/<hash>/claude.app/Contents/MacOS/claude" plugin test mods/flight-deck`. Expected: only the tests of the new-engine branches fail.
-- [ ] **Step 4:** Run `bun run check`. Expected: PASS.
-- [ ] **Step 5: Commit** `flight-deck: the band shows the current task, and the pane has a tasks screen (0.14.0)`.
+- [ ] **Step 4:** Let the engine rewrite the typings (load the mod one time), then run `bun run check`. Expected: PASS. Set `CLAUDE.md` to 2.1.330.
+- [ ] **Step 5: Commit** `flight-deck: a tasks screen with the task history of the session (0.14.0)`.
 - [ ] **Step 6:** After the merge, move each lasting decision into the spec, then remove this plan.
