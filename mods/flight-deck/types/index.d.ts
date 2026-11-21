@@ -212,6 +212,10 @@ export type PaneView = {
   isCache: boolean
   isTools: boolean
   isShells: boolean
+  // State of an older shape (a hot reload) has neither of these two.
+  isTasks?: boolean
+  // The indexes of the task groups that the person opened or closed.
+  openGroups?: number[]
   shellId: string | null
   openTools: string[]
   openCategories: string[]
@@ -229,6 +233,8 @@ export type PaneAction =
   | { kind: 'context' }
   | { kind: 'cache' }
   | { kind: 'tools' }
+  | { kind: 'tasks' }
+  | { kind: 'group'; index: number }
   | { kind: 'shells' }
   | { kind: 'shell'; id: string }
   | { kind: 'toolRow'; name: string }

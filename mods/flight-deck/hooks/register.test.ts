@@ -1314,7 +1314,8 @@ test('the registry is kept per session id and comes back with the id', async ($,
 
 test('an event of another agent does not replace the open transcript', async ($, on) => {
   mock.clock(on, { now: 1000 })
-  mock.store(on, {})
+  // A stored task history: the pane then reads no messages of the main loop.
+  mock.store(on, { 'tasks:S1': { groups: [], prompt: '' } })
   engine(on)
   let reads = 0
   paneEngine(on, () => {
@@ -4582,4 +4583,152 @@ test('the prune of an old session removes its task history', async ($, on) => {
   }
 
   expect(m['tasks:S0']).toBeUndefined()
+})
+
+const taskPane = (on: Parameters<typeof mock.store>[0]) => {
+  taskSeq = 0
+  history = []
+  engine(on, () => 'S1', taskResult)
+  paneEngine(on, () => history)
+}
+
+test('the tasks row opens the tasks screen of the task history', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  taskPane(on)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await ui.find({ key: 'tasks' })).toBeUndefined()
+    await ui.unmount()
+  }
+  await typed($, 'fix nav')
+  await createTask($, 'A', 'dA')
+  await createTask($, 'B')
+  await updateTask($, '1', 'in_progress')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    expect(await cellOf(ui, 'tasks:head')).toContain('0/2')
+    await ui.press({ key: 'tasks' })
+    const text = await paneText(ui)
+    for (const part of ['Tasks', '▾ 0/2', 'fix nav', '◐ A', 'dA', '○ B'])
+      expect(text).toContain(part)
+    await ui.press({ key: 'back' })
+    expect(await ui.find({ key: 'tasks' })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('a stopped group is closed until its row is pressed', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  taskPane(on)
+  await typed($, 'fix nav')
+  await createTask($, 'A')
+  await createTask($, 'B')
+  await updateTask($, '1', 'completed')
+  await updateTask($, '2', 'completed')
+  await typed($, 'next')
+  await createTask($, 'C')
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'tasks' })
+    const text = await paneText(ui)
+    for (const part of ['▾ 0/1', 'next', '○ C', '▸ 2/2', 'fix nav']) expect(text).toContain(part)
+    expect(text).not.toContain('✓ A')
+    await ui.press({ key: 'group:0' })
+    expect(await paneText(ui)).toContain('✓ A')
+    await ui.press({ key: 'group:0' })
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a replayed task has no times and shows a dash', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  taskPane(on)
+  history = [
+    { role: 'user', text: 'old', toolUses: [] },
+    {
+      role: 'assistant',
+      text: '',
+      toolUses: [
+        {
+          tool_use_id: 't0',
+          tool: 'TaskCreate',
+          input: { subject: 'X' },
+          result: { task: { id: '1', subject: 'X' } },
+          text: '',
+        },
+        {
+          tool_use_id: 't1',
+          tool: 'TaskUpdate',
+          input: { taskId: '1', status: 'in_progress' },
+          result: { success: true, taskId: '1' },
+          text: '',
+        },
+      ],
+    },
+  ]
+  // The pane opens (the band button): the history of the session is read then.
+  const band = await $.ui.mount({
+    plugin: 'flight-deck',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
+  })
+  await band.press({ key: 'agents' })
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    await ui.press({ key: 'tasks' })
+    const text = await paneText(ui)
+    expect(text).toContain('◐ X')
+    expect(text).toContain('—')
+    expect(text).not.toContain('NaN')
+    await ui.press({ key: 'back' })
+    await ui.unmount()
+  }
+})
+
+test('a group row with a long prompt stays one row', async ($, on) => {
+  mock.clock(on, { now: 0 })
+  mock.store(on, {})
+  taskPane(on)
+  await typed($, 'x'.repeat(300))
+  await createTask($, 'A')
+  const ui = await mountPane($, 'terminal', true, 60)
+  await ui.press({ key: 'tasks' })
+  const row = await ui.find({ key: 'group:0' })
+  expect(String(row?.props.label).length).toBeLessThanOrEqual(58)
+  await ui.unmount()
+})
+
+test('the duration of a running task counts up', async ($, on) => {
+  const clock = mock.clock(on, { now: 5000 })
+  mock.store(on, {})
+  taskPane(on)
+  await createTask($, 'A')
+  await updateTask($, '1', 'in_progress')
+  const desk = await mountPane($, 'desktop')
+  await desk.press({ key: 'tasks' })
+  const node = await desk.find({ key: 'task:dur:0:1' })
+  expect(node?.type).toBe('Client')
+  expect((node?.props.props as Cell | undefined)?.since).toBe(5000)
+  await desk.press({ key: 'back' })
+  await desk.unmount()
+  // The pane is open (the band button): the tick runs only for an open pane.
+  const band = await $.ui.mount({
+    plugin: 'flight-deck',
+    surface: 'terminal',
+    component: 'AbovePrompt',
+    props: { hasSurvey: false, bodyColumns: 200, view: {} } as never,
+  })
+  await band.press({ key: 'agents' })
+  const term = await mountPane($, 'terminal')
+  await term.press({ key: 'tasks' })
+  const before = await cellOf(term, 'task:dur:0:1')
+  await clock.advance(2000)
+  expect(await cellOf(term, 'task:dur:0:1')).not.toBe(before)
+  await term.press({ key: 'back' })
+  await term.unmount()
 })

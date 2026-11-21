@@ -147,6 +147,8 @@ const initialPane: PaneView = {
   isCache: false,
   isTools: false,
   isShells: false,
+  isTasks: false,
+  openGroups: [],
   shellId: null,
   openTools: [],
   openCategories: [],
@@ -594,6 +596,20 @@ async function closeTools($: Api): Promise<void> {
   })
 }
 
+async function openTasks($: Api): Promise<void> {
+  await ensureTasks($)
+  await focusAfter($, 'back', async () => {
+    await update($, pane, (c) => ({ ...c, isTasks: true }))
+  })
+  startSpinner($)
+}
+
+async function closeTasks($: Api): Promise<void> {
+  await focusAfter($, 'tasks', async () => {
+    await update($, pane, (c) => ({ ...c, isTasks: false }))
+  })
+}
+
 async function openShells($: Api): Promise<void> {
   await focusAfter($, 'back', async () => {
     await update($, pane, (c) => ({ ...c, isShells: true }))
@@ -883,11 +899,25 @@ async function act($: Api, action: PaneAction): Promise<void> {
             ? closeCache($)
             : cur.isTools === true
               ? closeTools($)
-              : backToTree($)
+              : cur.isTasks === true
+                ? closeTasks($)
+                : backToTree($)
   }
   if (action.kind === 'context') return openContext($)
   if (action.kind === 'cache') return openCache($)
   if (action.kind === 'tools') return openTools($)
+  if (action.kind === 'tasks') return openTasks($)
+  if (action.kind === 'group') {
+    const index = action.index
+    // State of an older shape (a hot reload) has no list.
+    await update($, pane, (c) => ({
+      ...c,
+      openGroups: (c.openGroups ?? []).includes(index)
+        ? (c.openGroups ?? []).filter((i) => i !== index)
+        : [...(c.openGroups ?? []), index],
+    }))
+    return
+  }
   if (action.kind === 'shells') return openShells($)
   if (action.kind === 'shell') return openShell($, action.id)
   if (action.kind === 'toolRow') {
@@ -942,6 +972,7 @@ async function togglePane($: Api): Promise<boolean> {
     return false
   }
   await loadAgents($, await $.session.id())
+  await ensureTasks($)
   await loadTitle($)
   const isWrapped = (await $.store.get(WRAP_KEY)) !== false
   await update($, pane, (c) => ({ ...c, isOpen: true, isWrapped }))
@@ -968,10 +999,15 @@ function startSpinner($: Api): void {
     const isOpen = (await read($, pane)).isOpen
     const reg = await read($, agents)
     const shells = await read($, shellsAtom)
+    const view = await read($, pane)
+    const history = await read($, tasks)
     const isBusy =
       isOpen &&
       (Object.values(reg.entries).some((a) => a.status === 'running') ||
-        shells.list.some((sh) => sh.status === 'running'))
+        shells.list.some((sh) => sh.status === 'running') ||
+        // The tasks screen counts the time of a running task.
+        (view.isTasks === true &&
+          history.groups.at(-1)?.tasks.some((t) => t.status === 'in_progress') === true))
     if (!isBusy) {
       spinner?.cancel()
       spinner = null
@@ -1507,6 +1543,8 @@ export const register: Register = (on, options) => {
         ...c,
         groups: applyCall(c.groups, call, startedAt, c.prompt),
       }))
+      // A task that starts while the tasks screen is open counts its time.
+      startSpinner($)
     }
     // A failed edit changed nothing on disk.
     const diff = res.isError ? { added: 0, removed: 0 } : linesChanged(res.result)
@@ -1809,6 +1847,7 @@ export const register: Register = (on, options) => {
     if (drawn !== null) setTimeout(drawn, 0)
     const view = await read($, pane)
     const shellList = await read($, shellsAtom)
+    const taskList = await read($, tasks)
     const body = (
       <AgentPane
         ui={ui}
@@ -1823,6 +1862,7 @@ export const register: Register = (on, options) => {
         // State of an older shape (a hot reload) has no tools.
         tools={isCurrent ? (data.tools ?? null) : null}
         shells={view.agentId === null && shellList.sessionId === id ? shellList.list : null}
+        tasks={taskList.sessionId === id ? taskList.groups : []}
         {...(costs !== null && costs.sessionId === id ? { shownUsd: namedAt(costs, now) } : {})}
         // Only the terminal reads the spinner: a read value redraws the pane when it changes, and
         // a desktop drops a click on a button that a redraw replaced. Its cells are `Client`s.
@@ -1843,6 +1883,8 @@ export const register: Register = (on, options) => {
         onContext={() => act($, { kind: 'context' })}
         onCache={() => act($, { kind: 'cache' })}
         onTools={() => act($, { kind: 'tools' })}
+        onTasks={() => act($, { kind: 'tasks' })}
+        onGroup={(index) => act($, { kind: 'group', index })}
         onShells={() => act($, { kind: 'shells' })}
         onShell={(id) => act($, { kind: 'shell', id })}
         onToolRow={(name) => act($, { kind: 'toolRow', name })}
