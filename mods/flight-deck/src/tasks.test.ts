@@ -192,3 +192,18 @@ test('promptTitle keeps the first line, cut to MAX_PROMPT characters', () => {
   expect(long.length).toBe(MAX_PROMPT)
   expect(long.endsWith('…')).toBe(true)
 })
+
+const listCall = (tasks: unknown[]) => ({ tool: 'TaskList', input: {}, result: { tasks } })
+
+test('a TaskList after the group is done, or with no task, keeps the group', () => {
+  let g = apply([create('1', 'A')])
+  g = applyCall(g, updateCall({ taskId: '1', status: 'completed' }), 2, 'p')
+  expect(applyCall(g, listCall([]), 3, 'p')).toBe(g)
+  const open = apply([create('1', 'A')])
+  expect(applyCall(open, listCall([]), 3, 'p')).toBe(open)
+})
+
+test('a TaskCreate with an ID that the group has adds nothing', () => {
+  const g = apply([create('1', 'A')])
+  expect(applyCall(g, create('1', 'A'), 2, 'p')).toBe(g)
+})

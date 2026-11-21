@@ -64,6 +64,8 @@ const onCreate = (groups: TaskGroup[], call: Call, now: number | null, prompt: s
   const last = groups.at(-1)
   if (last === undefined || last.tasks.length === 0 || isDone(last))
     return [...groups, { prompt, createdAt: now, tasks: [task] }]
+  // A replay can hold the call that is running now, and it then comes again.
+  if (last.tasks.some((t) => t.id === id)) return groups
   return withCurrent(groups, (g) => ({ ...g, tasks: [...g.tasks, task].sort(byId) }))
 }
 
@@ -93,8 +95,11 @@ const onUpdate = (groups: TaskGroup[], call: Call, now: number | null) => {
 
 const onList = (groups: TaskGroup[], call: Call) => {
   const list = isRecord(call.result) ? call.result.tasks : undefined
-  if (!Array.isArray(list)) return groups
+  // The engine clears its list when all tasks are completed: an empty list or a done group
+  // keeps the history.
+  if (!Array.isArray(list) || list.length === 0) return groups
   return withCurrent(groups, (g) => {
+    if (isDone(g)) return null
     const tasks: Task[] = []
     for (const item of list) {
       if (!isRecord(item)) continue
