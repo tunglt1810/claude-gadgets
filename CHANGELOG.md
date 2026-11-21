@@ -346,6 +346,14 @@ Tested on Claude Code 2.1.291.
 
 ### [Unreleased]
 
+### [0.2.0] - 2026-11-22
+
+Tested on Claude Code 2.1.330.
+
+#### Changed
+
+- A call that auto mode did not review goes to the permission dialog of the engine, so you can run it.
+
 ### [0.1.2] - 2026-10-14
 
 Tested on Claude Code 2.1.299.

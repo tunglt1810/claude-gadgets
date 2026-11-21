@@ -462,3 +462,28 @@ test('a rule stays when its first call ran and failed with the same words', asyn
   expect(seen.asks).toHaveLength(1)
   expect(seen.runs).toBe(2)
 })
+
+// Claude Code 2.1.327 and later raise `tool.judge` before the classifier: its `ask` says it
+// gave no verdict. The plugin's own `ask` puts the call to the person.
+const JUDGED = {
+  tool: 'Write',
+  input: { file_path: '/x', content: 'y' },
+  tool_use_id: 't9',
+} as const
+
+test('a call that the classifier did not judge goes to the person', async ($, on) => {
+  on('tool.judge', () => ({ decision: 'ask', reason: 'The classifier gave no verdict.' }))
+  const v = await $.tool.judge(JUDGED as never)
+  expect(v.decision).toBe('ask')
+  expect(v.plugin).toBe('verdict-gate')
+})
+
+test('a verdict of the classifier stands', async ($, on) => {
+  let decision: 'allow' | 'deny' = 'allow'
+  on('tool.judge', () => ({ decision, reason: 'judged' }))
+  expect((await $.tool.judge(JUDGED as never)).decision).toBe('allow')
+  decision = 'deny'
+  const v = await $.tool.judge(JUDGED as never)
+  expect(v.decision).toBe('deny')
+  expect(v.plugin).toBeUndefined()
+})
