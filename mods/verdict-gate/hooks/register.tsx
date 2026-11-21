@@ -101,6 +101,19 @@ async function failed(
   return next(e)
 }
 
+// From 2.1.327 the engine raises `tool.judge` before the classifier, and the classifier's
+// `ask` says it gave no verdict. That `ask` ends as a denial. A new `ask` of this plugin puts
+// the call to the person in the engine's own dialog: an answer handed up as heard keeps the
+// classifier as its source.
+async function judge(_$: EngineInterface, e: Args<'tool.judge'>, next: Next<'tool.judge'>) {
+  const verdict = await next(e)
+  if (verdict.decision !== 'ask' || verdict.plugin !== undefined) return verdict
+  return {
+    decision: 'ask' as const,
+    reason: `Auto mode did not review this ${e.tool} call${verdict.reason === undefined ? '.' : `: ${verdict.reason}`}`,
+  }
+}
+
 async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.call'>) {
   const id = e.tool_use_id
   try {
@@ -176,6 +189,7 @@ export const register: Register = (on) => {
       </Box>
     )
   })
+  on('tool.judge', judge)
   on('tool.check', check)
   on('tool.call', gate)
   on('classic.PostToolUse', ran)
