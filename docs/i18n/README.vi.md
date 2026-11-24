@@ -155,7 +155,9 @@ Khi safety classifier không đưa ra verdict cho một tool call, engine từ c
 
 Một rule là tên một tool (`Read`), hoặc một lệnh Bash kèm subcommand (`Bash(git push:*)`). Lệnh ghép, lệnh không có subcommand và lệnh đứng sau một wrapper như `sudo` hay `bash` không có rule. Rule nằm trong bộ nhớ cho tới khi session hoặc mod nạp lại.
 
-Từ Claude Code 2.1.327, khi classifier không đưa ra verdict, mod trả lời `ask` trước. Engine khi đó hiện dialog cấp quyền của chính nó, với lý do `Auto mode did not review this <tool> call`. Câu hỏi ở trên vẫn giữ cho engine từ chối call trước bước đó.
+Từ Claude Code 2.1.327, engine có thể hiện dialog cấp quyền của chính nó, với lý do `Auto mode did not review this <tool> call`. Mod yêu cầu dialog này khi cùng một call không có verdict lần thứ hai. Ở lần đầu, engine từ chối call. Nếu lời từ chối bảo Claude gọi lại, mod không hỏi. Với mọi lời từ chối khác, mod hiện câu hỏi ở trên.
+
+Trong Code Mode, mod cũng xử lý script `REPL`. Script không có lựa chọn `Do not ask again`, vì một rule cho `REPL` sẽ duyệt mọi script sau đó.
 
 Mod không hỏi với ba trường hợp: call mà classifier đánh giá là không an toàn, call mà bạn đã từ chối, và tool đã chạy rồi lỗi. Input quá dài để hiện thì có một toast và không có câu hỏi. Giới hạn là 20.000 ký tự trong pane. Trong câu hỏi trên terminal, giới hạn là 2.000 ký tự, vì hộp thoại này không cuộn được.
 

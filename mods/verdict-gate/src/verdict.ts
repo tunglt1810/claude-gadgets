@@ -8,6 +8,13 @@ const JUDGMENT =
 // The engine's sentences for a call that the user rejected in the permission dialog.
 const REJECTION = /The user doesn't want to (proceed with this tool use|take this action)/
 
+// The engine's sentences that tell the model to issue the call again, or to call the inner
+// tool (Claude Code 2.1.331). A hard failure says "Don't retry it", so it is not here.
+const RETRY =
+  /try the action again once|Issue the action again once|Repeat the identical|try this action again|Call \S+ itself/
+
+export const invitesRetry = (text: string): boolean => RETRY.test(text)
+
 export const isNoVerdict = (text: string): boolean =>
   !JUDGMENT.test(text) && !REJECTION.test(text) && NO_VERDICT.test(text)
 

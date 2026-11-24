@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { isNoVerdict, paneInput, paneQuestion, question, tooLong } from './verdict'
+import { invitesRetry, isNoVerdict, paneInput, paneQuestion, question, tooLong } from './verdict'
 
 // The engine's own denial texts, from Claude Code 2.1.292.
 const NO_VERDICT = [
@@ -20,6 +20,26 @@ const JUDGMENT = [
   'Permission for this action has been denied. Reason: it deletes data',
   'The server-side auto mode classifier judged this action dangerous (it gave no explanation)',
 ]
+
+// From Claude Code 2.1.331.
+test('a denial that tells the model to repeat the call invites a retry', () => {
+  for (const text of [
+    'This is a transient failure of the check. You may try the action again once, as-is.',
+    'the response ended before this tool call was complete. Issue the action again once, as-is',
+    'gave no verdict because it was not shown this call. Repeat the identical Bash call once now',
+    'Wait a moment and then try this action again.',
+    'gave no verdict for SendMessage: Call SendMessage itself, with `message`',
+  ])
+    expect(invitesRetry(text)).toBe(true)
+})
+
+test('a hard failure and an unknown sentence invite no retry', () => {
+  for (const text of [
+    "This is a hard failure, not a transient one: retrying this action will get the same answer. Don't retry it.",
+    'The classifier gave no verdict.',
+  ])
+    expect(invitesRetry(text)).toBe(false)
+})
 
 test('a judgment is not found', () => {
   for (const text of JUDGMENT) expect(isNoVerdict(text)).toBe(false)

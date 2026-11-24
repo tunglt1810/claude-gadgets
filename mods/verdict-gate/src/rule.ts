@@ -18,6 +18,8 @@ const WRAPPERS = new Set(
 // subcommand (`rm -rf x`, `bash -c "..."`) has none: one word says too little about what
 // runs. For each other tool it is the tool name.
 export const ruleOf = (tool: string, input: unknown): string | undefined => {
+  // A rule named `REPL` would approve each later script, whatever it runs.
+  if (tool === 'REPL') return undefined
   if (tool !== 'Bash') return tool
   const command = (input as { command?: unknown } | null | undefined)?.command
   if (typeof command !== 'string') return undefined
