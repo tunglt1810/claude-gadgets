@@ -27,6 +27,10 @@ test('the rule of each other tool is its name', () => {
   expect(ruleOf('mcp__gh__issue', {})).toBe('mcp__gh__issue')
 })
 
+test('a Code Mode script has no rule: its tool name says nothing about what it runs', () => {
+  expect(ruleOf('REPL', { code: 'await 1' })).toBeUndefined()
+})
+
 test('a command behind a wrapper or a shell has no rule', () => {
   for (const c of [
     'sudo bash -c "echo hi"',

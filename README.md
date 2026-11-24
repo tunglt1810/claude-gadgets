@@ -153,7 +153,9 @@ When the safety classifier gives no verdict for a tool call, the engine denies t
 
 A rule is a tool name (`Read`), or a Bash command with its subcommand (`Bash(git push:*)`). A compound command, a command with no subcommand and a command behind a wrapper such as `sudo` or `bash` get no rule. A rule lives in memory until the session or the mod reloads.
 
-From Claude Code 2.1.327, the mod first answers `ask` when the classifier gives no verdict. The engine then shows its own permission dialog, with the reason `Auto mode did not review this <tool> call`. The question above stays for an engine that denies the call before that point.
+From Claude Code 2.1.327, the engine can show its own permission dialog, with the reason `Auto mode did not review this <tool> call`. The mod asks for this dialog when the same call has no verdict for the second time. At the first time, the engine denies the call. If the denial tells Claude to repeat the call, the mod shows no question. For each other denial, the mod shows the question above.
+
+In Code Mode, the mod also covers a `REPL` script. A script gets no `Do not ask again` answer, because a rule for `REPL` would approve each later script.
 
 A call that the classifier judged unsafe, a call that you rejected and a tool that ran and failed get no question. An input that is too long to show gets a toast and no question: the limit is 20,000 characters in the pane, and 2,000 characters in the question of a terminal, which does not scroll.
 

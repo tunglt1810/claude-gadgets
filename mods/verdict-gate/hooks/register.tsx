@@ -1,6 +1,13 @@
 import type { Args, EngineInterface, Next, Register } from 'claude-code'
 import { ruleOf } from '../src/rule'
-import { isNoVerdict, paneInput, paneQuestion, question, tooLong } from '../src/verdict'
+import {
+  invitesRetry,
+  isNoVerdict,
+  paneInput,
+  paneQuestion,
+  question,
+  tooLong,
+} from '../src/verdict'
 
 const RUN = 'Run once'
 const REFUSE = 'Do not run'
@@ -23,6 +30,17 @@ const asked = new Map<string, Asked>()
 const approved = new Map<string, string>()
 const MAX_ASKED = 256
 
+// The calls (tool and input) that had one answer with no verdict, and the `tool_use_id` of
+// each call whose denial goes back to the model for its retry.
+const retried = new Set<string>()
+const waived = new Set<string>()
+
+const addCapped = (set: Set<string>, value: string) => {
+  set.add(value)
+  const oldest = set.values().next().value
+  if (set.size > MAX_ASKED && oldest !== undefined) set.delete(oldest)
+}
+
 // The end of the question before this one: calls at the same time get one question at a
 // time, so a rule from one answer settles the next.
 let turn: Promise<void> = Promise.resolve()
@@ -31,8 +49,9 @@ let shown: { tool: string; input: string } | undefined
 
 const json = (input: unknown): string => JSON.stringify(input) ?? ''
 
-const isUnjudged = (res: { deny?: string; isError?: boolean; text?: string }): boolean =>
-  isNoVerdict(res.deny ?? (res.isError ? res.text : undefined) ?? '')
+type Answer = { deny?: string; isError?: boolean; text?: string }
+const denial = (res: Answer): string => res.deny ?? (res.isError ? res.text : undefined) ?? ''
+const isUnjudged = (res: Answer): boolean => isNoVerdict(denial(res))
 
 // The rules the user approved, for one session id: a different id starts with none.
 let session: string | undefined
@@ -105,9 +124,20 @@ async function failed(
 // `ask` says it gave no verdict. That `ask` ends as a denial. A new `ask` of this plugin puts
 // the call to the person in the engine's own dialog: an answer handed up as heard keeps the
 // classifier as its source.
+//
+// The sentence that says whether the model may repeat the call reaches only `gate`, so the
+// first `ask` stays the engine's and `gate` asks the person unless the sentence invites a
+// retry. The person gets this dialog when the repeat has no verdict either.
 async function judge(_$: EngineInterface, e: Args<'tool.judge'>, next: Next<'tool.judge'>) {
   const verdict = await next(e)
+  const key = `${e.tool}:${json(e.input)}`
+  if (verdict.decision !== 'ask') retried.delete(key)
   if (verdict.decision !== 'ask' || verdict.plugin !== undefined) return verdict
+  if (!retried.delete(key)) {
+    addCapped(retried, key)
+    addCapped(waived, e.tool_use_id)
+    return verdict
+  }
   return {
     decision: 'ask' as const,
     reason: `Auto mode did not review this ${e.tool} call${verdict.reason === undefined ? '.' : `: ${verdict.reason}`}`,
@@ -122,7 +152,9 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
     // counts (`ran` and `failed` remove the others).
     const call = asked.get(id)
     if (call === undefined || !isUnjudged(res)) return res
+    if (waived.has(id) && invitesRetry(denial(res))) return res
     const { detail, rule } = call
+    retried.delete(`${e.tool}:${detail}`)
     const prior = turn
     let release = () => {}
     turn = new Promise((done) => {
@@ -164,6 +196,7 @@ async function gate($: EngineInterface, e: Args<'tool.call'>, next: Next<'tool.c
   } finally {
     asked.delete(id)
     approved.delete(id)
+    waived.delete(id)
   }
 }
 
@@ -194,4 +227,10 @@ export const register: Register = (on) => {
   on('tool.call', gate)
   on('classic.PostToolUse', ran)
   on('classic.PostToolUseFailure', failed)
+  // Code Mode: a hook hears the model's `REPL` call only with a matcher that spells the name.
+  on('tool.judge', { tool: 'REPL' }, judge)
+  on('tool.check', { tool: 'REPL' }, check)
+  on('tool.call', { tool: 'REPL' }, gate)
+  on('classic.PostToolUse', { tool_name: 'REPL' }, ran)
+  on('classic.PostToolUseFailure', { tool_name: 'REPL' }, failed)
 }

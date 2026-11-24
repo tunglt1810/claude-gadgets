@@ -99,6 +99,17 @@ const engine = (
   return seen
 }
 
+test('a Code Mode script without a verdict gets a question with no rule', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+
+  const res = await $.tool.call({ tool: 'REPL', code: 'await 1', tool_use_id: 't1' } as never)
+
+  expect(seen.asks).toHaveLength(1)
+  expect(seen.options).toEqual([['Run once', 'Do not run']])
+  expect(seen.runs).toBe(1)
+  expect(res.text).toBe('ok')
+})
+
 test('a call without a verdict runs when the user allows it', async ($, on) => {
   const seen = engine($, on, 'Run once')
 
@@ -465,17 +476,55 @@ test('a rule stays when its first call ran and failed with the same words', asyn
 
 // Claude Code 2.1.327 and later raise `tool.judge` before the classifier: its `ask` says it
 // gave no verdict. The plugin's own `ask` puts the call to the person.
+const TRANSIENT =
+  'Auto mode gave no verdict for Bash. This is a transient failure of the check, not a judgment about the action: a later response may get a verdict. You may try the action again once, as-is.'
+const HARD_FAILURE =
+  "Auto mode gave no verdict for Bash. This is a hard failure, not a transient one: the check cannot or does not judge this request, so retrying this action will get the same answer. Don't retry it."
+
 const JUDGED = {
   tool: 'Write',
   input: { file_path: '/x', content: 'y' },
   tool_use_id: 't9',
 } as const
 
-test('a call that the classifier did not judge goes to the person', async ($, on) => {
+test('a call that the classifier did not judge goes to the person at its retry', async ($, on) => {
   on('tool.judge', () => ({ decision: 'ask', reason: 'The classifier gave no verdict.' }))
-  const v = await $.tool.judge(JUDGED as never)
-  expect(v.decision).toBe('ask')
-  expect(v.plugin).toBe('verdict-gate')
+  const first = await $.tool.judge(JUDGED as never)
+  expect(first.decision).toBe('ask')
+  expect(first.plugin).toBeUndefined()
+  const retry = await $.tool.judge({ ...JUDGED, tool_use_id: 't10' } as never)
+  expect(retry.decision).toBe('ask')
+  expect(retry.plugin).toBe('verdict-gate')
+})
+
+test('the first call with no verdict raises no question, so the model can retry', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  seen.verdict = TRANSIENT
+  on('tool.judge', () => ({ decision: 'ask', reason: 'The classifier gave no verdict.' }))
+  const input = { command: 'git status --first' }
+  await $.tool.judge({ tool: 'Bash', input, tool_use_id: 't1' } as never)
+
+  await $.tool.call(CALL)
+
+  expect(seen.asks).toEqual([])
+  expect(seen.runs).toBe(0)
+  await $.tool.judge({ tool: 'Bash', input, tool_use_id: 't2' } as never)
+})
+
+test('a hard failure goes to the person at the first call: the model will not retry', async ($, on) => {
+  const seen = engine($, on, 'Run once')
+  seen.verdict = HARD_FAILURE
+  on('tool.judge', () => ({ decision: 'ask', reason: 'The classifier gave no verdict.' }))
+  await $.tool.judge({
+    tool: 'Bash',
+    input: { command: 'git status --hard' },
+    tool_use_id: 't1',
+  } as never)
+
+  await $.tool.call(CALL)
+
+  expect(seen.asks).toHaveLength(1)
+  expect(seen.runs).toBe(1)
 })
 
 test('a verdict of the classifier stands', async ($, on) => {

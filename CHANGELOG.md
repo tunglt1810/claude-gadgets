@@ -346,6 +346,15 @@ Tested on Claude Code 2.1.291.
 
 ### [Unreleased]
 
+### [0.2.1] - 2026-11-24
+
+Tested on Claude Code 2.1.331.
+
+#### Fixed
+
+- A call that Claude can repeat gets a question only when the repeat has no verdict.
+- A Code Mode script that has no verdict gets the question.
+
 ### [0.2.0] - 2026-11-22
 
 Tested on Claude Code 2.1.330.
